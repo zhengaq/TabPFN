@@ -68,7 +68,7 @@ def load_model_workflow(i, e, add_name, base_path, device='cpu', eval_addition='
             print('We have to download the TabPFN, as there is no checkpoint at ', model_path)
             print('It has about 100MB, so this might take a moment.')
             import requests
-            url = 'https://github.com/automl/TabPFN/raw/main/tabpfn/models_diff/prior_diff_real_checkpoint_n_0_epoch_42.cpkt'
+            url = 'https://github.com/PriorLabs/TabPFN/blob/v1.0.0/tabpfn/models_diff/prior_diff_real_checkpoint_n_0_epoch_42.cpkt'
             r = requests.get(url, allow_redirects=True)
             os.makedirs(os.path.dirname(model_path), exist_ok=True)
             open(model_path, 'wb').write(r.content)
