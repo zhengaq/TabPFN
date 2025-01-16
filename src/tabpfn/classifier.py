@@ -181,9 +181,9 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
                 Whether to balance the probabilities based on the class distribution
                 in the training data. This can help to improve predictive performance
                 when the classes are highly imbalanced and the metric of interest is
-                insensitive to class imbalance (e.g., balanced accuracy, balanced log loss,
-                roc-auc macro ovo, etc.). This is only applied when predicting during a
-                post-processing step.
+                insensitive to class imbalance (e.g., balanced accuracy, balanced log
+                loss, roc-auc macro ovo, etc.). This is only applied when predicting
+                during a post-processing step.
 
             average_before_softmax:
                 Only used if `n_estimators > 1`. Whether to average the predictions of
@@ -443,7 +443,7 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
                 "classes supported by TabPFN. Consider using a strategy to reduce "
                 "the number of classes. For code see "
                 "https://github.com/PriorLabs/tabpfn-extensions/blob/main/src/"
-                "tabpfn_extensions/many_class/many_class_classifier.py"
+                "tabpfn_extensions/many_class/many_class_classifier.py",
             )
 
         # Will convert specified categorical indices to category dtype, as well

@@ -8,9 +8,9 @@ import pytest
 import sklearn.datasets
 import torch
 from sklearn.base import check_is_fitted
-from sklearn.utils.estimator_checks import parametrize_with_checks
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
+from sklearn.utils.estimator_checks import parametrize_with_checks
 
 from tabpfn import TabPFNClassifier
 
@@ -96,6 +96,7 @@ def test_fit(
     predictions = model.predict(X)
     assert predictions.shape == (X.shape[0],), "Predictions shape is incorrect!"
 
+
 # TODO(eddiebergman): Should probably run a larger suite with different configurations
 @parametrize_with_checks(
     [TabPFNClassifier(inference_config={"USE_SKLEARN_16_DECIMAL_PRECISION": True})],
@@ -112,46 +113,59 @@ def test_sklearn_compatible_estimator(
 
     check(estimator)
 
+
 def test_balanced_probabilities(X_y: tuple[np.ndarray, np.ndarray]) -> None:
     """Test that balance_probabilities=True works correctly."""
     X, y = X_y
-    
+
     model = TabPFNClassifier(
         balance_probabilities=True,
     )
-    
+
     model.fit(X, y)
     probabilities = model.predict_proba(X)
-    
+
     # Check that probabilities sum to 1 for each prediction
     assert np.allclose(probabilities.sum(axis=1), 1.0)
-    
+
     # Check that the mean probability for each class is roughly equal
     mean_probs = probabilities.mean(axis=0)
     expected_mean = 1.0 / len(np.unique(y))
-    assert np.allclose(mean_probs, expected_mean, rtol=0.1), \
-        "Class probabilities are not properly balanced"
+    assert np.allclose(
+        mean_probs,
+        expected_mean,
+        rtol=0.1,
+    ), "Class probabilities are not properly balanced"
+
 
 def test_classifier_in_pipeline(X_y: tuple[np.ndarray, np.ndarray]) -> None:
     """Test that TabPFNClassifier works correctly within a sklearn pipeline."""
     X, y = X_y
-    
+
     # Create a simple preprocessing pipeline
-    pipeline = Pipeline([
-        ('scaler', StandardScaler()),
-        ('classifier', TabPFNClassifier(
-            n_estimators=2  # Fewer estimators for faster testing
-        ))
-    ])
-    
+    pipeline = Pipeline(
+        [
+            ("scaler", StandardScaler()),
+            (
+                "classifier",
+                TabPFNClassifier(
+                    n_estimators=2,  # Fewer estimators for faster testing
+                ),
+            ),
+        ],
+    )
+
     pipeline.fit(X, y)
     probabilities = pipeline.predict_proba(X)
-    
+
     # Check that probabilities sum to 1 for each prediction
     assert np.allclose(probabilities.sum(axis=1), 1.0)
-    
+
     # Check that the mean probability for each class is roughly equal
     mean_probs = probabilities.mean(axis=0)
     expected_mean = 1.0 / len(np.unique(y))
-    assert np.allclose(mean_probs, expected_mean, rtol=0.1), \
-        "Class probabilities are not properly balanced in pipeline"
+    assert np.allclose(
+        mean_probs,
+        expected_mean,
+        rtol=0.1,
+    ), "Class probabilities are not properly balanced in pipeline"
