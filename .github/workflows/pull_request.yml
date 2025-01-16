@@ -13,11 +13,11 @@ jobs:
       - uses: chartboost/ruff-action@v1
         with:
           src: "./"
-          version: 0.9.1
+          version: 0.8.6
       - uses: chartboost/ruff-action@v1
         with:
           src: "./"
-          version: 0.9.1
+          version: 0.8.6
           args: 'format --check'
 
   test_compatibility:
