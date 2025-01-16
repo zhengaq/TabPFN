@@ -6,13 +6,13 @@ build-backend = "setuptools.build_meta"
 name = "tabpfn"
 version = "2.0.3"
 dependencies = [
-  "torch>=2.1",
-  "scikit-learn>=1.2.0",
-  "typing_extensions",
-  "scipy",
-  "pandas",
-  "einops",
-  "huggingface-hub",
+  "torch>=2.1,<=2.5.1",
+  "scikit-learn>=1.2.0,<=1.6.1",
+  "typing_extensions>=4.4.0,<=4.12.2",
+  "scipy>=1.7.3,<=1.15.1",
+  "pandas>=1.4.0,<=2.2.3",
+  "einops<=0.8.0",
+  "huggingface-hub<=0.27.1",
 ]
 requires-python = ">=3.9,<3.12"
 authors = [
