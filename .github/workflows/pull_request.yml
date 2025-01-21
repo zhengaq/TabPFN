@@ -112,13 +112,13 @@ jobs:
 
       - name: Install dependencies
         run: |
-          uv pip install --no-deps .
-          uv pip install pytest
-          uv pip install -r requirements.txt
+          uv pip install --system --no-deps .
+          uv pip install --system pytest
+          uv pip install --system -r requirements.txt
 
       - name: Initialize submodules
         run: git submodule update --init --recursive
 
       - name: Run Tests
         run: |
-          uv run pytest tests/
+          pytest tests/
