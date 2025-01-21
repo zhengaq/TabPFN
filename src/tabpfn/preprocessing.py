@@ -153,7 +153,7 @@ class PreprocessorConfig:
         }
 
     @classmethod
-    def from_dict(cls, config_dict: dict) -> "PreprocessorConfig":
+    def from_dict(cls, config_dict: dict) -> PreprocessorConfig:
         """Create a config from a dictionary.
 
         Args:

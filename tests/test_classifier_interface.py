@@ -171,49 +171,50 @@ def test_classifier_in_pipeline(X_y: tuple[np.ndarray, np.ndarray]) -> None:
         rtol=0.1,
     ), "Class probabilities are not properly balanced in pipeline"
 
+
 def test_dict_vs_object_preprocessor_config(X_y: tuple[np.ndarray, np.ndarray]) -> None:
     """Test that dict configs behave identically to PreprocessorConfig objects."""
     X, y = X_y
-    
+
     # Define same config as both dict and object
     dict_config = {
         "name": "quantile_uni_coarse",
-        "append_original": False, # changed from default
+        "append_original": False,  # changed from default
         "categorical_name": "ordinal_very_common_categories_shuffled",
         "global_transformer_name": "svd",
         "subsample_features": -1,
     }
-    
+
     object_config = PreprocessorConfig(
         name="quantile_uni_coarse",
-        append_original=False, # changed from default
+        append_original=False,  # changed from default
         categorical_name="ordinal_very_common_categories_shuffled",
         global_transformer_name="svd",
         subsample_features=-1,
     )
-    
+
     # Create two models with same random state
     model_dict = TabPFNClassifier(
         inference_config={"PREPROCESS_TRANSFORMS": [dict_config]},
         n_estimators=2,
-        random_state=42
+        random_state=42,
     )
-    
+
     model_obj = TabPFNClassifier(
         inference_config={"PREPROCESS_TRANSFORMS": [object_config]},
         n_estimators=2,
-        random_state=42
+        random_state=42,
     )
-    
+
     # Fit both models
     model_dict.fit(X, y)
     model_obj.fit(X, y)
-    
+
     # Compare predictions
     pred_dict = model_dict.predict(X)
     pred_obj = model_obj.predict(X)
     np.testing.assert_array_equal(pred_dict, pred_obj)
-    
+
     # Compare probabilities
     prob_dict = model_dict.predict_proba(X)
     prob_obj = model_obj.predict_proba(X)
