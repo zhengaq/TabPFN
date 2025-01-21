@@ -37,11 +37,7 @@ from tabpfn.base import (
     determine_precision,
     initialize_tabpfn_model,
 )
-from tabpfn.constants import (
-    ModelInterfaceConfig,
-    XType,
-    YType,
-)
+from tabpfn.config import ModelInterfaceConfig
 from tabpfn.model.bar_distribution import FullSupportBarDistribution
 from tabpfn.model.preprocessing import (
     ReshapeFeatureDistributionsStep,
@@ -70,6 +66,10 @@ if TYPE_CHECKING:
     from sklearn.pipeline import Pipeline
     from torch.types import _dtype
 
+    from tabpfn.constants import (
+        XType,
+        YType,
+    )
     from tabpfn.inference import (
         InferenceEngine,
     )

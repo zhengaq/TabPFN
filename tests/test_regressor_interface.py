@@ -13,6 +13,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.utils.estimator_checks import parametrize_with_checks
 
 from tabpfn import TabPFNRegressor
+from tabpfn.preprocessing import PreprocessorConfig
 
 devices = ["cpu"]
 if torch.cuda.is_available():
@@ -155,3 +156,64 @@ def test_regressor_in_pipeline(X_y: tuple[np.ndarray, np.ndarray]) -> None:
     assert quantiles[0].shape == (
         X.shape[0],
     ), "Quantile predictions shape is incorrect"
+
+
+def test_dict_vs_object_preprocessor_config(X_y: tuple[np.ndarray, np.ndarray]) -> None:
+    """Test that dict configs behave identically to PreprocessorConfig objects."""
+    X, y = X_y
+
+    # Define same config as both dict and object
+    dict_config = {
+        "name": "quantile_uni",
+        "append_original": False,  # changed from default
+        "categorical_name": "ordinal_very_common_categories_shuffled",
+        "global_transformer_name": "svd",
+        "subsample_features": -1,
+    }
+
+    object_config = PreprocessorConfig(
+        name="quantile_uni",
+        append_original=False,  # changed from default
+        categorical_name="ordinal_very_common_categories_shuffled",
+        global_transformer_name="svd",
+        subsample_features=-1,
+    )
+
+    # Create two models with same random state
+    model_dict = TabPFNRegressor(
+        inference_config={"PREPROCESS_TRANSFORMS": [dict_config]},
+        n_estimators=2,
+        random_state=42,
+    )
+
+    model_obj = TabPFNRegressor(
+        inference_config={"PREPROCESS_TRANSFORMS": [object_config]},
+        n_estimators=2,
+        random_state=42,
+    )
+
+    # Fit both models
+    model_dict.fit(X, y)
+    model_obj.fit(X, y)
+
+    # Compare predictions for different output types
+    for output_type in ["mean", "median", "mode"]:
+        pred_dict = model_dict.predict(X, output_type=output_type)
+        pred_obj = model_obj.predict(X, output_type=output_type)
+        np.testing.assert_array_almost_equal(
+            pred_dict,
+            pred_obj,
+            err_msg=f"Predictions differ for output_type={output_type}",
+        )
+
+    # Compare quantile predictions
+    quantiles = [0.1, 0.5, 0.9]
+    quant_dict = model_dict.predict(X, output_type="quantiles", quantiles=quantiles)
+    quant_obj = model_obj.predict(X, output_type="quantiles", quantiles=quantiles)
+
+    for q_dict, q_obj in zip(quant_dict, quant_obj):
+        np.testing.assert_array_almost_equal(
+            q_dict,
+            q_obj,
+            err_msg="Quantile predictions differ",
+        )

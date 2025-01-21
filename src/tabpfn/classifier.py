@@ -33,10 +33,10 @@ from tabpfn.base import (
     determine_precision,
     initialize_tabpfn_model,
 )
+from tabpfn.config import ModelInterfaceConfig
 from tabpfn.constants import (
     PROBABILITY_EPSILON_ROUND_ZERO,
     SKLEARN_16_DECIMAL_PRECISION,
-    ModelInterfaceConfig,
     XType,
     YType,
 )
