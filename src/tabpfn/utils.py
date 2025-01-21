@@ -17,8 +17,7 @@ import pandas as pd
 import torch
 from sklearn.base import check_array, is_classifier
 from sklearn.compose import ColumnTransformer, make_column_selector
-from sklearn.preprocessing import OrdinalEncoder, FunctionTransformer
-
+from sklearn.preprocessing import FunctionTransformer, OrdinalEncoder
 from sklearn.utils.multiclass import check_classification_targets
 from torch import nn
 
