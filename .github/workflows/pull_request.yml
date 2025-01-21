@@ -30,7 +30,6 @@ jobs:
             python-version: "3.9"
             dependency-set: minimum
           - os: macos-13 # macos-latest doesn't work with python 3.10
-          # https://github.com/actions/setup-python/issues/855
             python-version: "3.9"
             dependency-set: minimum
           - os: ubuntu-latest
@@ -94,15 +93,14 @@ jobs:
               deps = [d.strip(' "\'') for d in deps_match.group(1).strip().split('\n') if d.strip()]
               max_reqs = []
               for dep in deps:
-                  # Extract the upper bound version if it exists
-                  match = re.search(r'([^>=<\s]+)\s*.*<=\s*([^,\s]+)', dep)
-                  if match:
-                      package, max_ver = match.groups()
-                      # Remove any remaining quotes from the version
-                      max_ver = max_ver.strip('"\'')
-                      max_reqs.append(f"{package}=={max_ver}")
+                  # Check for maximum version constraint
+                  max_version_match = re.search(r'([^>=<\s]+).*?<\s*([^,\s]+)', dep)
+                  if max_version_match:
+                      # If there's a max version, use the version just below it
+                      package, max_ver = max_version_match.groups()
+                      max_reqs.append(f"{package}<{max_ver}")
                   else:
-                      # If no upper bound, just use the package name
+                      # If no max version, just use the package name
                       package = re.match(r'([^>=<\s]+)', dep).group(1)
                       max_reqs.append(package)
           
