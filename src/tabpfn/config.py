@@ -1,3 +1,7 @@
+"""Configuration for the model interfaces."""
+
+#  Copyright (c) Prior Labs GmbH 2025.
+
 from __future__ import annotations
 
 from copy import deepcopy
