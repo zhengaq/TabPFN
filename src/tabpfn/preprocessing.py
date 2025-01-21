@@ -138,6 +138,38 @@ class PreprocessorConfig:
             )
         )
 
+    def to_dict(self) -> dict:
+        """Convert the config to a dictionary.
+
+        Returns:
+            Dictionary representation of the config.
+        """
+        return {
+            "name": self.name,
+            "categorical_name": self.categorical_name,
+            "append_original": self.append_original,
+            "subsample_features": self.subsample_features,
+            "global_transformer_name": self.global_transformer_name,
+        }
+
+    @classmethod
+    def from_dict(cls, config_dict: dict) -> "PreprocessorConfig":
+        """Create a config from a dictionary.
+
+        Args:
+            config_dict: Dictionary containing the config parameters.
+
+        Returns:
+            PreprocessorConfig instance.
+        """
+        return cls(
+            name=config_dict["name"],
+            categorical_name=config_dict["categorical_name"],
+            append_original=config_dict["append_original"],
+            subsample_features=config_dict["subsample_features"],
+            global_transformer_name=config_dict["global_transformer_name"],
+        )
+
 
 def default_classifier_preprocessor_configs() -> list[PreprocessorConfig]:
     """Default preprocessor configurations for classification."""

@@ -38,10 +38,10 @@ from tabpfn.base import (
     initialize_tabpfn_model,
 )
 from tabpfn.constants import (
-    ModelInterfaceConfig,
     XType,
     YType,
 )
+from tabpfn.config import ModelInterfaceConfig
 from tabpfn.model.bar_distribution import FullSupportBarDistribution
 from tabpfn.model.preprocessing import (
     ReshapeFeatureDistributionsStep,
