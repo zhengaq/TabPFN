@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import warnings
 from abc import abstractmethod
 from collections import UserList
@@ -474,8 +475,7 @@ _CONSTANT = 10**12
 
 
 def float_hash_arr(arr: np.ndarray) -> float:
-    b = arr.tobytes()
-    _hash = hash(b)
+    _hash = int(hashlib.sha256(arr.tobytes()).hexdigest(), 16)
     return _hash % _CONSTANT / _CONSTANT
 
 
