@@ -113,24 +113,6 @@ We're building the future of tabular machine learning and would love your involv
 
 Prior Labs License (Apache 2.0 with additional attribution requirement): [here](https://priorlabs.ai/tabpfn-license/)
 
-```
-Attribution clause (cropped):
-If You distribute or make available the Work or any Derivative
-Work thereof relating to any part of the source or model weights,
-or a product or service (including another AI model) that contains
-any source or model weights, You shall (A) provide a copy of this
-License with any such materials; and (B) prominently display
-“Built with TabPFN” on each related website, user interface, blogpost,
-about page, or product documentation. If You use the source or model
-weights or model outputs to create, train, fine tune, distil, or
-otherwise improve an AI model, which is distributed or made available,
-you shall also include “TabPFN” at the beginning of any such AI model name.
-To clarify, internal benchmarking and testing without external
-communication shall not qualify as distribution or making available
-pursuant to this Section 10 and no attribution under this Section 10
-shall be required.
-```
-
 ## 📚 Citation
 
 You can read our paper explaining TabPFN [here](https://doi.org/10.1038/s41586-024-08328-6). 
