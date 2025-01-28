@@ -7,6 +7,8 @@
 [![colab](https://colab.research.google.com/assets/colab-badge.svg)](https://tinyurl.com/tabpfn-colab-local)
 [![Python Versions](https://img.shields.io/badge/python-3.9%20%7C%203.10%20%7C%203.11%20%7C%203.12-blue)](https://pypi.org/project/tabpfn/)
 
+<img src="https://github.com/PriorLabs/tabpfn-extensions/blob/main/tabpfn_summary.webp" width="80%" alt="TabPFN Summary">
+
 TabPFN is a foundation model for tabular data that outperforms traditional methods while 
 being dramatically faster. This repository contains the core PyTorch implementation with
 CUDA optimization.
