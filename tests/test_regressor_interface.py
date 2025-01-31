@@ -111,7 +111,6 @@ def test_sklearn_compatible_estimator(
         "check_methods_sample_order_invariance",
     ):
         estimator.inference_precision = torch.float64
-    if check.func.__name__ == "check_methods_sample_order_invariance":  # type: ignore
         pytest.xfail("We're not at 1e-7 difference yet")
     check(estimator)
 
