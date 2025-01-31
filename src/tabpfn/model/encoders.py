@@ -9,11 +9,17 @@ import torch
 from torch import nn
 
 
-# TODO(eddiebergman): These were used before but I have no idea why.
-# We use the implementations given by torch for now.
-# TODO(Arjun): Enabling these again because their behaviour is a little
-# different from torch's implementation (see Issue #2). We should check if this makes
-# a difference in the results.
+# usage of custom implementations is required to support ONNX export
+def torch_nansum(x: torch.Tensor, axis=None, keepdim=False, dtype=None):
+    nan_mask = torch.isnan(x)
+    masked_input = torch.where(
+        nan_mask,
+        torch.tensor(0.0, device=x.device, dtype=x.dtype),
+        x,
+    )
+    return torch.sum(masked_input, axis=axis, keepdim=keepdim, dtype=dtype)
+
+
 def torch_nanmean(
     x: torch.Tensor,
     axis: int = 0,
@@ -46,7 +52,7 @@ def torch_nanstd(x: torch.Tensor, axis: int = 0):
         dim=axis,
     )
     return torch.sqrt(
-        torch.nansum(torch.square(mean_broadcast - x), axis=axis) / (num - 1),  # type: ignore
+        torch_nansum(torch.square(mean_broadcast - x), axis=axis) / (num - 1),  # type: ignore
     )
 
 
@@ -458,7 +464,7 @@ class NanHandlingEncoderStep(SeqEncStep):
             single_eval_pos: The position to use for single evaluation.
             **kwargs: Additional keyword arguments (unused).
         """
-        self.feature_means_ = torch.nanmean(x[:single_eval_pos], dim=0)
+        self.feature_means_ = torch_nanmean(x[:single_eval_pos], dim=0)
 
     def _transform(
         self,
