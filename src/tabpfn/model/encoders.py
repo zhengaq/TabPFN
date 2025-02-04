@@ -120,7 +120,11 @@ def select_features(x: torch.Tensor, sel: torch.Tensor) -> torch.Tensor:
     if B == 1:
         return x[:, :, sel[0]]
 
-    new_x = torch.zeros((sequence_length, B, total_features), device=x.device, dtype=x.dtype)
+    new_x = torch.zeros(
+        (sequence_length, B, total_features),
+        device=x.device,
+        dtype=x.dtype,
+    )
 
     # For each batch, compute the number of selected features.
     sel_counts = sel.sum(dim=-1)  # shape: (B,)
