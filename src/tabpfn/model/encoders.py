@@ -464,7 +464,7 @@ class NanHandlingEncoderStep(SeqEncStep):
             single_eval_pos: The position to use for single evaluation.
             **kwargs: Additional keyword arguments (unused).
         """
-        self.feature_means_ = torch_nanmean(x[:single_eval_pos], dim=0)
+        self.feature_means_ = torch_nanmean(x[:single_eval_pos], axis=0)
 
     def _transform(
         self,
