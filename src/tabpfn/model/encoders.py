@@ -115,18 +115,19 @@ def select_features(x: torch.Tensor, sel: torch.Tensor) -> torch.Tensor:
     # If B == 1, we don't need to append zeros, as the number of features don't need to be fixed.
     if B == 1:
         return x[:, :, sel[0]]
-    
+
     new_x = torch.zeros((batch_size, B, total_features), device=x.device, dtype=x.dtype)
-    
+
     # For each block, compute the number of selected features.
     sel_counts = sel.sum(dim=-1)  # shape: (B,)
-    
+
     for b in range(B):
         s = int(sel_counts[b])
         if s > 0:
             new_x[:, b, :s] = x[:, b, sel[b]]
-    
+
     return new_x
+
 
 def remove_outliers(
     X: torch.Tensor,
