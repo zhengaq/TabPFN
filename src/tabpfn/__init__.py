@@ -1,6 +1,7 @@
+from importlib.metadata import version
+
 from tabpfn.classifier import TabPFNClassifier
 from tabpfn.regressor import TabPFNRegressor
-from importlib.metadata import version
 
 try:
     __version__ = version(__name__)
