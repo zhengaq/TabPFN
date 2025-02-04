@@ -100,25 +100,29 @@ def normalize_data(
 
 
 def select_features(x: torch.Tensor, sel: torch.Tensor) -> torch.Tensor:
-    """Select features from the input tensor based on the selection mask.
+    """Select features from the input tensor based on the selection mask,
+    and arrange them contiguously in the last dimension.
+    If batch size is bigger than 1, we pad the features with zeros to make the number of features fixed.
 
     Args:
-        x: The input tensor.
-        sel: The boolean selection mask indicating which features to keep.
+        x: The input tensor of shape (sequence_length, batch_size, total_features)
+        sel: The boolean selection mask indicating which features to keep of shape (batch_size, total_features)
 
     Returns:
         The tensor with selected features.
+        The shape is (sequence_length, batch_size, number_of_selected_features) if batch_size is 1.
+        The shape is (sequence_length, batch_size, total_features) if batch_size is greater than 1.
     """
     B, total_features = sel.shape
-    batch_size = x.shape[0]
+    sequence_length = x.shape[0]
 
     # If B == 1, we don't need to append zeros, as the number of features don't need to be fixed.
     if B == 1:
         return x[:, :, sel[0]]
 
-    new_x = torch.zeros((batch_size, B, total_features), device=x.device, dtype=x.dtype)
+    new_x = torch.zeros((sequence_length, B, total_features), device=x.device, dtype=x.dtype)
 
-    # For each block, compute the number of selected features.
+    # For each batch, compute the number of selected features.
     sel_counts = sel.sum(dim=-1)  # shape: (B,)
 
     for b in range(B):
