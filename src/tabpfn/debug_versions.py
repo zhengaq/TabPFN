@@ -664,17 +664,19 @@ def _get_deps_info():
 def show_versions():
     """Print useful debugging information."""
     sys_info = _get_env_info()._replace(pip_packages="", conda_packages="")
-    _pretty_str(sys_info).replace(
+    print(_pretty_str(sys_info).replace(
         "Versions of relevant libraries:\n"
         "[pip3] No relevant packages\n"
         "[conda] No relevant packages\n",
         "",
-    )
+    ))
 
     # Print dependency versions in a clear section
+    print("\nDependency Versions:")
+    print("-" * 20)
     deps_info = _get_deps_info()
-    for _pkg, _version in sorted(deps_info.items()):
-        pass
+    for pkg, version in deps_info.items():
+        print(f"{pkg}: {version or 'Not installed'}")
 
     # Check for crash dumps
     if (
@@ -687,6 +689,9 @@ def show_versions():
             dumps = [
                 str(Path(minidump_dir) / dump) for dump in os.listdir(minidump_dir)
             ]
-            latest = max(dumps, key=lambda p: Path(p).stat().st_ctime)
-            ctime = Path(latest).stat().st_ctime
-            datetime.datetime.fromtimestamp(ctime).strftime("%Y-%m-%d %H:%M:%S")
+            if dumps:  # Only proceed if there are dumps
+                latest = max(dumps, key=lambda p: Path(p).stat().st_ctime)
+                ctime = Path(latest).stat().st_ctime
+                crash_time = datetime.datetime.fromtimestamp(ctime).strftime("%Y-%m-%d %H:%M:%S")
+                print(f"\nLatest crash dump found from: {crash_time}")
+                print(f"Location: {latest}")
