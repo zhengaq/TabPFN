@@ -98,7 +98,10 @@ def run(command):
     """Return (return-code, stdout, stderr)."""
     shell = type(command) is str
     p = subprocess.Popen(
-        command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=shell
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        shell=shell,
     )
     raw_output, raw_err = p.communicate()
     rc = p.returncode
@@ -156,7 +159,9 @@ def get_gcc_version(run_lambda):
 
 def get_clang_version(run_lambda):
     return run_and_parse_first_match(
-        run_lambda, "clang --version", r"clang version (.*)"
+        run_lambda,
+        "clang --version",
+        r"clang version (.*)",
     )
 
 
@@ -168,7 +173,9 @@ def get_nvidia_driver_version(run_lambda):
     if get_platform() == "darwin":
         cmd = "kextstat | grep -i cuda"
         return run_and_parse_first_match(
-            run_lambda, cmd, r"com[.]nvidia[.]CUDA [(](.*?)[)]"
+            run_lambda,
+            cmd,
+            r"com[.]nvidia[.]CUDA [(](.*?)[)]",
         )
     smi = get_nvidia_smi()
     return run_and_parse_first_match(run_lambda, smi, r"Driver Version: (.*?) ")
@@ -248,7 +255,10 @@ def get_nvidia_smi():
         system_root = os.environ.get("SYSTEMROOT", "C:\\Windows")
         program_files_root = os.environ.get("PROGRAMFILES", "C:\\Program Files")
         legacy_path = os.path.join(
-            program_files_root, "NVIDIA Corporation", "NVSMI", smi
+            program_files_root,
+            "NVIDIA Corporation",
+            "NVSMI",
+            smi,
         )
         new_path = os.path.join(system_root, "System32", smi)
         smis = [new_path, legacy_path]
@@ -396,13 +406,17 @@ def get_windows_version(run_lambda):
 
 def get_lsb_version(run_lambda):
     return run_and_parse_first_match(
-        run_lambda, "lsb_release -a", r"Description:\t(.*)"
+        run_lambda,
+        "lsb_release -a",
+        r"Description:\t(.*)",
     )
 
 
 def check_release_file(run_lambda):
     return run_and_parse_first_match(
-        run_lambda, "cat /etc/*-release", r'PRETTY_NAME="(.*)"'
+        run_lambda,
+        "cat /etc/*-release",
+        r'PRETTY_NAME="(.*)"',
     )
 
 
@@ -458,7 +472,8 @@ def get_pip_packages(run_lambda, patterns=None):
     # People generally have pip as `pip` or `pip3`
     # But here it is invoked as `python -mpip`
     out = run_and_read_all(
-        run_lambda, [sys.executable, "-mpip", "list", "--format=freeze"]
+        run_lambda,
+        [sys.executable, "-mpip", "list", "--format=freeze"],
     )
     filtered_out = "\n".join(
         line for line in out.splitlines() if any(name in line for name in patterns)
@@ -623,7 +638,7 @@ def pretty_str(envinfo):
 
     # If nvidia_gpu_models is multiline, start on the next line
     mutable_dict["nvidia_gpu_models"] = maybe_start_on_next_line(
-        envinfo.nvidia_gpu_models
+        envinfo.nvidia_gpu_models,
     )
 
     # If the machine doesn't have CUDA, report some fields as 'No CUDA'
@@ -660,11 +675,13 @@ def pretty_str(envinfo):
     # If they were previously None, they'll show up as ie '[conda] Could not collect'
     if mutable_dict["pip_packages"]:
         mutable_dict["pip_packages"] = prepend(
-            mutable_dict["pip_packages"], f"[{envinfo.pip_version}] "
+            mutable_dict["pip_packages"],
+            f"[{envinfo.pip_version}] ",
         )
     if mutable_dict["conda_packages"]:
         mutable_dict["conda_packages"] = prepend(
-            mutable_dict["conda_packages"], "[conda] "
+            mutable_dict["conda_packages"],
+            "[conda] ",
         )
     mutable_dict["cpu_info"] = envinfo.cpu_info
     return env_info_fmt.format(**mutable_dict)
