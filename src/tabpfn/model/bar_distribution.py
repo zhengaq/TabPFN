@@ -620,7 +620,7 @@ class FullSupportBarDistribution(BarDistribution):
         )
         bucket_mean_of_square[-1] = (
             side_normals[1].variance
-            + (side_normals[1].variance + self.borders[-2]).square()
+            + (side_normals[1].mean + self.borders[-2]).square()
         )
         p = torch.softmax(logits, -1)
         return p @ bucket_mean_of_square
