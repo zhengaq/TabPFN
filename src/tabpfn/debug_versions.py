@@ -661,15 +661,18 @@ def _get_deps_info():
     return deps_info
 
 
-def show_versions():
+def display_debug_info():
     """Print useful debugging information."""
+    print("Collecting system and dependency information...")
     sys_info = _get_env_info()._replace(pip_packages="", conda_packages="")
-    print(_pretty_str(sys_info).replace(
-        "Versions of relevant libraries:\n"
-        "[pip3] No relevant packages\n"
-        "[conda] No relevant packages\n",
-        "",
-    ))
+    print(
+        _pretty_str(sys_info).replace(
+            "Versions of relevant libraries:\n"
+            "[pip3] No relevant packages\n"
+            "[conda] No relevant packages\n",
+            "",
+        )
+    )
 
     # Print dependency versions in a clear section
     print("\nDependency Versions:")
@@ -692,6 +695,8 @@ def show_versions():
             if dumps:  # Only proceed if there are dumps
                 latest = max(dumps, key=lambda p: Path(p).stat().st_ctime)
                 ctime = Path(latest).stat().st_ctime
-                crash_time = datetime.datetime.fromtimestamp(ctime).strftime("%Y-%m-%d %H:%M:%S")
+                crash_time = datetime.datetime.fromtimestamp(ctime).strftime(
+                    "%Y-%m-%d %H:%M:%S"
+                )
                 print(f"\nLatest crash dump found from: {crash_time}")
                 print(f"Location: {latest}")

@@ -81,7 +81,7 @@ body:
     description: |
       Please run the following and paste the output below.
       ```python
-      import tabpfn; tabpfn.show_versions()
+      import tabpfn; tabpfn.display_debug_info()
       ```
   validations:
     required: false
