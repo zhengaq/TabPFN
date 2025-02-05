@@ -1,6 +1,7 @@
 from importlib.metadata import version
 
 from tabpfn.classifier import TabPFNClassifier
+from tabpfn.debug_versions import display_debug_info
 from tabpfn.regressor import TabPFNRegressor
 
 try:
@@ -12,4 +13,5 @@ __all__ = [
     "TabPFNClassifier",
     "TabPFNRegressor",
     "__version__",
+    "display_debug_info",
 ]
