@@ -7,7 +7,8 @@ body:
   attributes:
     value: >
       #### Before submitting a bug, please make sure the issue hasn't been already
-      addressed by searching through [the past issues](https://github.com/PriorLabs/TabPFN/issues).
+      addressed by searching through [the past issues](https://github.com/PriorLabs/TabPFN/issues)
+      and updating your tabpfn version by running `pip install tabpfn --upgrade`.
 - type: textarea
   attributes:
     label: Describe the bug
