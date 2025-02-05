@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import random
 import warnings
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Generator, Iterable
 from contextlib import contextmanager
 from functools import partial
 from typing import Any, Literal
@@ -27,7 +27,7 @@ DEFAULT_EMSIZE = 128
 
 
 @contextmanager
-def isolate_torch_rng(seed, device):
+def isolate_torch_rng(seed: int, device: torch.device) -> Generator[None, None, None]:
     torch_rng_state = torch.get_rng_state()
     if torch.cuda.is_available():
         torch_cuda_rng_state = torch.cuda.get_rng_state(device=device)
