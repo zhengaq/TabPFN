@@ -250,14 +250,21 @@ class ModelWrapper(nn.Module):
 def test_onnx_exportable_cpu(X_y: tuple[np.ndarray, np.ndarray]) -> None:
     X, y = X_y
     with torch.no_grad():
-        classifier = TabPFNClassifier(n_estimators=1, device="cpu")
+        classifier = TabPFNClassifier(n_estimators=1, device="cpu", random_state=42)
         # load the model so we can access it via classifier.model_
         classifier.fit(X, y)
         # this is necessary if cuda is available
         classifier.predict(X)
         # replicate the above call with random tensors of same shape
-        X = torch.randn((X.shape[0] * 2, 1, X.shape[1] + 1))
-        y = (torch.randn(y.shape) > 0).to(torch.float32)
+        X = torch.randn(
+            (X.shape[0] * 2, 1, X.shape[1] + 1),
+            generator=torch.Generator().manual_seed(42),
+        )
+        y = (
+            torch.rand(y.shape, generator=torch.Generator().manual_seed(42))
+            .round()
+            .to(torch.float32)
+        )
         dynamic_axes = {
             "X": {0: "num_datapoints", 1: "batch_size", 2: "num_features"},
             "y": {0: "num_labels"},
