@@ -61,6 +61,7 @@ dev = [
   "mypy",
   # Test
   "pytest",
+  "onnx", # required for onnx export tests
   # Docs
   "mkdocs",
   "mkdocs-material",
