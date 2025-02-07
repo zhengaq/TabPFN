@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import random
 import warnings
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Generator, Iterable
+from contextlib import contextmanager
 from functools import partial
 from typing import Any, Literal
 
@@ -23,6 +24,20 @@ from tabpfn.model.encoders import (
 from tabpfn.model.layer import PerFeatureEncoderLayer
 
 DEFAULT_EMSIZE = 128
+
+
+@contextmanager
+def isolate_torch_rng(seed: int, device: torch.device) -> Generator[None, None, None]:
+    torch_rng_state = torch.get_rng_state()
+    if torch.cuda.is_available():
+        torch_cuda_rng_state = torch.cuda.get_rng_state(device=device)
+    torch.manual_seed(seed)
+    try:
+        yield
+    finally:
+        torch.set_rng_state(torch_rng_state)
+        if torch.cuda.is_available():
+            torch.cuda.set_rng_state(torch_cuda_rng_state, device=device)
 
 
 class LayerStack(nn.Module):
@@ -294,17 +309,6 @@ class PerFeatureTransformer(nn.Module):
         self.cached_feature_positional_embeddings: torch.Tensor | None = None
         self.seed = seed if seed is not None else random.randint(0, 1_000_000)  # noqa: S311
 
-        # Device on which the generator was last initialized.
-        # If loading from a checkpoint, this might be false,
-        # but it will be set to the correct device on the first forward pass.
-        self.generator_device = "cpu"
-        self._init_rnd()
-
-    def _init_rnd(self) -> None:
-        self.generator = SerializableGenerator(device=self.generator_device)
-        if self.seed:  # This can be none if set outside of the model.
-            self.generator.manual_seed(self.seed)
-
     def reset_save_peak_mem_factor(self, factor: int | None = None) -> None:
         """Sets the save_peak_mem_factor for all layers.
 
@@ -377,7 +381,6 @@ class PerFeatureTransformer(nn.Module):
         Returns:
             The output of the model, which can be a tensor or a dictionary of tensors.
         """
-        self._init_rnd()
         half_layers = kwargs.pop("half_layers", False)
         assert half_layers is False
 
@@ -694,57 +697,47 @@ class PerFeatureTransformer(nn.Module):
             x += self.cached_embeddings[None, None]
             return x, y
 
-        if (
-            self.generator_device != self.generator.device
-            or self.generator_device != x.device
-        ):
-            self.generator_device = x.device
-            self._init_rnd()
-
-        if self.feature_positional_embedding == "normal_rand_vec":
-            embs = torch.randn(
-                (x.shape[2], x.shape[3]),
-                device=x.device,
-                dtype=x.dtype,
-                generator=self.generator,
-            )
-            x += embs[None, None]
-        elif self.feature_positional_embedding == "uni_rand_vec":
-            embs = (
-                torch.rand(
+        with isolate_torch_rng(self.seed, device=x.device):
+            if self.feature_positional_embedding == "normal_rand_vec":
+                embs = torch.randn(
                     (x.shape[2], x.shape[3]),
                     device=x.device,
                     dtype=x.dtype,
-                    generator=self.generator,
                 )
-                * 2
-                - 1
-            )
-            x += embs[None, None]
-        elif self.feature_positional_embedding == "learned":
-            w = self.feature_positional_embedding_embeddings.weight
-            embs = w[
-                torch.randint(
-                    0,
-                    w.shape[0],
-                    (x.shape[2],),
-                    generator=self.generator,
+                x += embs[None, None]
+            elif self.feature_positional_embedding == "uni_rand_vec":
+                embs = (
+                    torch.rand(
+                        (x.shape[2], x.shape[3]),
+                        device=x.device,
+                        dtype=x.dtype,
+                    )
+                    * 2
+                    - 1
                 )
-            ]
-            x += embs[None, None]
-        elif self.feature_positional_embedding == "subspace":
-            embs = torch.randn(
-                (x.shape[2], x.shape[3] // 4),
-                device=x.device,
-                dtype=x.dtype,
-                generator=self.generator,
-            )
-            embs = self.feature_positional_embedding_embeddings(embs)
-            x += embs[None, None]
-        elif self.feature_positional_embedding is None:
-            embs = None
-        else:
-            raise ValueError(f"Unknown {self.feature_positional_embedding=}")
+                x += embs[None, None]
+            elif self.feature_positional_embedding == "learned":
+                w = self.feature_positional_embedding_embeddings.weight
+                embs = w[
+                    torch.randint(
+                        0,
+                        w.shape[0],
+                        (x.shape[2],),
+                    )
+                ]
+                x += embs[None, None]
+            elif self.feature_positional_embedding == "subspace":
+                embs = torch.randn(
+                    (x.shape[2], x.shape[3] // 4),
+                    device=x.device,
+                    dtype=x.dtype,
+                )
+                embs = self.feature_positional_embedding_embeddings(embs)
+                x += embs[None, None]
+            elif self.feature_positional_embedding is None:
+                embs = None
+            else:
+                raise ValueError(f"Unknown {self.feature_positional_embedding=}")
 
         self.cached_embeddings = None
         if cache_embeddings and embs is not None:
@@ -869,13 +862,3 @@ def _add_pos_emb(
         # TODO(old) Double check the ordering is right
         for n, pe_ in zip(graph.nodes(), pe):
             graph.nodes[n]["positional_encoding"] = pe_
-
-
-class SerializableGenerator(torch.Generator):
-    """A serializable version of the torch.Generator, that cna be saved and pickled."""
-
-    def __getstate__(self) -> Any:
-        return self.__dict__
-
-    def __setstate__(self, d: Any) -> None:
-        self.__dict__ = d

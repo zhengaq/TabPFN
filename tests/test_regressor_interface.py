@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 from itertools import product
 from typing import Callable, Literal
 
@@ -11,6 +12,7 @@ from sklearn.base import check_is_fitted
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.utils.estimator_checks import parametrize_with_checks
+from torch import nn
 
 from tabpfn import TabPFNRegressor
 from tabpfn.preprocessing import PreprocessorConfig
@@ -111,7 +113,6 @@ def test_sklearn_compatible_estimator(
         "check_methods_sample_order_invariance",
     ):
         estimator.inference_precision = torch.float64
-    if check.func.__name__ == "check_methods_sample_order_invariance":  # type: ignore
         pytest.xfail("We're not at 1e-7 difference yet")
     check(estimator)
 
@@ -216,4 +217,66 @@ def test_dict_vs_object_preprocessor_config(X_y: tuple[np.ndarray, np.ndarray]) 
             q_dict,
             q_obj,
             err_msg="Quantile predictions differ",
+        )
+
+
+class ModelWrapper(nn.Module):
+    def __init__(self, original_model):  # noqa: D107
+        super().__init__()
+        self.model = original_model
+
+    def forward(
+        self,
+        X,
+        y,
+        single_eval_pos,
+        only_return_standard_out,
+        categorical_inds,
+    ):
+        return self.model(
+            None,
+            X,
+            y,
+            single_eval_pos=single_eval_pos,
+            only_return_standard_out=only_return_standard_out,
+            categorical_inds=categorical_inds,
+        )
+
+
+# WARNING: unstable for scipy<1.11.0
+@pytest.mark.filterwarnings("ignore::torch.jit.TracerWarning")
+def test_onnx_exportable_cpu(X_y: tuple[np.ndarray, np.ndarray]) -> None:
+    X, y = X_y
+    with torch.no_grad():
+        regressor = TabPFNRegressor(n_estimators=1, device="cpu", random_state=43)
+        # load the model so we can access it via classifier.model_
+        regressor.fit(X, y)
+        # this is necessary if cuda is available
+        regressor.predict(X)
+        # replicate the above call with random tensors of same shape
+        X = torch.randn(
+            (X.shape[0] * 2, 1, X.shape[1] + 1),
+            generator=torch.Generator().manual_seed(42),
+        )
+        y = (torch.randn(y.shape, generator=torch.Generator().manual_seed(42)) > 0).to(
+            torch.float32,
+        )
+        dynamic_axes = {
+            "X": {0: "num_datapoints", 1: "batch_size", 2: "num_features"},
+            "y": {0: "num_labels"},
+        }
+        torch.onnx.export(
+            ModelWrapper(regressor.model_).eval(),
+            (X, y, y.shape[0], True, []),
+            io.BytesIO(),
+            input_names=[
+                "X",
+                "y",
+                "single_eval_pos",
+                "only_return_standard_out",
+                "categorical_inds",
+            ],
+            output_names=["output"],
+            opset_version=17,  # using 17 since we use torch>=2.1
+            dynamic_axes=dynamic_axes,
         )
