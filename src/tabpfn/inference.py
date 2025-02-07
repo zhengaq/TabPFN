@@ -161,7 +161,7 @@ class InferenceEngineOnDemand(InferenceEngine):
         if self.force_inference_dtype is not None:
             self.model = self.model.type(self.force_inference_dtype)
 
-        for config, preprocessor, X_train, y_train, cat_ix in itr:
+        for config, preprocessor, X_train, y_train, _cat_ix in itr:
             X_train = torch.as_tensor(X_train, dtype=torch.float32, device=device)  # noqa: PLW2901
 
             X_test = preprocessor.transform(X).X
@@ -193,7 +193,6 @@ class InferenceEngineOnDemand(InferenceEngine):
                 output = self.model(
                     *(style, X_full, y_train),
                     only_return_standard_out=only_return_standard_out,
-                    categorical_inds=cat_ix,
                     single_eval_pos=len(y_train),
                 )
 
@@ -291,7 +290,7 @@ class InferenceEngineCachePreprocessing(InferenceEngine):
         self.model = self.model.to(device)
         if self.force_inference_dtype is not None:
             self.model = self.model.type(self.force_inference_dtype)
-        for preprocessor, X_train, y_train, config, cat_ix in zip(
+        for preprocessor, X_train, y_train, config, _cat_ix in zip(
             self.preprocessors,
             self.X_trains,
             self.y_trains,
@@ -332,7 +331,6 @@ class InferenceEngineCachePreprocessing(InferenceEngine):
                 output = self.model(
                     *(style, X_full, y_train),
                     only_return_standard_out=only_return_standard_out,
-                    categorical_inds=cat_ix,
                     single_eval_pos=len(y_train),
                 )
 
@@ -497,7 +495,6 @@ class InferenceEngineCacheKV(InferenceEngine):
                 output = model(
                     *(style, X_test, None),
                     only_return_standard_out=only_return_standard_out,
-                    categorical_inds=cat_ix,
                     single_eval_pos=None,
                 )
 
