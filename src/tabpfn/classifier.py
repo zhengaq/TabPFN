@@ -576,3 +576,31 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
         # Normalize to guarantee proba sum to 1, required due to precision issues and
         # going from torch to numpy
         return output / output.sum(axis=1, keepdims=True)  # type: ignore
+
+    def get_embeddings(self, X: XType) -> np.ndarray:
+        """
+        Get the embeddings for the input data `X`.
+
+        Parameters:
+            X (XType): The input data.
+        Returns:
+            np.ndarray: The computed embeddings for each fitted estimator.
+        """
+        check_is_fitted(self)
+
+        X = validate_X_predict(X, self)
+        X = _fix_dtypes(X, cat_indices=self.categorical_features_indices)
+        X = self.preprocessor_.transform(X)
+
+        embeddings: list[np.ndarray] = []
+
+        for output, config in self.executor_.iter_outputs(
+            X,
+            device=self.device_,
+            autocast=self.use_autocast_,
+        ):
+            assert isinstance(config, ClassifierEnsembleConfig)
+            assert output.ndim == 2
+            embeddings.append(output.squeeze().cpu().numpy())
+
+        return np.array(embeddings)

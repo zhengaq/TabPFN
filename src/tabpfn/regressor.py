@@ -707,6 +707,34 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
 
         return logit_to_output(output_type=output_type)
 
+    def get_embeddings(self, X: XType) -> np.ndarray:
+        """
+        Get the embeddings for the input data `X`.
+
+        Parameters:
+            X (XType): The input data.
+        Returns:
+            np.ndarray: The computed embeddings for each fitted estimator.
+        """
+        check_is_fitted(self)
+
+        X = validate_X_predict(X, self)
+        X = _fix_dtypes(X, cat_indices=self.categorical_features_indices)
+        X = self.preprocessor_.transform(X)
+
+        embeddings: list[np.ndarray] = []
+
+        for output, config in self.executor_.iter_outputs(
+            X,
+            device=self.device_,
+            autocast=self.use_autocast_,
+        ):
+            assert isinstance(config, RegressorEnsembleConfig)
+            assert output.ndim == 2
+            embeddings.append(output.squeeze().cpu().numpy())
+
+        return np.array(embeddings)
+
 
 def _logits_to_output(
     *,
