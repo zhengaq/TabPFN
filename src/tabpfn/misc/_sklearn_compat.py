@@ -1,5 +1,6 @@
 # ruff: noqa
 # mypy: ignore-errors
+# taken from https://github.com/sklearn-compat/sklearn-compat
 """Ease developer experience to support multiple versions of scikit-learn.
 
 This file is intended to be vendored in your project if you do not want to depend on
@@ -9,7 +10,6 @@ Be aware that depending on `sklearn-compat` does not add any additional dependen
 we are only depending on `scikit-learn`.
 
 Version: 0.1.3
-# taken from https://github.com/sklearn-compat/sklearn-compat
 """
 
 from __future__ import annotations
