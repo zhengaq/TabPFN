@@ -49,6 +49,7 @@ from tabpfn.preprocessing import (
 )
 from tabpfn.utils import (
     _fix_dtypes,
+    _get_embeddings,
     _get_ordinal_encoder,
     _transform_borders_one,
     infer_categorical_features,
@@ -716,24 +717,9 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
         Returns:
             np.ndarray: The computed embeddings for each fitted estimator.
         """
-        check_is_fitted(self)
+        embeddings = _get_embeddings(self, X)
 
-        X = validate_X_predict(X, self)
-        X = _fix_dtypes(X, cat_indices=self.categorical_features_indices)
-        X = self.preprocessor_.transform(X)
-
-        embeddings: list[np.ndarray] = []
-
-        for output, config in self.executor_.iter_outputs(
-            X,
-            device=self.device_,
-            autocast=self.use_autocast_,
-        ):
-            assert isinstance(config, RegressorEnsembleConfig)
-            assert output.ndim == 2
-            embeddings.append(output.squeeze().cpu().numpy())
-
-        return np.array(embeddings)
+        return embeddings
 
 
 def _logits_to_output(

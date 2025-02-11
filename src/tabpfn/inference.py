@@ -144,6 +144,7 @@ class InferenceEngineOnDemand(InferenceEngine):
         *,
         device: torch.device,
         autocast: bool,
+        only_return_standard_out: bool = True,
     ) -> Iterator[tuple[torch.Tensor, EnsembleConfig]]:
         rng = np.random.default_rng(self.static_seed)
         itr = fit_preprocessing(
@@ -191,10 +192,13 @@ class InferenceEngineOnDemand(InferenceEngine):
             ):
                 output = self.model(
                     *(style, X_full, y_train),
-                    only_return_standard_out=True,
+                    only_return_standard_out=only_return_standard_out,
                     categorical_inds=cat_ix,
                     single_eval_pos=len(y_train),
                 )
+
+            output = output['test_embeddings'] if isinstance(output, dict) else output
+
             yield output.squeeze(1), config
 
         self.model = self.model.cpu()
@@ -282,6 +286,7 @@ class InferenceEngineCachePreprocessing(InferenceEngine):
         *,
         device: torch.device,
         autocast: bool,
+        only_return_standard_out: bool = True,
     ) -> Iterator[tuple[torch.Tensor, EnsembleConfig]]:
         self.model = self.model.to(device)
         if self.force_inference_dtype is not None:
@@ -326,10 +331,13 @@ class InferenceEngineCachePreprocessing(InferenceEngine):
             ):
                 output = self.model(
                     *(style, X_full, y_train),
-                    only_return_standard_out=True,
+                    only_return_standard_out=only_return_standard_out,
                     categorical_inds=cat_ix,
                     single_eval_pos=len(y_train),
                 )
+
+            output = output['test_embeddings'] if isinstance(output, dict) else output
+
             yield output.squeeze(1), config
 
         self.model = self.model.cpu()
@@ -368,6 +376,7 @@ class InferenceEngineCacheKV(InferenceEngine):
         force_inference_dtype: torch.dtype | None,
         save_peak_mem: bool | Literal["auto"] | float | int,
         autocast: bool,
+        only_return_standard_out: bool = True,
     ) -> InferenceEngineCacheKV:
         """Prepare the inference engine.
 
@@ -421,7 +430,7 @@ class InferenceEngineCacheKV(InferenceEngine):
             ):
                 ens_model.forward(
                     *(None, X, y),
-                    only_return_standard_out=True,
+                    only_return_standard_out=only_return_standard_out,
                     categorical_inds=preprocessor_cat_ix,
                     single_eval_pos=len(X),
                 )
@@ -449,6 +458,7 @@ class InferenceEngineCacheKV(InferenceEngine):
         *,
         device: torch.device,
         autocast: bool,
+        only_return_standard_out: bool = True,
     ) -> Iterator[tuple[torch.Tensor, EnsembleConfig]]:
         for preprocessor, model, config, cat_ix, X_train_len in zip(
             self.preprocessors,
@@ -485,7 +495,7 @@ class InferenceEngineCacheKV(InferenceEngine):
             ):
                 output = model(
                     *(style, X_test, None),
-                    only_return_standard_out=True,
+                    only_return_standard_out=only_return_standard_out,
                     categorical_inds=cat_ix,
                     single_eval_pos=None,
                 )
@@ -493,5 +503,7 @@ class InferenceEngineCacheKV(InferenceEngine):
             # TODO(eddiebergman): This is not really what we want.
             # We'd rather just say unload from GPU, we already have it available on CPU.
             model = model.cpu()  # noqa: PLW2901
+
+            output = output['test_embeddings'] if isinstance(output, dict) else output
 
             yield output.squeeze(1), config

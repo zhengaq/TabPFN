@@ -297,7 +297,13 @@ def test_get_embeddings(X_y: tuple[np.ndarray, np.ndarray]) -> None:
 
     embeddings = model.get_embeddings(X)
 
+    encoder_shape = next(
+        m.out_features for m in 
+        model.executor_.model.encoder.modules() 
+        if isinstance(m, nn.Linear)
+    )
+    
     assert isinstance(embeddings, np.ndarray)
     assert embeddings.shape[0] == n_estimators
     assert embeddings.shape[1] == X.shape[0]
-    assert embeddings.shape[2] == 10
+    assert embeddings.shape[2] == encoder_shape
