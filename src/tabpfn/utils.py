@@ -19,7 +19,6 @@ from sklearn.base import is_classifier
 from sklearn.compose import ColumnTransformer, make_column_selector
 from sklearn.preprocessing import FunctionTransformer, OrdinalEncoder
 from sklearn.utils.multiclass import check_classification_targets
-from sklearn_compat.utils.validation import check_array, validate_data
 from torch import nn
 
 from tabpfn.constants import (
@@ -27,6 +26,7 @@ from tabpfn.constants import (
     REGRESSION_NAN_BORDER_LIMIT_LOWER,
     REGRESSION_NAN_BORDER_LIMIT_UPPER,
 )
+from tabpfn.misc._sklearn_compat import check_array, validate_data
 from tabpfn.model.bar_distribution import FullSupportBarDistribution
 from tabpfn.model.loading import download_model, load_model
 
