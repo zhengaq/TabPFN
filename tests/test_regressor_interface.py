@@ -284,7 +284,6 @@ def test_onnx_exportable_cpu(X_y: tuple[np.ndarray, np.ndarray]) -> None:
 @pytest.mark.parametrize("data_source", ["train", "test"])
 def test_get_embeddings(X_y: tuple[np.ndarray, np.ndarray], data_source: str) -> None:
     """Test that get_embeddings returns valid embeddings for a fitted model."""
-    from tabpfn.utils import get_embeddings
 
     X, y = X_y
     n_estimators = 3
