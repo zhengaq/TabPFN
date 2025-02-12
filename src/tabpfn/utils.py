@@ -26,6 +26,7 @@ from tabpfn.constants import (
     REGRESSION_NAN_BORDER_LIMIT_LOWER,
     REGRESSION_NAN_BORDER_LIMIT_UPPER,
 )
+from tabpfn.misc._sklearn_compat import check_array, validate_data
 from tabpfn.model.bar_distribution import FullSupportBarDistribution
 from tabpfn.model.loading import download_model, load_model
 
@@ -518,14 +519,15 @@ def validate_Xy_fit(
     ignore_pretraining_limits: bool = False,
 ) -> tuple[np.ndarray, np.ndarray, npt.NDArray[Any] | None, int]:
     """Validate the input data for fitting."""
-    # Calls `BaseEstimator._validate_data()` with specification
-    X, y = estimator._validate_data(
-        X,
-        y,
+    # Calls `validate_data()` with specification
+    X, y = validate_data(
+        estimator,
+        X=X,
+        y=y,
         # Parameters to `check_X_y()`
         accept_sparse=False,
         dtype=None,  # This is handled later in `fit()`
-        force_all_finite="allow-nan",
+        ensure_all_finite="allow-nan",
         ensure_min_samples=2,
         ensure_min_features=1,
         y_numeric=ensure_y_numeric,
@@ -566,7 +568,7 @@ def validate_Xy_fit(
 
     if is_classifier(estimator):
         check_classification_targets(y)
-    # Annoyingly, the `force_all_finite` above only applies to `X` and
+    # Annoyingly, the `ensure_all_finite` above only applies to `X` and
     # there is no way to specify this for `y`. The validation check above
     # will also only check for NaNs in `y` if `multi_output=True` which is
     # something we don't want. Hence, we run another check on `y` here.
@@ -576,7 +578,7 @@ def validate_Xy_fit(
     y = check_array(
         y,
         accept_sparse=False,
-        force_all_finite=True,
+        ensure_all_finite=True,
         dtype=None,  # type: ignore
         ensure_2d=False,
     )
@@ -592,15 +594,16 @@ def validate_X_predict(
     estimator: TabPFNRegressor | TabPFNClassifier,
 ) -> np.ndarray:
     """Validate the input data for prediction."""
-    return estimator._validate_data(  # type: ignore
-        X,
+    return validate_data(
+        estimator,
+        X=X,
         # NOTE: Important that reset is False, i.e. doesn't reset estimator
         reset=False,
         #
         # Parameters to `check_X_y()`
         accept_sparse=False,
         dtype=None,
-        force_all_finite="allow-nan",
+        ensure_all_finite="allow-nan",
         estimator=estimator,
     )
 
