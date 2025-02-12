@@ -285,7 +285,8 @@ def test_onnx_exportable_cpu(X_y: tuple[np.ndarray, np.ndarray]) -> None:
             dynamic_axes=dynamic_axes,
         )
 
-def test_get_embeddings(X_y: tuple[np.ndarray, np.ndarray]) -> None:
+@pytest.mark.parametrize("data_source", ["train", "test"])
+def test_get_embeddings(X_y: tuple[np.ndarray, np.ndarray], data_source: str) -> None:
     """Test that get_embeddings returns valid embeddings for a fitted model."""
     from tabpfn.utils import get_embeddings
 
@@ -295,7 +296,7 @@ def test_get_embeddings(X_y: tuple[np.ndarray, np.ndarray]) -> None:
     model = TabPFNClassifier(n_estimators=n_estimators, random_state=42)
     model.fit(X, y)
 
-    embeddings = model.get_embeddings(X)
+    embeddings = model.get_embeddings(X, data_source)
 
     encoder_shape = next(
         m.out_features for m in 

@@ -145,7 +145,7 @@ class InferenceEngineOnDemand(InferenceEngine):
         device: torch.device,
         autocast: bool,
         only_return_standard_out: bool = True,
-    ) -> Iterator[tuple[torch.Tensor, EnsembleConfig]]:
+    ) -> Iterator[tuple[torch.Tensor | dict, EnsembleConfig]]:
         rng = np.random.default_rng(self.static_seed)
         itr = fit_preprocessing(
             configs=self.ensemble_configs,
@@ -197,9 +197,9 @@ class InferenceEngineOnDemand(InferenceEngine):
                     single_eval_pos=len(y_train),
                 )
 
-            output = output['test_embeddings'] if isinstance(output, dict) else output
+            output = output if isinstance(output, dict) else output.squeeze(1)
 
-            yield output.squeeze(1), config
+            yield output, config
 
         self.model = self.model.cpu()
 
@@ -287,7 +287,7 @@ class InferenceEngineCachePreprocessing(InferenceEngine):
         device: torch.device,
         autocast: bool,
         only_return_standard_out: bool = True,
-    ) -> Iterator[tuple[torch.Tensor, EnsembleConfig]]:
+    ) -> Iterator[tuple[torch.Tensor | dict, EnsembleConfig]]:
         self.model = self.model.to(device)
         if self.force_inference_dtype is not None:
             self.model = self.model.type(self.force_inference_dtype)
@@ -336,9 +336,9 @@ class InferenceEngineCachePreprocessing(InferenceEngine):
                     single_eval_pos=len(y_train),
                 )
 
-            output = output['test_embeddings'] if isinstance(output, dict) else output
+            output = output if isinstance(output, dict) else output.squeeze(1)
 
-            yield output.squeeze(1), config
+            yield output, config
 
         self.model = self.model.cpu()
 
@@ -459,7 +459,7 @@ class InferenceEngineCacheKV(InferenceEngine):
         device: torch.device,
         autocast: bool,
         only_return_standard_out: bool = True,
-    ) -> Iterator[tuple[torch.Tensor, EnsembleConfig]]:
+    ) -> Iterator[tuple[torch.Tensor | dict, EnsembleConfig]]:
         for preprocessor, model, config, cat_ix, X_train_len in zip(
             self.preprocessors,
             self.models,
@@ -504,6 +504,6 @@ class InferenceEngineCacheKV(InferenceEngine):
             # We'd rather just say unload from GPU, we already have it available on CPU.
             model = model.cpu()  # noqa: PLW2901
 
-            output = output['test_embeddings'] if isinstance(output, dict) else output
+            output = output if isinstance(output, dict) else output.squeeze(1)
 
-            yield output.squeeze(1), config
+            yield output, config

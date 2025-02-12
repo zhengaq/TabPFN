@@ -40,17 +40,27 @@ if TYPE_CHECKING:
 
 MAXINT_RANDOM_SEED = int(np.iinfo(np.int32).max)
 
-def _get_embeddings(model: TabPFNClassifier | TabPFNRegressor, X: XType) -> np.ndarray:
+def _get_embeddings(
+    model: TabPFNClassifier | TabPFNRegressor, 
+    X: XType, 
+    data_source: Literal["train", "test"] = "test",
+) -> np.ndarray:
     """
     Get the embeddings for the input data `X`.
 
     Parameters:
         model TabPFNClassifier | TabPFNRegressor: The fitted classifier or regressor.
         X (XType): The input data.
+        data_source str: Extract either the train or test embeddings
     Returns:
         np.ndarray: The computed embeddings for each fitted estimator.
     """
     check_is_fitted(model)
+
+    data_map = {"train": "train_embeddings",
+                "test": "test_embeddings"}
+
+    selected_data = data_map[data_source]
 
     # Avoid circular imports
     from tabpfn.preprocessing import (
@@ -70,9 +80,10 @@ def _get_embeddings(model: TabPFNClassifier | TabPFNRegressor, X: XType) -> np.n
         autocast=model.use_autocast_,
         only_return_standard_out=False,
     ):
+        embed = output[selected_data].squeeze(1)
         assert isinstance(config, (ClassifierEnsembleConfig, RegressorEnsembleConfig))
-        assert output.ndim == 2
-        embeddings.append(output.squeeze().cpu().numpy())
+        assert embed.ndim == 2
+        embeddings.append(embed.squeeze().cpu().numpy())
 
     return np.array(embeddings)
 
