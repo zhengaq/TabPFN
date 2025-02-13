@@ -252,12 +252,10 @@ class MemoryUsageEstimator:
                     os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 1e9
                 )
             except AttributeError:
-                # TODO: `os.sysconf` does not exist on windows.
-                free_memory = cls.convert_units(
-                    default_gb_cpu_if_failed_to_calculate,
-                    "gb",
-                    "b",
-                )
+                from tabpfn.utils import get_total_memory_windows
+
+                free_memory = get_total_memory_windows()
+
             except ValueError:
                 warnings.warn(
                     "Could not get system memory, defaulting to"
