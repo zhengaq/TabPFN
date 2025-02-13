@@ -254,7 +254,20 @@ class MemoryUsageEstimator:
             except AttributeError:
                 from tabpfn.utils import get_total_memory_windows
 
-                free_memory = get_total_memory_windows()
+                if os.name == "nt":
+                    free_memory = get_total_memory_windows()
+                else:
+                    warnings.warn(
+                        "Could not get system memory, defaulting to"
+                        f" {default_gb_cpu_if_failed_to_calculate} GB",
+                        RuntimeWarning,
+                        stacklevel=2,
+                    )
+                    free_memory = cls.convert_units(
+                        default_gb_cpu_if_failed_to_calculate,
+                        "gb",
+                        "b",
+                    )
 
             except ValueError:
                 warnings.warn(
