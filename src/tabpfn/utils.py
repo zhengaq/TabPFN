@@ -790,9 +790,6 @@ def _transform_borders_one(
     return logit_cancel_mask, descending_borders, borders_t
 
 
-
-
-
 # Terminology: Use memory to referent physical memory, swap for swap memory
 def get_total_memory_windows() -> float:
     """Get the total memory of the system for windows OS, using windows API.
@@ -800,10 +797,11 @@ def get_total_memory_windows() -> float:
     Returns:
         The total memory of the system in GB.
     """
+
     # ref: https://github.com/microsoft/windows-rs/blob/c9177f7a65c764c237a9aebbd3803de683bedaab/crates/tests/bindgen/src/fn_return_void_sys.rs#L12
     # ref: https://learn.microsoft.com/en-us/windows/win32/api/sysinfoapi/ns-sysinfoapi-memorystatusex
-    # this class is needed to load the memory status with GlobalMemoryStatusEx function using win32 API,
-    # for more details see microsoft docs link above
+    # this class is needed to load the memory status with GlobalMemoryStatusEx function
+    # using win32 API, for more details see microsoft docs link above
     class _MEMORYSTATUSEX(ctypes.Structure):
         _fields_: typing.ClassVar = [
             ("dwLength", ctypes.c_ulong),
@@ -816,6 +814,7 @@ def get_total_memory_windows() -> float:
             ("ullAvailVirtual", ctypes.c_ulonglong),
             ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
         ]
+
     # Initialize the structure
     mem_status = _MEMORYSTATUSEX()
     # need to initialize lenght of structure, see microsft docs above
