@@ -281,10 +281,10 @@ def test_onnx_exportable_cpu(X_y: tuple[np.ndarray, np.ndarray]) -> None:
             dynamic_axes=dynamic_axes,
         )
 
+
 @pytest.mark.parametrize("data_source", ["train", "test"])
 def test_get_embeddings(X_y: tuple[np.ndarray, np.ndarray], data_source: str) -> None:
     """Test that get_embeddings returns valid embeddings for a fitted model."""
-
     X, y = X_y
     n_estimators = 3
 
@@ -294,8 +294,8 @@ def test_get_embeddings(X_y: tuple[np.ndarray, np.ndarray], data_source: str) ->
     embeddings = model.get_embeddings(X, data_source)
 
     encoder_shape = next(
-        m.out_features for m in 
-        model.executor_.model.encoder.modules() 
+        m.out_features
+        for m in model.executor_.model.encoder.modules()
         if isinstance(m, nn.Linear)
     )
 

@@ -15,7 +15,7 @@ import numpy as np
 import numpy.typing as npt
 import pandas as pd
 import torch
-from sklearn.base import check_array, check_is_fitted, is_classifier
+from sklearn.base import check_is_fitted, is_classifier
 from sklearn.compose import ColumnTransformer, make_column_selector
 from sklearn.preprocessing import FunctionTransformer, OrdinalEncoder
 from sklearn.utils.multiclass import check_classification_targets
@@ -41,13 +41,13 @@ if TYPE_CHECKING:
 
 MAXINT_RANDOM_SEED = int(np.iinfo(np.int32).max)
 
+
 def _get_embeddings(
-    model: TabPFNClassifier | TabPFNRegressor, 
-    X: XType, 
+    model: TabPFNClassifier | TabPFNRegressor,
+    X: XType,
     data_source: Literal["train", "test"] = "test",
 ) -> np.ndarray:
-    """
-    Get the embeddings for the input data `X`.
+    """Get the embeddings for the input data `X`.
 
     Parameters:
         model TabPFNClassifier | TabPFNRegressor: The fitted classifier or regressor.
@@ -58,16 +58,12 @@ def _get_embeddings(
     """
     check_is_fitted(model)
 
-    data_map = {"train": "train_embeddings",
-                "test": "test_embeddings"}
+    data_map = {"train": "train_embeddings", "test": "test_embeddings"}
 
     selected_data = data_map[data_source]
 
     # Avoid circular imports
-    from tabpfn.preprocessing import (
-        ClassifierEnsembleConfig,
-        RegressorEnsembleConfig
-    )
+    from tabpfn.preprocessing import ClassifierEnsembleConfig, RegressorEnsembleConfig
 
     X = validate_X_predict(X, model)
     X = _fix_dtypes(X, cat_indices=model.categorical_features_indices)

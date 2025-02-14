@@ -393,6 +393,7 @@ class InferenceEngineCacheKV(InferenceEngine):
             force_inference_dtype: The dtype to force inference to.
             save_peak_mem: Whether to save peak memory usage.
             autocast: Whether to use torch.autocast during inference.
+            only_return_standard_out: Whether to only return the standard output
         """
         itr = fit_preprocessing(
             configs=ensemble_configs,

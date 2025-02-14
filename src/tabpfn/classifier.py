@@ -579,12 +579,11 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
         return output / output.sum(axis=1, keepdims=True)  # type: ignore
 
     def get_embeddings(
-        self, 
-        X: XType, 
+        self,
+        X: XType,
         data_source: Literal["train", "test"] = "test",
     ) -> np.ndarray:
-        """
-        Get the embeddings for the input data `X`.
+        """Get the embeddings for the input data `X`.
 
         Parameters:
             X (XType): The input data.
@@ -592,6 +591,4 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
         Returns:
             np.ndarray: The computed embeddings for each fitted estimator.
         """
-        embeddings = _get_embeddings(self, X, data_source)
-
-        return embeddings
+        return _get_embeddings(self, X, data_source)

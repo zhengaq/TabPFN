@@ -709,12 +709,11 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
         return logit_to_output(output_type=output_type)
 
     def get_embeddings(
-        self, 
-        X: XType, 
+        self,
+        X: XType,
         data_source: Literal["train", "test"] = "test",
     ) -> np.ndarray:
-        """
-        Get the embeddings for the input data `X`.
+        """Get the embeddings for the input data `X`.
 
         Parameters:
             X (XType): The input data.
@@ -722,9 +721,7 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
         Returns:
             np.ndarray: The computed embeddings for each fitted estimator.
         """
-        embeddings = _get_embeddings(self, X, data_source)
-
-        return embeddings
+        return _get_embeddings(self, X, data_source)
 
 
 def _logits_to_output(
