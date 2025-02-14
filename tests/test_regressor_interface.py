@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import os
 from itertools import product
 from typing import Callable, Literal
 
@@ -246,6 +247,8 @@ class ModelWrapper(nn.Module):
 # WARNING: unstable for scipy<1.11.0
 @pytest.mark.filterwarnings("ignore::torch.jit.TracerWarning")
 def test_onnx_exportable_cpu(X_y: tuple[np.ndarray, np.ndarray]) -> None:
+    if os.name == "nt":
+        pytest.skip("onnx export is not tested on windows")
     X, y = X_y
     with torch.no_grad():
         regressor = TabPFNRegressor(n_estimators=1, device="cpu", random_state=43)
