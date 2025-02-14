@@ -77,7 +77,7 @@ jobs:
           # onnx is required for onnx export tests
           # we don't install all dev dependencies here for speed
           uv pip install --system -r requirements.txt
-          uv pip install --system pytest onnx
+          uv pip install --system pytest onnx psutil
 
       - name: Initialize submodules
         run: git submodule update --init --recursive
