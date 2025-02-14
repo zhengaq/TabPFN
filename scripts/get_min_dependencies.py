@@ -3,7 +3,6 @@ import re
 def main() -> None:
     with open('pyproject.toml', 'r') as f:
         content = f.read()
-        x=3
 
     # Find dependencies section using regex
     deps_match = re.search(r'dependencies\s*=\s*\[(.*?)\]', content, re.DOTALL)
