@@ -77,7 +77,19 @@ jobs:
           # onnx is required for onnx export tests
           # we don't install all dev dependencies here for speed
           uv pip install --system -r requirements.txt
-          uv pip install --system pytest onnx psutil
+          uv pip install --system pytest psutil
+
+      # We need to install onnx separately for windows and minimum dependencies
+      # see here: https://github.com/onnx/onnx/issues/6267
+      # due to transitive dependency through torch
+      - name: Install onnx for windows and minimum dependencies
+        if: matrix.dependency-set == 'minimum' && runner.os == 'Windows'
+        run: |
+          uv pip install --system onnx==1.16.1
+      - name: Install onnx for other config
+        if: matrix.dependency-set == 'maximum' || runner.os != 'Windows'
+        run: |
+          uv pip install --system onnx
 
       - name: Initialize submodules
         run: git submodule update --init --recursive
