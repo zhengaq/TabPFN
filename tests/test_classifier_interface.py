@@ -284,3 +284,26 @@ def test_onnx_exportable_cpu(X_y: tuple[np.ndarray, np.ndarray]) -> None:
             opset_version=17,  # using 17 since we use torch>=2.1
             dynamic_axes=dynamic_axes,
         )
+
+
+@pytest.mark.parametrize("data_source", ["train", "test"])
+def test_get_embeddings(X_y: tuple[np.ndarray, np.ndarray], data_source: str) -> None:
+    """Test that get_embeddings returns valid embeddings for a fitted model."""
+    X, y = X_y
+    n_estimators = 3
+
+    model = TabPFNClassifier(n_estimators=n_estimators, random_state=42)
+    model.fit(X, y)
+
+    embeddings = model.get_embeddings(X, data_source)
+
+    encoder_shape = next(
+        m.out_features
+        for m in model.executor_.model.encoder.modules()
+        if isinstance(m, nn.Linear)
+    )
+
+    assert isinstance(embeddings, np.ndarray)
+    assert embeddings.shape[0] == n_estimators
+    assert embeddings.shape[1] == X.shape[0]
+    assert embeddings.shape[2] == encoder_shape

@@ -144,7 +144,8 @@ class InferenceEngineOnDemand(InferenceEngine):
         *,
         device: torch.device,
         autocast: bool,
-    ) -> Iterator[tuple[torch.Tensor, EnsembleConfig]]:
+        only_return_standard_out: bool = True,
+    ) -> Iterator[tuple[torch.Tensor | dict, EnsembleConfig]]:
         rng = np.random.default_rng(self.static_seed)
         itr = fit_preprocessing(
             configs=self.ensemble_configs,
@@ -191,11 +192,14 @@ class InferenceEngineOnDemand(InferenceEngine):
             ):
                 output = self.model(
                     *(style, X_full, y_train),
-                    only_return_standard_out=True,
+                    only_return_standard_out=only_return_standard_out,
                     categorical_inds=cat_ix,
                     single_eval_pos=len(y_train),
                 )
-            yield output.squeeze(1), config
+
+            output = output if isinstance(output, dict) else output.squeeze(1)
+
+            yield output, config
 
         self.model = self.model.cpu()
 
@@ -282,7 +286,8 @@ class InferenceEngineCachePreprocessing(InferenceEngine):
         *,
         device: torch.device,
         autocast: bool,
-    ) -> Iterator[tuple[torch.Tensor, EnsembleConfig]]:
+        only_return_standard_out: bool = True,
+    ) -> Iterator[tuple[torch.Tensor | dict, EnsembleConfig]]:
         self.model = self.model.to(device)
         if self.force_inference_dtype is not None:
             self.model = self.model.type(self.force_inference_dtype)
@@ -326,11 +331,14 @@ class InferenceEngineCachePreprocessing(InferenceEngine):
             ):
                 output = self.model(
                     *(style, X_full, y_train),
-                    only_return_standard_out=True,
+                    only_return_standard_out=only_return_standard_out,
                     categorical_inds=cat_ix,
                     single_eval_pos=len(y_train),
                 )
-            yield output.squeeze(1), config
+
+            output = output if isinstance(output, dict) else output.squeeze(1)
+
+            yield output, config
 
         self.model = self.model.cpu()
 
@@ -368,6 +376,7 @@ class InferenceEngineCacheKV(InferenceEngine):
         force_inference_dtype: torch.dtype | None,
         save_peak_mem: bool | Literal["auto"] | float | int,
         autocast: bool,
+        only_return_standard_out: bool = True,
     ) -> InferenceEngineCacheKV:
         """Prepare the inference engine.
 
@@ -384,6 +393,7 @@ class InferenceEngineCacheKV(InferenceEngine):
             force_inference_dtype: The dtype to force inference to.
             save_peak_mem: Whether to save peak memory usage.
             autocast: Whether to use torch.autocast during inference.
+            only_return_standard_out: Whether to only return the standard output
         """
         itr = fit_preprocessing(
             configs=ensemble_configs,
@@ -421,7 +431,7 @@ class InferenceEngineCacheKV(InferenceEngine):
             ):
                 ens_model.forward(
                     *(None, X, y),
-                    only_return_standard_out=True,
+                    only_return_standard_out=only_return_standard_out,
                     categorical_inds=preprocessor_cat_ix,
                     single_eval_pos=len(X),
                 )
@@ -449,7 +459,8 @@ class InferenceEngineCacheKV(InferenceEngine):
         *,
         device: torch.device,
         autocast: bool,
-    ) -> Iterator[tuple[torch.Tensor, EnsembleConfig]]:
+        only_return_standard_out: bool = True,
+    ) -> Iterator[tuple[torch.Tensor | dict, EnsembleConfig]]:
         for preprocessor, model, config, cat_ix, X_train_len in zip(
             self.preprocessors,
             self.models,
@@ -485,7 +496,7 @@ class InferenceEngineCacheKV(InferenceEngine):
             ):
                 output = model(
                     *(style, X_test, None),
-                    only_return_standard_out=True,
+                    only_return_standard_out=only_return_standard_out,
                     categorical_inds=cat_ix,
                     single_eval_pos=None,
                 )
@@ -494,4 +505,6 @@ class InferenceEngineCacheKV(InferenceEngine):
             # We'd rather just say unload from GPU, we already have it available on CPU.
             model = model.cpu()  # noqa: PLW2901
 
-            yield output.squeeze(1), config
+            output = output if isinstance(output, dict) else output.squeeze(1)
+
+            yield output, config

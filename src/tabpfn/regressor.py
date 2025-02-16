@@ -49,6 +49,7 @@ from tabpfn.preprocessing import (
 )
 from tabpfn.utils import (
     _fix_dtypes,
+    _get_embeddings,
     _get_ordinal_encoder,
     _transform_borders_one,
     infer_categorical_features,
@@ -706,6 +707,21 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
             return output  # type: ignore
 
         return logit_to_output(output_type=output_type)
+
+    def get_embeddings(
+        self,
+        X: XType,
+        data_source: Literal["train", "test"] = "test",
+    ) -> np.ndarray:
+        """Get the embeddings for the input data `X`.
+
+        Parameters:
+            X (XType): The input data.
+            data_source str: Extract either the train or test embeddings
+        Returns:
+            np.ndarray: The computed embeddings for each fitted estimator.
+        """
+        return _get_embeddings(self, X, data_source)
 
 
 def _logits_to_output(

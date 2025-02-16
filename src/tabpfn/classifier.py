@@ -47,6 +47,7 @@ from tabpfn.preprocessing import (
 )
 from tabpfn.utils import (
     _fix_dtypes,
+    _get_embeddings,
     _get_ordinal_encoder,
     infer_categorical_features,
     infer_device_and_type,
@@ -576,3 +577,18 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
         # Normalize to guarantee proba sum to 1, required due to precision issues and
         # going from torch to numpy
         return output / output.sum(axis=1, keepdims=True)  # type: ignore
+
+    def get_embeddings(
+        self,
+        X: XType,
+        data_source: Literal["train", "test"] = "test",
+    ) -> np.ndarray:
+        """Get the embeddings for the input data `X`.
+
+        Parameters:
+            X (XType): The input data.
+            data_source str: Extract either the train or test embeddings
+        Returns:
+            np.ndarray: The computed embeddings for each fitted estimator.
+        """
+        return _get_embeddings(self, X, data_source)
