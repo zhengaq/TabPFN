@@ -45,6 +45,7 @@ pip install -e "TabPFN[dev]"
 
 ### Basic Usage
 
+#### Classification
 ```python
 from sklearn.datasets import load_breast_cancer
 from sklearn.metrics import accuracy_score, roc_auc_score
@@ -69,7 +70,8 @@ predictions = clf.predict(X_test)
 print("Accuracy", accuracy_score(y_test, predictions))
 ```
 
-```
+#### Regression
+```python
 from sklearn.datasets import fetch_openml
 from sklearn.metrics import mean_squared_error, r2_score
 from sklearn.model_selection import train_test_split
