@@ -241,6 +241,7 @@ class SequentialEncoder(nn.Sequential, InputEncoder):
         return input[self.output_key] if self.output_key is not None else input
 
 
+# TODO: not used I think
 class LinearInputEncoder(nn.Module):
     """A simple linear input encoder."""
 
@@ -434,7 +435,7 @@ class LinearInputEncoderStep(SeqEncStep):
         """
         x = torch.cat(x, dim=-1)
         if self.replace_nan_by_zero:
-            x = torch.nan_to_num(x, nan=0.0)
+            x = torch.nan_to_num(x, nan=0.0)  # type: ignore
         return (self.layer(x),)
 
 
@@ -471,7 +472,9 @@ class NanHandlingEncoderStep(SeqEncStep):
             single_eval_pos: The position to use for single evaluation.
             **kwargs: Additional keyword arguments (unused).
         """
-        self.feature_means_ = torch_nanmean(x[:single_eval_pos], axis=0)
+        self.feature_means_ = torch_nanmean(
+            x[:single_eval_pos], axis=0, include_inf=True
+        )
 
     def _transform(
         self,
@@ -504,7 +507,6 @@ class NanHandlingEncoderStep(SeqEncStep):
         x[nan_mask] = self.feature_means_.unsqueeze(0).expand_as(x)[nan_mask]
 
         return x, nans_indicator
-
 
 class RemoveEmptyFeaturesEncoderStep(SeqEncStep):
     """Encoder step to remove empty (constant) features.
@@ -796,7 +798,6 @@ class InputNormalizationEncoderStep(SeqEncStep):
                 mean=self.mean_for_normalization,
                 std=self.std_for_normalization,
             )
-
         return (x,)
 
 

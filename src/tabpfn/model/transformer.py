@@ -110,7 +110,7 @@ class PerFeatureTransformer(nn.Module):
         encoder: nn.Module | None = None,
         ninp: int = DEFAULT_EMSIZE,
         nhead: int = 4,
-        nhid: int = DEFAULT_EMSIZE * 4,
+        nhid_factor: int = 4,
         nlayers: int = 10,
         y_encoder: nn.Module | None = None,
         decoder_dict: dict[str, tuple[type[nn.Module] | None, int]] | None = None,
@@ -150,7 +150,7 @@ class PerFeatureTransformer(nn.Module):
                 returns something of the shape (seq_len, batch_size, ninp)
             ninp: Input dimension, also called the embedding dimension
             nhead: Number of attention heads
-            nhid: Hidden dimension in the MLP layers
+            nhid_factor: Hidden dimension in the MLP layers is ninp * nhid_factor
             nlayers:
                 Number of layers, each consisting of a multi-head attention layer and
                 an MLP layer
@@ -221,12 +221,12 @@ class PerFeatureTransformer(nn.Module):
                     in_keys=("main", "nan_indicators"),
                 ),
             )
-
         self.encoder = encoder
         self.y_encoder = y_encoder
         self.ninp = ninp
         self.nhead = nhead
-        self.nhid = nhid
+        self.nhid_factor = nhid_factor
+        nhid = ninp * nhid_factor
         self.init_method = init_method
         self.features_per_group = features_per_group
         self.cache_trainset_representation = cache_trainset_representation

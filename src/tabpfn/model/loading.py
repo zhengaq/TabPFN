@@ -715,7 +715,7 @@ def load_model(
         ),
         nhead=config.nhead,
         ninp=config.emsize,
-        nhid=config.emsize * config.nhid_factor,
+        nhid_factor=config.nhid_factor,
         nlayers=config.nlayers,
         features_per_group=config.features_per_group,
         cache_trainset_representation=True,

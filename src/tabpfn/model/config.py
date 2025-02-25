@@ -41,7 +41,7 @@ class InferenceConfig:
     aggregate_k_gradients: Literal[1] = 1
     differentiable_hps_as_style: Literal[False] = False
     dropout: float = 0.0
-    encoder_use_bias: Literal[False] = False
+    encoder_use_bias: Literal[False, True] = True  # TODO: check if this is correct
     feature_positional_embedding: Literal["subspace"] = "subspace"
     multiquery_item_attention: Literal[False] = False
     nan_handling_enabled: Literal[True] = True
