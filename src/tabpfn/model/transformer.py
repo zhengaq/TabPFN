@@ -373,10 +373,8 @@ class PerFeatureTransformer(nn.Module):
                 Whether to only return the standard output.
             data_dags: Any
                 The data DAGs for each example.
-            categorical_inds: list[int] | list[list[int]]
-                The indices of categorical features. If batch
-                size is larger than one, there can be a list of lists with one
-                list for each item in the batch.
+            categorical_inds: list[list[int]]
+                The indices of categorical features.
             freeze_kv: bool
                 Whether to freeze the key and value weights.
 
@@ -430,7 +428,7 @@ class PerFeatureTransformer(nn.Module):
         only_return_standard_out: bool = True,
         style: torch.Tensor | None = None,
         data_dags: list[Any] | None = None,
-        categorical_inds: list[int] | None = None,
+        categorical_inds: list[list[int]] | None = None,
         half_layers: bool = False,
     ) -> Any | dict[str, torch.Tensor]:
         """The core forward pass of the model.
@@ -512,14 +510,29 @@ class PerFeatureTransformer(nn.Module):
         # We have to re-work categoricals based on the subgroup they fall into.
         categorical_inds_to_use: list[list[list[int]]] | None = None
         if categorical_inds is not None:
+            assert isinstance(
+                categorical_inds[0],
+                list,
+            ), "categorical_inds must be a list of lists (one per batch item)"
+
+            new_categorical_inds = []
             n_subgroups = x["main"].shape[2]
-            if len(categorical_inds) == 0 or isinstance(categorical_inds[0], int):  # 1d
-                categorical_inds = [categorical_inds]
-            categorical_inds_to_use = []
-            for item in categorical_inds:
-                categorical_inds_to_use.append(
-                    self._transform_categorical_indices_feat_groups(item, n_subgroups)
-                )
+
+            # For each batch item
+            for batch_idx in range(batch_size):
+                # For each subgroup
+                for subgroup in range(n_subgroups):
+                    subgroup_lower = subgroup * self.features_per_group
+                    subgroup_upper = (subgroup + 1) * self.features_per_group
+                    subgroup_indices = [
+                        i - subgroup_lower
+                        for i in categorical_inds[batch_idx]
+                        if subgroup_lower <= i < subgroup_upper
+                    ]
+                    # Add this subgroup's indices to the flattened list
+                    new_categorical_inds.append(subgroup_indices)
+
+            categorical_inds_to_use = new_categorical_inds
 
         for k in y:
             if y[k].ndim == 1:
