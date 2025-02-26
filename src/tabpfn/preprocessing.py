@@ -225,8 +225,9 @@ def generate_index_permutations(
     """
     _, rng = infer_random_state(random_state)
     if isinstance(subsample, int):
-        if not (1 <= subsample <= max_index):
-            raise ValueError(f"{subsample=} must be in [1, {max_index}] if int")
+        if subsample < 1:
+            raise ValueError(f"{subsample=} must be larger than 1 if int")
+        subsample = min(subsample, max_index)
 
         return [rng.permutation(max_index)[:subsample] for _ in range(n)]
 
