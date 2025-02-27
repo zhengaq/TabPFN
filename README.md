@@ -43,6 +43,22 @@ git clone https://github.com/PriorLabs/TabPFN.git
 pip install -e "TabPFN[dev]"
 ```
 
+### Offline Usage
+
+TabPFN automatically downloads model weights when first used. For offline usage:
+
+1. Download the model files manually from HuggingFace:
+   - Classifier: [tabpfn-v2-classifier.ckpt](https://huggingface.co/Prior-Labs/TabPFN-v2-clf/resolve/main/tabpfn-v2-classifier.ckpt)
+   - Regressor: [tabpfn-v2-regressor.ckpt](https://huggingface.co/Prior-Labs/TabPFN-v2-reg/resolve/main/tabpfn-v2-regressor.ckpt)
+
+2. Place the file in one of these locations:
+   - Specify directly: `TabPFNClassifier(model_path="/path/to/model.ckpt")`
+   - Set environment variable: `os.environ["TABPFN_MODEL_CACHE_DIR"] = "/path/to/dir"`
+   - Default OS cache directory:
+     - Windows: `%APPDATA%\tabpfn\`
+     - macOS: `~/Library/Caches/tabpfn/`
+     - Linux: `~/.cache/tabpfn/`
+
 ### Basic Usage
 
 #### Classification

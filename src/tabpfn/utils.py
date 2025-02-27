@@ -390,7 +390,12 @@ def load_model_criterion_config(
             model_name=model_name,
         )
         if res != "ok":
-            raise RuntimeError(f"Failed to download model to {model_path}!") from res[0]
+            raise RuntimeError(
+                f"Failed to download model to {model_path}!\n\n"
+                f"For offline usage, please download the model manually from:\n"
+                f"https://huggingface.co/Prior-Labs/TabPFN-v2-{'clf' if which == 'classifier' else 'reg'}/resolve/main/{model_name}\n\n"
+                f"Then place it at: {model_path}"
+            ) from res[0]
 
     loaded_model, criterion, config = load_model(path=model_path, model_seed=model_seed)
     loaded_model.cache_trainset_representation = cache_trainset_representation
