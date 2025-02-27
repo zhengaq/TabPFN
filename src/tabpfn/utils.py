@@ -390,11 +390,12 @@ def load_model_criterion_config(
             model_name=model_name,
         )
         if res != "ok":
+            repo_type = "clf" if which == "classifier" else "reg"
             raise RuntimeError(
                 f"Failed to download model to {model_path}!\n\n"
                 f"For offline usage, please download the model manually from:\n"
-                f"https://huggingface.co/Prior-Labs/TabPFN-v2-{'clf' if which == 'classifier' else 'reg'}/resolve/main/{model_name}\n\n"
-                f"Then place it at: {model_path}"
+                f"https://huggingface.co/Prior-Labs/TabPFN-v2-{repo_type}/resolve/main/{model_name}\n\n"
+                f"Then place it at: {model_path}",
             ) from res[0]
 
     loaded_model, criterion, config = load_model(path=model_path, model_seed=model_seed)
