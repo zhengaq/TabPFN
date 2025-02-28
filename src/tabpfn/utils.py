@@ -424,6 +424,30 @@ STRING_DTYPE_KINDS = "SaU"
 UNSUPPORTED_DTYPE_KINDS = "cM"  # Not needed, just for completeness
 
 
+def _handle_string_na_values(X: pd.DataFrame) -> pd.DataFrame:
+    """Replace NA values in string columns with a placeholder.
+
+    This avoids mixed type errors in scikit-learn's validation.
+    """
+    string_cols = X.select_dtypes(include=["string", "object"]).columns
+    if len(string_cols) == 0:
+        return X
+
+    # Use a placeholder for NaN values in string columns
+    placeholder = "__MISSING__"
+    # We need to handle several pandas versions and their different NA handling
+    for col in string_cols:
+        # Force to object type first for consistent behavior
+        X[col] = X[col].astype("object")
+        # Create mask for all NaN-like values
+        is_all_na = X[col].isna().all()
+        is_none = False if is_all_na else X[col].apply(lambda x: x is None)
+        mask = X[col].isna() | is_none
+        # Apply mask to set placeholder
+        X.loc[mask, col] = placeholder
+    return X
+
+
 def _fix_dtypes(
     X: pd.DataFrame | np.ndarray,
     cat_indices: Sequence[int | str] | None,
@@ -486,26 +510,8 @@ def _fix_dtypes(
     if convert_dtype:
         X = X.convert_dtypes()
 
-    # Handle NAs in text/string/object columns by replacing with a placeholder
-    # This avoids mixed type errors in scikit-learn's validation
-    string_cols = X.select_dtypes(include=["string", "object"]).columns
-    if len(string_cols) > 0:
-        # Use a placeholder for NaN values in string columns
-        placeholder = "__MISSING__"
-        # We need to handle several pandas versions and their different NA handling
-        for col in string_cols:
-            # Force to object type first for consistent behavior
-            X[col] = X[col].astype("object")
-            # Create mask for all NaN-like values
-            is_all_na = X[col].isna().all()
-            is_none = False if is_all_na else X[col].apply(lambda x: x is None)
-            mask = X[col].isna() | is_none
-            # Apply mask to set placeholder
-            X.loc[mask, col] = placeholder
-        # After encoding (which happens in the preprocessing pipeline),
-        # these placeholders will be encoded as a category, but at least
-        # the data will be processable without errors.
-        # We'll then handle this consistently with numeric NaNs.
+    # Handle NAs in text/string/object columns
+    X = _handle_string_na_values(X)
 
     # Convert numeric columns to the specified numeric dtype
     integer_columns = X.select_dtypes(include=["number"]).columns
