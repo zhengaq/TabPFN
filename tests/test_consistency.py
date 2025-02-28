@@ -8,6 +8,7 @@ the improvement.
 from __future__ import annotations
 
 import hashlib
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pytest
@@ -15,7 +16,8 @@ import sklearn.datasets
 from sklearn.preprocessing import StandardScaler
 from sklearn.utils import check_random_state
 
-from tabpfn import TabPFNClassifier, TabPFNRegressor
+# mypy: ignore-errors
+from tabpfn import TabPFNClassifier, TabPFNRegressor  # type: ignore
 
 
 def get_prediction_hash(model_predictions: np.ndarray) -> str:
