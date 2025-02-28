@@ -71,6 +71,10 @@ def _get_embeddings(
     X = _fix_dtypes(X, cat_indices=model.categorical_features_indices)
     X = model.preprocessor_.transform(X)
 
+    # Ensure X is a numpy array, not a DataFrame
+    if hasattr(X, "values"):
+        X = X.to_numpy()
+
     embeddings: list[np.ndarray] = []
 
     for output, config in model.executor_.iter_outputs(
@@ -390,11 +394,12 @@ def load_model_criterion_config(
             model_name=model_name,
         )
         if res != "ok":
-            repo_type = "clf" if which == "classifier" else "reg"
             raise RuntimeError(
                 f"Failed to download model to {model_path}!\n\n"
                 f"For offline usage, please download the model manually from:\n"
-                f"https://huggingface.co/Prior-Labs/TabPFN-v2-{repo_type}/resolve/main/{model_name}\n\n"
+                f"https://huggingface.co/Prior-Labs/TabPFN-v2-"
+                f"{'clf' if which == 'classifier' else 'reg'}"
+                f"/resolve/main/{model_name}\n\n"
                 f"Then place it at: {model_path}",
             ) from res[0]
 
@@ -481,6 +486,28 @@ def _fix_dtypes(
     if convert_dtype:
         X = X.convert_dtypes()
 
+    # Handle NAs in text/string/object columns by replacing with a placeholder
+    # This avoids mixed type errors in scikit-learn's validation
+    string_cols = X.select_dtypes(include=["string", "object"]).columns
+    if len(string_cols) > 0:
+        # Use a placeholder for NaN values in string columns
+        placeholder = "__MISSING__"
+        # We need to handle several pandas versions and their different NA handling
+        for col in string_cols:
+            # Force to object type first for consistent behavior
+            X[col] = X[col].astype("object")
+            # Create mask for all NaN-like values
+            is_all_na = X[col].isna().all()
+            is_none = False if is_all_na else X[col].apply(lambda x: x is None)
+            mask = X[col].isna() | is_none
+            # Apply mask to set placeholder
+            X.loc[mask, col] = placeholder
+        # After encoding (which happens in the preprocessing pipeline),
+        # these placeholders will be encoded as a category, but at least
+        # the data will be processable without errors.
+        # We'll then handle this consistently with numeric NaNs.
+
+    # Convert numeric columns to the specified numeric dtype
     integer_columns = X.select_dtypes(include=["number"]).columns
     if len(integer_columns) > 0:
         X[integer_columns] = X[integer_columns].astype(numeric_dtype)
