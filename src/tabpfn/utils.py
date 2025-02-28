@@ -71,6 +71,10 @@ def _get_embeddings(
     X = _fix_dtypes(X, cat_indices=model.categorical_features_indices)
     X = model.preprocessor_.transform(X)
 
+    # Ensure X is a numpy array, not a DataFrame
+    if hasattr(X, "values"):
+        X = X.to_numpy()
+
     embeddings: list[np.ndarray] = []
 
     for output, config in model.executor_.iter_outputs(
@@ -480,9 +484,34 @@ def _fix_dtypes(
     if convert_dtype:
         X = X.convert_dtypes()
 
+    # Handle NAs in text/string/object columns by replacing with a placeholder
+    # This avoids mixed type errors in scikit-learn's validation
+    string_cols = X.select_dtypes(include=["string", "object"]).columns
+    if len(string_cols) > 0:
+        # Use a placeholder for NaN values in string columns
+        placeholder = "__MISSING__"
+        
+        # We need to handle several pandas versions and their different NA handling
+        for col in string_cols:
+            # Force to object type first - this works more consistently across pandas versions
+            X[col] = X[col].astype('object')
+            
+            # Create mask for all NaN-like values
+            mask = X[col].isna() | (X[col].apply(lambda x: x is None) if not X[col].isna().all() else False)
+            
+            # Apply mask to set placeholder
+            X.loc[mask, col] = placeholder
+            
+        # After encoding (which happens in the preprocessing pipeline),
+        # these placeholders will be encoded as a category, but at least
+        # the data will be processable without errors.
+        # We'll then handle this consistently with numeric NaNs.
+
+    # Convert numeric columns to the specified numeric dtype
     integer_columns = X.select_dtypes(include=["number"]).columns
     if len(integer_columns) > 0:
         X[integer_columns] = X[integer_columns].astype(numeric_dtype)
+    
     return X
 
 
