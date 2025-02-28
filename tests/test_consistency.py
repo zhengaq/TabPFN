@@ -8,7 +8,6 @@ the improvement.
 from __future__ import annotations
 
 import hashlib
-from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pytest
