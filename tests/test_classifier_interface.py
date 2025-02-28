@@ -320,7 +320,12 @@ def test_classifier_with_text_and_na() -> None:
     # Create test data with text and NA values
     data = {
         "text_feature": [
-            "good product", "bad service", None, "excellent", "average", None,
+            "good product",
+            "bad service",
+            None,
+            "excellent",
+            "average",
+            None,
         ],
         "numeric_feature": [10, 5, 8, 15, 7, 12],
         "target": [1, 0, 1, 1, 0, 0],

@@ -458,10 +458,12 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
         # By using OrdinalEncoder with unknown_value=float("nan") for all text columns
         table_vectorizer = TableVectorizer(
             low_cardinality=OrdinalEncoder(
-                handle_unknown="use_encoded_value", unknown_value=float("nan"),
+                handle_unknown="use_encoded_value",
+                unknown_value=float("nan"),
             ),
             high_cardinality=OrdinalEncoder(
-                handle_unknown="use_encoded_value", unknown_value=float("nan"),
+                handle_unknown="use_encoded_value",
+                unknown_value=float("nan"),
             ),
             numeric="passthrough",
             drop_null_fraction=None,  # Don't drop columns with NAs
