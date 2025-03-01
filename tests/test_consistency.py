@@ -29,6 +29,8 @@ The tests use:
 
 from __future__ import annotations
 
+import platform
+
 import numpy as np
 import pytest
 import sklearn.datasets
@@ -37,6 +39,21 @@ from sklearn.utils import check_random_state
 
 # mypy: ignore-errors
 from tabpfn import TabPFNClassifier, TabPFNRegressor  # type: ignore
+
+# Configuration for consistency tests
+# Specify the reference platform these tests were created on
+REFERENCE_PLATFORM = "Darwin"  # macOS
+REFERENCE_PYTHON_VERSION = "3.12"
+# If True, also run the tests on other platforms but with higher tolerance
+RUN_ON_ALL_PLATFORMS = False
+
+# Create a reusable decorator for platform-specific tests
+platform_specific = pytest.mark.skipif(
+    not (platform.system() == REFERENCE_PLATFORM and
+         platform.python_version().startswith(REFERENCE_PYTHON_VERSION)),
+    reason="Model consistency tests are platform-specific. "
+           f"Reference values are for {REFERENCE_PLATFORM}"
+)
 
 
 def generate_prediction_stats(model_predictions: np.ndarray) -> dict:
@@ -75,7 +92,8 @@ def generate_prediction_stats(model_predictions: np.ndarray) -> dict:
 
 
 # Define reference statistics for expected prediction outputs
-# Generated on macOS (Apple M1 Max) using scikit-learn's 16 decimal precision
+# Generated on platform: Darwin with Python 3.12
+# Using scikit-learn's 16 decimal precision for better reproducibility
 # These should only be updated when model improvements are verified or when
 # regenerating references for a different platform
 REFERENCE_STATS = {
@@ -239,6 +257,7 @@ class TestModelConsistency:
 
         return X_train, X_test, y_train, y_test
 
+    @platform_specific
     def test_iris_classifier_consistency(self, iris_data):
         """Verify TabPFNClassifier predictions on Iris dataset are consistent."""
         X_train, X_test, y_train, y_test = iris_data
@@ -285,6 +304,7 @@ class TestModelConsistency:
                 f"3. Document the improvement in your PR description\n"
             )
 
+    @platform_specific
     def test_breast_cancer_classifier_consistency(self, breast_cancer_data):
         """Verify TabPFNClassifier predictions on Breast Cancer dataset."""
         X_train, X_test, y_train, y_test = breast_cancer_data
@@ -331,6 +351,7 @@ class TestModelConsistency:
                 f"3. Document the improvement in your PR description\n"
             )
 
+    @platform_specific
     def test_boston_regressor_consistency(self, boston_data):
         """Verify TabPFNRegressor predictions on Boston Housing dataset."""
         X_train, X_test, y_train, y_test = boston_data
@@ -377,6 +398,7 @@ class TestModelConsistency:
                 f"3. Document the improvement in your PR description\n"
             )
 
+    @platform_specific
     def test_diabetes_regressor_consistency(self, diabetes_data):
         """Verify TabPFNRegressor predictions on Diabetes dataset are consistent."""
         X_train, X_test, y_train, y_test = diabetes_data
@@ -429,6 +451,7 @@ class TestModelConsistency:
 
 class TestStatsRobustness:
     """Verify that our statistical approach correctly detects meaningful changes."""
+    # These tests run on all platforms (no reference values needed)
 
     @pytest.fixture
     def test_data(self):
@@ -593,10 +616,10 @@ update_reference_stats()"
     Steps to update reference statistics:
     1. Make your changes to the TabPFN code
     2. Verify these changes improve model performance on benchmarks
-    3. Run this function on the SAME PLATFORM that will be used for testing
-       (e.g., development machine or CI environment)
+    3. Run this function on the reference platform (currently: Darwin Python 3.12)
+       or update the REFERENCE_PLATFORM and REFERENCE_PYTHON_VERSION values
     4. Update the REFERENCE_STATS dictionary in test_consistency.py
-    5. Document which platform was used to generate the references
+    5. Document the platform used in the REFERENCE_PLATFORM variable
     6. Document the improvements in your PR description
 
     IMPORTANT: These reference values are platform-specific. When updating,
