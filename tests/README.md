@@ -24,21 +24,42 @@ The tests are organized into two classes:
 1. `TestModelConsistency`: Verifies that TabPFN models produce consistent predictions
    - Uses standardized datasets (Iris, Breast Cancer, Boston Housing, Diabetes)
    - Creates models with fixed random seeds
-   - Computes hashes of model predictions
-   - Compares hashes against known reference values
+   - Computes statistical summaries of model predictions
+   - Compares statistics against known reference values
 
-2. `TestHashRobustness`: Verifies that our hash function correctly detects changes
-   - Confirms that the hash changes when input data changes
-   - Confirms that the hash changes when model configuration changes
+2. `TestStatsRobustness`: Verifies that our statistical approach correctly detects changes
+   - Confirms that statistics change when input data changes significantly
+   - Confirms that statistics change when model configuration changes
    - Tests both classifiers and regressors
+
+### Cross-Platform Consistency
+
+TabPFN uses a statistical approach to verify model consistency that works reliably across different:
+- Operating systems (Windows, macOS, Linux)
+- Hardware architectures (x86, ARM, etc.)
+- Python versions
+- NumPy versions
+
+Instead of relying on exact hash values (which can be brittle due to platform-specific floating-point differences),
+our approach computes key statistical properties of model predictions:
+1. **Distribution statistics** - min, max, mean, median, standard deviation
+2. **Percentiles** - p10, p25, p75, p90 capture the distribution shape
+3. **Output shape** - ensures the dimensionality remains consistent
+
+The tests allow for small variations (1% relative tolerance) in these statistics to account for 
+inevitable floating-point differences across platforms, while still detecting any meaningful
+changes in model behavior. This approach provides a good balance between:
+- Being strict enough to catch real regressions or changes in model behavior
+- Being flexible enough to avoid false positives from harmless platform-specific variations
 
 ### When a Consistency Test Fails
 
 When a consistency test fails, it means the model's behavior has changed. The failure message includes:
 
-1. The expected hash from the reference
-2. The actual hash from your current code
-3. Instructions for how to proceed
+1. The expected statistic that differs from the reference
+2. The actual statistic from your current code
+3. The difference between them
+4. Instructions for how to proceed
 
 ### Managing Intentional Model Changes
 
@@ -49,9 +70,9 @@ If you're making intentional changes to the model that should improve performanc
    - Document the performance improvements with metrics
    - Consider running on the established AutoML benchmark suite
 
-2. **Update the reference hashes:**
+2. **Update the reference statistics:**
    ```python
-   python -c "from tests.test_consistency import update_reference_hashes; update_reference_hashes()"
+   python -c "from tests.test_consistency import update_reference_stats; update_reference_stats()"
    ```
 
 3. **Document the changes in your PR:**
@@ -59,8 +80,8 @@ If you're making intentional changes to the model that should improve performanc
    - Provide benchmark results showing the improvement
    - Explain why this change is beneficial
 
-4. **Update the REFERENCE_HASHES dictionary:**
-   - Replace the values in `test_consistency.py` with the newly generated hashes
+4. **Update the REFERENCE_STATS dictionary:**
+   - Replace the values in `test_consistency.py` with the newly generated statistics
    - Include this change in your PR
 
 ### Rules for Model Changes
