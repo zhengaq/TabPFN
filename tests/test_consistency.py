@@ -7,8 +7,6 @@ the improvement.
 
 from __future__ import annotations
 
-import hashlib
-
 import numpy as np
 import pytest
 import sklearn.datasets
@@ -33,10 +31,12 @@ def generate_prediction_stats(model_predictions: np.ndarray) -> dict:
         Dictionary containing statistical measures of the predictions
     """
     # Flatten array if needed
-    flat_preds = model_predictions.flatten() if model_predictions.ndim > 1 else model_predictions
-    
+    flat_preds = (
+        model_predictions.flatten() if model_predictions.ndim > 1 else model_predictions
+    )
+
     # Compute statistics that should be stable across platforms
-    stats = {
+    return {
         "min": float(np.min(flat_preds)),
         "max": float(np.max(flat_preds)),
         "mean": float(np.mean(flat_preds)),
@@ -50,8 +50,7 @@ def generate_prediction_stats(model_predictions: np.ndarray) -> dict:
         # Shape information
         "shape": model_predictions.shape,
     }
-    
-    return stats
+
 
 
 # Define reference statistics for expected prediction outputs
@@ -67,7 +66,7 @@ REFERENCE_STATS = {
         "p25": 2.5048144607353606e-06,
         "p75": 0.9885713160037994,
         "p90": 0.9995496034622192,
-        "shape": (45, 3)
+        "shape": (45, 3),
     },
     "breast_cancer_classifier": {
         "min": 1.9300450730952434e-06,
@@ -79,7 +78,7 @@ REFERENCE_STATS = {
         "p25": 0.00026308767701266333,
         "p75": 0.9997369199991226,
         "p90": 0.9999786019325256,
-        "shape": (171, 2)
+        "shape": (171, 2),
     },
     "boston_regressor": {
         "min": 8.342599868774414,
@@ -91,7 +90,7 @@ REFERENCE_STATS = {
         "p25": 18.07076930999756,
         "p75": 26.79212713241577,
         "p90": 34.71592826843262,
-        "shape": (152,)
+        "shape": (152,),
     },
     "diabetes_regressor": {
         "min": 69.17279052734375,
@@ -103,7 +102,7 @@ REFERENCE_STATS = {
         "p25": 109.09040832519531,
         "p75": 193.2696075439453,
         "p90": 241.7614501953125,
-        "shape": (133,)
+        "shape": (133,),
     },
 }
 
@@ -235,17 +234,17 @@ class TestModelConsistency:
         # Generate statistics from predictions
         actual_stats = generate_prediction_stats(predictions)
         reference_stats = REFERENCE_STATS["iris_classifier"]
-        
+
         # Tolerance for floating point differences across platforms
         # Allow 1% relative error for most statistics
         rtol = 0.01
-        
+
         # Check shape exactly (should be identical)
         assert actual_stats["shape"] == reference_stats["shape"], (
             f"Prediction shape has changed for Iris dataset.\n"
             f"Expected: {reference_stats['shape']}, got: {actual_stats['shape']}"
         )
-        
+
         # Check key statistics are within tolerance
         for stat in ["min", "max", "mean", "std", "median", "p10", "p25", "p75", "p90"]:
             assert np.isclose(actual_stats[stat], reference_stats[stat], rtol=rtol), (
@@ -278,21 +277,21 @@ class TestModelConsistency:
         # Generate statistics from predictions
         actual_stats = generate_prediction_stats(predictions)
         reference_stats = REFERENCE_STATS["breast_cancer_classifier"]
-        
+
         # Tolerance for floating point differences across platforms
         # Allow 1% relative error for most statistics
         rtol = 0.01
-        
+
         # Check shape exactly (should be identical)
         assert actual_stats["shape"] == reference_stats["shape"], (
             f"Prediction shape has changed for Breast Cancer dataset.\n"
             f"Expected: {reference_stats['shape']}, got: {actual_stats['shape']}"
         )
-        
+
         # Check key statistics are within tolerance
         for stat in ["min", "max", "mean", "std", "median", "p10", "p25", "p75", "p90"]:
             assert np.isclose(actual_stats[stat], reference_stats[stat], rtol=rtol), (
-                f"TabPFNClassifier predictions for Breast Cancer have changed significantly.\n"
+                f"TabPFNClassifier predictions for Breast Cancer have changed.\n"
                 f"Statistic '{stat}' differs too much:\n"
                 f"Expected: {reference_stats[stat]}\n"
                 f"Actual: {actual_stats[stat]}\n"
@@ -321,21 +320,21 @@ class TestModelConsistency:
         # Generate statistics from predictions
         actual_stats = generate_prediction_stats(predictions)
         reference_stats = REFERENCE_STATS["boston_regressor"]
-        
+
         # Tolerance for floating point differences across platforms
         # Allow 1% relative error for most statistics
         rtol = 0.01
-        
+
         # Check shape exactly (should be identical)
         assert actual_stats["shape"] == reference_stats["shape"], (
             f"Prediction shape has changed for Boston Housing dataset.\n"
             f"Expected: {reference_stats['shape']}, got: {actual_stats['shape']}"
         )
-        
+
         # Check key statistics are within tolerance
         for stat in ["min", "max", "mean", "std", "median", "p10", "p25", "p75", "p90"]:
             assert np.isclose(actual_stats[stat], reference_stats[stat], rtol=rtol), (
-                f"TabPFNRegressor predictions for Boston Housing have changed significantly.\n"
+                f"TabPFNRegressor predictions for Boston Housing have changed.\n"
                 f"Statistic '{stat}' differs too much:\n"
                 f"Expected: {reference_stats[stat]}\n"
                 f"Actual: {actual_stats[stat]}\n"
@@ -364,21 +363,21 @@ class TestModelConsistency:
         # Generate statistics from predictions
         actual_stats = generate_prediction_stats(predictions)
         reference_stats = REFERENCE_STATS["diabetes_regressor"]
-        
+
         # Tolerance for floating point differences across platforms
         # Allow 1% relative error for most statistics
         rtol = 0.01
-        
+
         # Check shape exactly (should be identical)
         assert actual_stats["shape"] == reference_stats["shape"], (
             f"Prediction shape has changed for Diabetes dataset.\n"
             f"Expected: {reference_stats['shape']}, got: {actual_stats['shape']}"
         )
-        
+
         # Check key statistics are within tolerance
         for stat in ["min", "max", "mean", "std", "median", "p10", "p25", "p75", "p90"]:
             assert np.isclose(actual_stats[stat], reference_stats[stat], rtol=rtol), (
-                f"TabPFNRegressor predictions for Diabetes have changed significantly.\n"
+                f"TabPFNRegressor predictions for Diabetes have changed.\n"
                 f"Statistic '{stat}' differs too much:\n"
                 f"Expected: {reference_stats[stat]}\n"
                 f"Actual: {actual_stats[stat]}\n"
@@ -437,8 +436,10 @@ class TestStatsRobustness:
             if not np.isclose(original_stats[stat], modified_stats[stat], rtol=0.01):
                 differences_detected = True
                 break
-        
-        assert differences_detected, "Statistical approach failed to detect significant change in classification data"
+
+        assert differences_detected, (
+            "Statistical approach failed to detect change in classification data"
+        )
 
     def test_classifier_stats_detect_model_changes(self, test_data):
         """Verify stats detect changes in classifier configuration."""
@@ -448,24 +449,24 @@ class TestStatsRobustness:
         clf1 = TabPFNClassifier(n_estimators=2, random_state=42, device="cpu")
         clf1.fit(X_train, y_train)
         predictions1 = clf1.predict_proba(X_test)
-        stats1 = generate_prediction_stats(predictions1)
+        generate_prediction_stats(predictions1)
 
         # Create classifier with significantly different configuration
         # Use a much different random seed to ensure we get different predictions
         clf2 = TabPFNClassifier(n_estimators=10, random_state=1234, device="cpu")
         clf2.fit(X_train, y_train)
         predictions2 = clf2.predict_proba(X_test)
-        stats2 = generate_prediction_stats(predictions2)
+        generate_prediction_stats(predictions2)
 
-        # For the robustness test, we'll use a fixed random seed and sample to check that 
-        # predictions are different between two model configurations
+        # For the robustness test, we'll sample to check that predictions differ
+        # between two model configurations with different random states
         # Given that we're testing the validity of the test itself, we can make this an
         # explicit check on an element of the prediction
-        np.random.seed(42)
-        sample_idx = np.random.randint(0, len(predictions1.flatten()) - 1)
+        rng = np.random.RandomState(42)
+        sample_idx = rng.randint(0, len(predictions1.flatten()) - 1)
         sample_val1 = predictions1.flatten()[sample_idx]
         sample_val2 = predictions2.flatten()[sample_idx]
-        
+
         # Check that at least one specific prediction is different
         # because we changed the random seed and ensemble size significantly
         # this allows us to skip the statistical test altogether in this case
@@ -501,8 +502,10 @@ class TestStatsRobustness:
             if not np.isclose(original_stats[stat], modified_stats[stat], rtol=0.01):
                 differences_detected = True
                 break
-        
-        assert differences_detected, "Statistical approach failed to detect significant change in regression data"
+
+        assert differences_detected, (
+            "Statistical approach failed to detect change in regression data"
+        )
 
     def test_regressor_stats_detect_model_changes(self, test_data):
         """Verify stats detect changes in regressor configuration."""
@@ -512,24 +515,24 @@ class TestStatsRobustness:
         reg1 = TabPFNRegressor(n_estimators=2, random_state=42, device="cpu")
         reg1.fit(X_train, y_train)
         predictions1 = reg1.predict(X_test)
-        stats1 = generate_prediction_stats(predictions1)
+        generate_prediction_stats(predictions1)
 
         # Create regressor with significantly different configuration
         # Use a much different random seed to ensure we get different predictions
         reg2 = TabPFNRegressor(n_estimators=10, random_state=1234, device="cpu")
         reg2.fit(X_train, y_train)
         predictions2 = reg2.predict(X_test)
-        stats2 = generate_prediction_stats(predictions2)
+        generate_prediction_stats(predictions2)
 
-        # For the robustness test, we'll use a fixed random seed and sample to check that 
-        # predictions are different between two model configurations
+        # For the robustness test, we'll sample to check that predictions differ
+        # between two model configurations with different random states
         # Given that we're testing the validity of the test itself, we can make this an
         # explicit check on an element of the prediction
-        np.random.seed(42)
-        sample_idx = np.random.randint(0, len(predictions1) - 1)
+        rng = np.random.RandomState(42)
+        sample_idx = rng.randint(0, len(predictions1) - 1)
         sample_val1 = predictions1[sample_idx]
         sample_val2 = predictions2[sample_idx]
-        
+
         # Check that at least one specific prediction is different
         # because we changed the random seed and ensemble size significantly
         # this allows us to skip the statistical test altogether in this case
@@ -552,7 +555,7 @@ update_reference_stats()"
     Steps to update reference statistics:
     1. Make your changes to the TabPFN code
     2. Verify these changes improve model performance on benchmarks
-    3. Run this function to generate new reference statistics 
+    3. Run this function to generate new reference statistics
     4. Update the REFERENCE_STATS dictionary in test_consistency.py
     5. Document the improvements in your PR description
     """
@@ -636,18 +639,19 @@ update_reference_stats()"
     predictions = reg.predict(X_test)
     reference_stats["diabetes_regressor"] = generate_prediction_stats(predictions)
 
-    # Print reference statistics in a format easy to copy into code
-    print("Updated reference statistics:")
-    print("{")
-    for key, stats in reference_stats.items():
-        print(f'    "{key}": ' + "{")
-        for stat_name, stat_value in stats.items():
-            if stat_name == "shape":
-                print(f'        "{stat_name}": {stat_value},')
-            else:
-                print(f'        "{stat_name}": {stat_value},')
-        print("    },")
-    print("}")
+    # Format stats for easy copying
+    # Use logging instead of print for better linting compatibility
+    import logging
+    logger = logging.getLogger(__name__)
+    if logger.isEnabledFor(logging.DEBUG):
+        stats_format = "{\n"
+        for key, stats in reference_stats.items():
+            stats_format += f'    "{key}": ' + "{\n"
+            for stat_name, stat_value in stats.items():
+                stats_format += f'        "{stat_name}": {stat_value},\n'
+            stats_format += "    },\n"
+        stats_format += "}"
+        logger.debug("Updated reference statistics:\n%s", stats_format)
 
     return reference_stats
 
