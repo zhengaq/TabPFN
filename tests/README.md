@@ -32,29 +32,34 @@ The tests are organized into two classes:
    - Confirms that statistics change when model configuration changes
    - Tests both classifiers and regressors
 
-### Cross-Platform Consistency
+### Platform-Specific Consistency
 
-TabPFN uses a statistical approach to verify model consistency that works reliably across different:
-- Operating systems (Windows, macOS, Linux)
-- Hardware architectures (x86, ARM, etc.)
-- Python versions
-- NumPy versions
+TabPFN models can produce slightly different predictions across platforms due to:
+- Different CPU architectures (x86 vs ARM)
+- Different operating systems (Linux, macOS, Windows)
+- Different underlying BLAS/LAPACK implementations
+- Compiler-specific floating-point optimizations
 
-Instead of relying on exact hash values (which can be brittle due to platform-specific floating-point differences),
-our approach computes key statistical properties of model predictions:
-1. **Distribution statistics** - min, max, mean, median, standard deviation
-2. **Percentiles** - p10, p25, p75, p90 capture the distribution shape
-3. **Output shape** - ensures the dimensionality remains consistent
+Instead of relying on exact hash values, we use a statistical approach that:
+1. **Computes distribution statistics** - min, max, mean, median, standard deviation
+2. **Captures distribution shape** - percentiles at p10, p25, p75, p90
+3. **Verifies output shape** - ensures the dimensionality remains consistent
 
-The tests are designed for cross-platform compatibility by:
-1. Using scikit-learn's 16 decimal precision mode (`USE_SKLEARN_16_DECIMAL_PRECISION = True`)
-2. Allowing small variations (1% relative tolerance) in statistics to account for 
-   inevitable floating-point differences across platforms
-3. Using fixed random seeds throughout the testing process 
+The test suite is designed with these features:
+1. **Platform-specific reference values** - Reference stats are generated on a specific
+   platform and Python version defined at the top of the test file
+2. **Platform-specific test execution** - Tests only run on matching platforms using
+   pytest's skipif decorator
+3. **Double precision stability** - Uses scikit-learn's 16 decimal precision mode
+   (`USE_SKLEARN_16_DECIMAL_PRECISION = True`)
+4. **Reasonable tolerance** - Allows small variations (1-3% relative tolerance) in statistics
+   to account for unavoidable precision differences
+5. **Fixed random seeds** - Ensures reproducibility within the same platform
 
-This approach provides a good balance between:
-- Being strict enough to catch real regressions or changes in model behavior
-- Being flexible enough to avoid false positives from harmless platform-specific variations
+This approach:
+- Catches real regressions or changes in model behavior
+- Avoids false positives from platform-specific variations
+- Acknowledges the reality that exact numerical equivalence across all platforms is not practical
 
 ### When a Consistency Test Fails
 
@@ -74,19 +79,27 @@ If you're making intentional changes to the model that should improve performanc
    - Document the performance improvements with metrics
    - Consider running on the established AutoML benchmark suite
 
-2. **Update the reference statistics:**
+2. **Check your platform:**
+   - Reference stats in the test file are for a specific platform (see `REFERENCE_PLATFORM` 
+     and `REFERENCE_PYTHON_VERSION` at the top of the test file)
+   - Either update the stats on the same platform or change the platform settings
+
+3. **Update the reference statistics:**
    ```python
+   # Run this on the reference platform defined in the test file
    python -c "from tests.test_consistency import update_reference_stats; update_reference_stats()"
    ```
 
-3. **Document the changes in your PR:**
+4. **Document the changes in your PR:**
    - Explain what changes were made to the model
    - Provide benchmark results showing the improvement
    - Explain why this change is beneficial
+   - Note which platform the reference values were generated on
 
-4. **Update the REFERENCE_STATS dictionary:**
+5. **Update the REFERENCE_STATS dictionary:**
    - Replace the values in `test_consistency.py` with the newly generated statistics
-   - Include this change in your PR
+   - If using a different platform, update the `REFERENCE_PLATFORM` and `REFERENCE_PYTHON_VERSION` variables
+   - Include these changes in your PR
 
 ### Rules for Model Changes
 
