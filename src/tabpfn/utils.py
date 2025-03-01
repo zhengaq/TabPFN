@@ -82,7 +82,7 @@ def _get_embeddings(
         only_return_standard_out=False,
     ):
         # Cast output to Any to allow dict-like access
-        output_dict = typing.cast(typing.Dict[str, torch.Tensor], output)
+        output_dict = typing.cast(dict[str, torch.Tensor], output)
         embed = output_dict[selected_data].squeeze(1)
         assert isinstance(config, (ClassifierEnsembleConfig, RegressorEnsembleConfig))
         assert embed.ndim == 2
@@ -182,11 +182,10 @@ def is_autocast_available(device_type: str) -> bool:
         # Check if the function is available in torch
         if hasattr(torch.amp.autocast_mode, "is_autocast_available"):
             # Use function directly
-            torch_is_autocast_available = getattr(torch.amp.autocast_mode, "is_autocast_available")
+            torch_is_autocast_available = torch.amp.autocast_mode.is_autocast_available
             return bool(torch_is_autocast_available(device_type))
-        else:
-            # Fall back to custom implementation
-            raise AttributeError("is_autocast_available not found")
+        # Fall back to custom implementation
+        raise AttributeError("is_autocast_available not found")
     except (ImportError, AttributeError):
         # Fall back to custom implementation if the function isn't available
         return bool(
@@ -854,9 +853,10 @@ def get_total_memory_windows() -> float:
         The total memory of the system in GB.
     """
     import platform
+
     if platform.system() != "Windows":
         return 0.0  # Function should not be called on non-Windows platforms
-        
+
     # ref: https://github.com/microsoft/windows-rs/blob/c9177f7a65c764c237a9aebbd3803de683bedaab/crates/tests/bindgen/src/fn_return_void_sys.rs#L12
     # ref: https://learn.microsoft.com/en-us/windows/win32/api/sysinfoapi/ns-sysinfoapi-memorystatusex
     # this class is needed to load the memory status with GlobalMemoryStatusEx function
@@ -884,8 +884,7 @@ def get_total_memory_windows() -> float:
         windll = typing.cast(typing.Any, ctypes).windll
         k32_lib = windll.LoadLibrary("kernel32.dll")
         k32_lib.GlobalMemoryStatusEx(ctypes.byref(mem_status))
-        memory_gb = float(mem_status.ullTotalPhys) / 1e9  # Convert bytes to GB
-        return memory_gb
+        return float(mem_status.ullTotalPhys) / 1e9  # Convert bytes to GB
     except (AttributeError, OSError):
         # Fall back if not on Windows or if the function fails
         return 0.0

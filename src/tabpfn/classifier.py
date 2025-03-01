@@ -18,6 +18,8 @@
 
 from __future__ import annotations
 
+import typing
+
 from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -43,6 +45,7 @@ from tabpfn.constants import (
 from tabpfn.preprocessing import (
     ClassifierEnsembleConfig,
     EnsembleConfig,
+    PreprocessorConfig,
     default_classifier_preprocessor_configs,
 )
 from tabpfn.utils import (
@@ -475,10 +478,11 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
             feature_shift_decoder=self.interface_config_.FEATURE_SHIFT_METHOD,
             polynomial_features=self.interface_config_.POLYNOMIAL_FEATURES,
             max_index=len(X),
-            preprocessor_configs=(
+            preprocessor_configs=typing.cast(
+                Sequence[PreprocessorConfig],
                 preprocess_transforms
                 if preprocess_transforms is not None
-                else default_classifier_preprocessor_configs()
+                else default_classifier_preprocessor_configs(),
             ),
             class_shift_method=self.interface_config_.CLASS_SHIFT_METHOD,
             n_classes=self.n_classes_,
