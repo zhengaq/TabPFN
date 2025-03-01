@@ -17,8 +17,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 import typing
+from collections.abc import Sequence
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -706,17 +706,16 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
 
             if output_type == "full":
                 # Use typing.cast to help mypy understand this dictionary operation
-                result_dict = typing.cast(
-                    typing.Dict[str, typing.Any],
+                return typing.cast(
+                    dict[str, typing.Any],
                     {
                         "criterion": self.renormalized_criterion_,
                         "logits": logits,
                         **output_dict,
                     },
                 )
-                return result_dict
 
-            return typing.cast(typing.Dict[str, typing.Any], output_dict)
+            return typing.cast(dict[str, typing.Any], output_dict)
 
         return logit_to_output(output_type=output_type)
 

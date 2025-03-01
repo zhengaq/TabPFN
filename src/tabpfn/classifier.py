@@ -64,9 +64,7 @@ if TYPE_CHECKING:
     from sklearn.compose import ColumnTransformer
     from torch.types import _dtype
 
-    from tabpfn.inference import (
-        InferenceEngine,
-    )
+    from tabpfn.inference import InferenceEngine
     from tabpfn.model.config import InferenceConfig
 
     try:
