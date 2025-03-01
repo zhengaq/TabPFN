@@ -11,7 +11,7 @@ in this file were generated on macOS (ARM architecture) and should pass on simil
 environments. They may fail on different platforms due to:
 
 1. Different CPU architectures (x86 vs. ARM)
-2. Different OSes (Linux, macOS, Windows) 
+2. Different OSes (Linux, macOS, Windows)
 3. Different underlying BLAS/LAPACK implementations
 4. Compiler-specific floating-point optimizations
 
@@ -356,7 +356,7 @@ class TestModelConsistency:
         # Increased tolerance for regression tasks which show more platform variability
         # 3% relative error for better cross-platform compatibility
         rtol = 0.03
-        
+
         # Check shape exactly (should be identical)
         assert actual_stats["shape"] == reference_stats["shape"], (
             f"Prediction shape has changed for Boston Housing dataset.\n"
@@ -412,7 +412,9 @@ class TestModelConsistency:
         # Check key statistics are within tolerance
         for stat in ["min", "max", "mean", "std", "median", "p10", "p25", "p75", "p90"]:
             current_rtol = rtol
-            assert np.isclose(actual_stats[stat], reference_stats[stat], rtol=current_rtol), (
+            assert np.isclose(
+                actual_stats[stat], reference_stats[stat], rtol=current_rtol
+            ), (
                 f"TabPFNRegressor predictions for Diabetes have changed.\n"
                 f"Statistic '{stat}' differs too much:\n"
                 f"Expected: {reference_stats[stat]}\n"
@@ -596,7 +598,7 @@ update_reference_stats()"
     4. Update the REFERENCE_STATS dictionary in test_consistency.py
     5. Document which platform was used to generate the references
     6. Document the improvements in your PR description
-    
+
     IMPORTANT: These reference values are platform-specific. When updating,
     be sure to document which platform they were generated on, as the tests
     are expected to pass only on similar platforms.
