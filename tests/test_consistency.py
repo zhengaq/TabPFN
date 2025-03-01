@@ -49,10 +49,12 @@ RUN_ON_ALL_PLATFORMS = False
 
 # Create a reusable decorator for platform-specific tests
 platform_specific = pytest.mark.skipif(
-    not (platform.system() == REFERENCE_PLATFORM and
-         platform.python_version().startswith(REFERENCE_PYTHON_VERSION)),
+    not (
+        platform.system() == REFERENCE_PLATFORM
+        and platform.python_version().startswith(REFERENCE_PYTHON_VERSION)
+    ),
     reason="Model consistency tests are platform-specific. "
-           f"Reference values are for {REFERENCE_PLATFORM}"
+    f"Reference values are for {REFERENCE_PLATFORM}",
 )
 
 
@@ -451,6 +453,7 @@ class TestModelConsistency:
 
 class TestStatsRobustness:
     """Verify that our statistical approach correctly detects meaningful changes."""
+
     # These tests run on all platforms (no reference values needed)
 
     @pytest.fixture
