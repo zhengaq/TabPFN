@@ -22,7 +22,7 @@ from collections.abc import Sequence
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
-from typing_extensions import Self, overload
+from typing_extensions import Self, TypedDict, overload
 
 import numpy as np
 import torch
@@ -82,6 +82,23 @@ if TYPE_CHECKING:
         from sklearn.base import Tags
     except ImportError:
         Tags = Any
+
+
+# TypedDict definitions for prediction outputs
+class MainOutputDict(TypedDict):
+    """Dictionary containing the main output types from the TabPFN regressor."""
+
+    mean: np.ndarray
+    median: np.ndarray
+    mode: np.ndarray
+    quantiles: list[np.ndarray]
+
+
+class FullOutputDict(MainOutputDict):
+    """Dictionary containing all outputs from the TabPFN regressor."""
+
+    criterion: FullSupportBarDistribution
+    logits: torch.Tensor
 
 
 class TabPFNRegressor(RegressorMixin, BaseEstimator):
@@ -547,7 +564,7 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
         *,
         output_type: Literal["main"],
         quantiles: list[float] | None = None,
-    ) -> dict[str, np.ndarray]: ...
+    ) -> MainOutputDict: ...
 
     @overload
     def predict(
@@ -556,7 +573,7 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
         *,
         output_type: Literal["full"],
         quantiles: list[float] | None = None,
-    ) -> dict[str, np.ndarray | FullSupportBarDistribution]: ...
+    ) -> FullOutputDict: ...
 
     # FIXME: improve to not have noqa C901, PLR0912
     def predict(  # noqa: C901, PLR0912
@@ -573,12 +590,7 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
             "main",
         ] = "mean",
         quantiles: list[float] | None = None,
-    ) -> (
-        np.ndarray
-        | list[np.ndarray]
-        | dict[str, np.ndarray]
-        | dict[str, np.ndarray | FullSupportBarDistribution]
-    ):
+    ) -> np.ndarray | list[np.ndarray] | MainOutputDict | FullOutputDict:
         """Predict the target variable.
 
         Args:
@@ -699,23 +711,33 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
             quantiles=quantiles,
         )
         if output_type in ["full", "main"]:
-            # Create a dictionary of outputs
-            output_dict = {
-                k: logit_to_output(output_type=k) for k in self._OUTPUT_TYPES
-            }
+            # Create a dictionary of outputs with proper typing via TypedDict
+            # Get individual outputs with proper typing
+            mean_out = typing.cast(np.ndarray, logit_to_output(output_type="mean"))
+            median_out = typing.cast(np.ndarray, logit_to_output(output_type="median"))
+            mode_out = typing.cast(np.ndarray, logit_to_output(output_type="mode"))
+            quantiles_out = typing.cast(
+                list[np.ndarray],
+                logit_to_output(output_type="quantiles"),
+            )
+
+            # Create our typed dictionary
+            main_outputs = MainOutputDict(
+                mean=mean_out,
+                median=median_out,
+                mode=mode_out,
+                quantiles=quantiles_out,
+            )
 
             if output_type == "full":
-                # Use typing.cast to help mypy understand this dictionary operation
-                return typing.cast(
-                    dict[str, typing.Any],
-                    {
-                        "criterion": self.renormalized_criterion_,
-                        "logits": logits,
-                        **output_dict,
-                    },
+                # Return full output with criterion and logits
+                return FullOutputDict(
+                    **main_outputs,
+                    criterion=self.renormalized_criterion_,
+                    logits=logits,
                 )
 
-            return typing.cast(dict[str, typing.Any], output_dict)
+            return main_outputs
 
         return logit_to_output(output_type=output_type)
 
