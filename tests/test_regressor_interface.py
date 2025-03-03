@@ -306,3 +306,18 @@ def test_get_embeddings(X_y: tuple[np.ndarray, np.ndarray], data_source: str) ->
     assert embeddings.shape[0] == n_estimators
     assert embeddings.shape[1] == X.shape[0]
     assert embeddings.shape[2] == encoder_shape
+
+
+def test_overflow():
+    """Test which fails for scipy<1.11.0."""
+    # Fetch a small sample of the California housing dataset
+    X, y = sklearn.datasets.fetch_california_housing(return_X_y=True)
+    X, y = X[:20], y[:20]
+
+    # Create and fit the regressor
+    regressor = TabPFNRegressor(n_estimators=1, device="cpu", random_state=42)
+
+    regressor.fit(X, y)
+
+    predictions = regressor.predict(X)
+    assert predictions.shape == (X.shape[0],), "Predictions shape is incorrect"
