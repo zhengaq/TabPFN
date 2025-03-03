@@ -48,7 +48,7 @@ body:
       Sample code to reproduce the problem
       ```
   validations:
-    required: false
+    required: true
 - type: textarea
   attributes:
     label: Expected Results
@@ -57,7 +57,7 @@ body:
     placeholder: >
       Example: No error is thrown.
   validations:
-    required: false
+    required: true
 - type: textarea
   attributes:
     label: Actual Results
@@ -74,7 +74,7 @@ body:
     placeholder: >
       Please paste or specifically describe the actual output or traceback.
   validations:
-    required: false
+    required: true
 - type: textarea
   attributes:
     label: Versions
@@ -85,7 +85,7 @@ body:
       import tabpfn; tabpfn.display_debug_info()
       ```
   validations:
-    required: false
+    required: true
 - type: markdown
   attributes:
     value: >
