@@ -466,7 +466,6 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
                 unknown_value=float("nan"),
             ),
             numeric="passthrough",
-            drop_null_fraction=None,  # Don't drop columns with NAs
         )
 
         X = table_vectorizer.fit_transform(X)
