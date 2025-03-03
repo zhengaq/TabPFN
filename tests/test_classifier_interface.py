@@ -6,6 +6,7 @@ from itertools import product
 from typing import Callable, Literal
 
 import numpy as np
+import pandas as pd
 import pytest
 import sklearn.datasets
 import torch
@@ -315,9 +316,6 @@ def test_get_embeddings(X_y: tuple[np.ndarray, np.ndarray], data_source: str) ->
 def test_classifier_with_text_and_na() -> None:
     """Test that TabPFNClassifier correctly handles text columns with NA values."""
     # Create a DataFrame with text and NA values
-    import pandas as pd
-    import numpy as np
-
     # Create test data with text and NA values
     data = {
         "text_feature": [
