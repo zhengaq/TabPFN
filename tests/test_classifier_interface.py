@@ -316,6 +316,7 @@ def test_classifier_with_text_and_na() -> None:
     """Test that TabPFNClassifier correctly handles text columns with NA values."""
     # Create a DataFrame with text and NA values
     import pandas as pd
+    import numpy as np
 
     # Create test data with text and NA values
     data = {
@@ -328,6 +329,7 @@ def test_classifier_with_text_and_na() -> None:
             None,
         ],
         "numeric_feature": [10, 5, 8, 15, 7, 12],
+        "all_na_column": [None, None, None, None, None, None],  # Column with all NaNs
         "target": [1, 0, 1, 1, 0, 0],
     }
 
@@ -335,10 +337,10 @@ def test_classifier_with_text_and_na() -> None:
     df = pd.DataFrame(data)
 
     # Split into X and y
-    X = df[["text_feature", "numeric_feature"]]
+    X = df[["text_feature", "numeric_feature", "all_na_column"]]
     y = df["target"]
 
-    # Initialize and fit TabPFN on data with text+NA
+    # Initialize and fit TabPFN on data with text+NA and a column with all NAs
     classifier = TabPFNClassifier(device="cpu", n_estimators=2)
 
     # This should now work without raising errors
