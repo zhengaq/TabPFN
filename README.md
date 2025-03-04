@@ -43,51 +43,6 @@ git clone https://github.com/PriorLabs/TabPFN.git
 pip install -e "TabPFN[dev]"
 ```
 
-### Offline Usage
-
-TabPFN automatically downloads model weights when first used. For offline usage:
-
-#### Manual Download
-
-1. Download the model files manually from HuggingFace:
-   - Classifier: [tabpfn-v2-classifier.ckpt](https://huggingface.co/Prior-Labs/TabPFN-v2-clf/resolve/main/tabpfn-v2-classifier.ckpt)
-   - Regressor: [tabpfn-v2-regressor.ckpt](https://huggingface.co/Prior-Labs/TabPFN-v2-reg/resolve/main/tabpfn-v2-regressor.ckpt)
-
-2. Place the file in one of these locations:
-   - Specify directly: `TabPFNClassifier(model_path="/path/to/model.ckpt")`
-   - Set environment variable: `os.environ["TABPFN_MODEL_CACHE_DIR"] = "/path/to/dir"`
-   - Default OS cache directory:
-     - Windows: `%APPDATA%\tabpfn\`
-     - macOS: `~/Library/Caches/tabpfn/`
-     - Linux: `~/.cache/tabpfn/`
-
-#### Quick Download Script
-
-```python
-import requests
-from tabpfn.utils import _user_cache_dir
-import sys
-
-# Get default cache directory using TabPFN's internal function
-cache_dir = _user_cache_dir(platform=sys.platform)
-cache_dir.mkdir(parents=True, exist_ok=True)
-
-# Define models to download
-models = {
-    "tabpfn-v2-classifier.ckpt": "https://huggingface.co/Prior-Labs/TabPFN-v2-clf/resolve/main/tabpfn-v2-classifier.ckpt",
-    "tabpfn-v2-regressor.ckpt": "https://huggingface.co/Prior-Labs/TabPFN-v2-reg/resolve/main/tabpfn-v2-regressor.ckpt",
-}
-
-# Download each model
-for name, url in models.items():
-    path = cache_dir / name
-    print(f"Downloading {name} to {path}")
-    with open(path, "wb") as f:
-        f.write(requests.get(url).content)
-
-print(f"Models downloaded to {cache_dir}")
-```
-
 ### Basic Usage
 
 #### Classification
@@ -231,7 +186,49 @@ A: TabPFN v2 requires **Python 3.9+** due to newer language features. Compatible
 ### **Installation & Setup**
 
 **Q: How do I use TabPFN without an internet connection?**  
-A: Manually download the model weights from [Hugging Face](https://huggingface.co/Prior-Labs/) and place them in your cache directory (see [Offline Usage](#offline-usage)).
+
+TabPFN automatically downloads model weights when first used. For offline usage:
+
+**Manual Download**
+
+1. Download the model files manually from HuggingFace:
+   - Classifier: [tabpfn-v2-classifier.ckpt](https://huggingface.co/Prior-Labs/TabPFN-v2-clf/resolve/main/tabpfn-v2-classifier.ckpt)
+   - Regressor: [tabpfn-v2-regressor.ckpt](https://huggingface.co/Prior-Labs/TabPFN-v2-reg/resolve/main/tabpfn-v2-regressor.ckpt)
+
+2. Place the file in one of these locations:
+   - Specify directly: `TabPFNClassifier(model_path="/path/to/model.ckpt")`
+   - Set environment variable: `os.environ["TABPFN_MODEL_CACHE_DIR"] = "/path/to/dir"`
+   - Default OS cache directory:
+     - Windows: `%APPDATA%\tabpfn\`
+     - macOS: `~/Library/Caches/tabpfn/`
+     - Linux: `~/.cache/tabpfn/`
+
+**Quick Download Script**
+
+```python
+import requests
+from tabpfn.utils import _user_cache_dir
+import sys
+
+# Get default cache directory using TabPFN's internal function
+cache_dir = _user_cache_dir(platform=sys.platform)
+cache_dir.mkdir(parents=True, exist_ok=True)
+
+# Define models to download
+models = {
+    "tabpfn-v2-classifier.ckpt": "https://huggingface.co/Prior-Labs/TabPFN-v2-clf/resolve/main/tabpfn-v2-classifier.ckpt",
+    "tabpfn-v2-regressor.ckpt": "https://huggingface.co/Prior-Labs/TabPFN-v2-reg/resolve/main/tabpfn-v2-regressor.ckpt",
+}
+
+# Download each model
+for name, url in models.items():
+    path = cache_dir / name
+    print(f"Downloading {name} to {path}")
+    with open(path, "wb") as f:
+        f.write(requests.get(url).content)
+
+print(f"Models downloaded to {cache_dir}")
+```
 
 **Q: I'm getting a `pickle` error when loading the model. What should I do?**  
 A: Try the following:
