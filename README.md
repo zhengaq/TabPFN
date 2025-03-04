@@ -220,13 +220,36 @@ You can read our paper explaining TabPFN [here](https://doi.org/10.1038/s41586-0
 
 ## ❓ FAQ
 
-### Python Version Compatibility
+### **Usage & Compatibility**
+
+**Q: What dataset sizes work best with TabPFN?**  
+A: TabPFN is optimized for **datasets up to 10,000 rows**. For larger datasets, consider using **Random Forest preprocessing** or other extensions. See our [Colab notebook](https://colab.research.google.com/drive/154SoIzNW1LHBWyrxNwmBqtFAr1uZRZ6a#scrollTo=OwaXfEIWlhC8) for strategies.
 
 **Q: Why can't I use TabPFN with Python 3.8?**  
-A: TabPFN v2 requires Python 3.9 or newer as specified in our `pyproject.toml`. This is due to our use of newer Python features and type annotations. We recommend updating to Python 3.9+ to use TabPFN v2.
+A: TabPFN v2 requires **Python 3.9+** due to newer language features. Compatible versions: **3.9, 3.10, 3.11, 3.12**.
 
-**Q: I'm getting pickle errors when loading the model. What could be wrong?**  
-A: First check that you're using Python 3.9+ and PyTorch 2.1+. If you've manually downloaded the model files, ensure they weren't corrupted during download. Try using the download script in the [Offline Usage](#offline-usage) section above.
+### **Installation & Setup**
+
+**Q: How do I use TabPFN without an internet connection?**  
+A: Manually download the model weights from [Hugging Face](https://huggingface.co/Prior-Labs/) and place them in your cache directory (see [Offline Usage](#offline-usage)).
+
+**Q: I'm getting a `pickle` error when loading the model. What should I do?**  
+A: Try the following:
+- Download the newest version of tabpfn `pip install tabpfn --upgrade`
+- Ensure model files downloaded correctly (re-download if needed)
+
+### **Performance & Limitations**
+
+**Q: Can TabPFN handle missing values?**  
+A: **Yes!**
+
+**Q: How can I improve TabPFN’s performance?**  
+A: Best practices:
+- Use **AutoTabPFNClassifier** from [TabPFN Extensions](https://github.com/priorlabs/tabpfn-extensions) for post-hoc ensembling
+- Feature engineering: Add domain-specific features to improve model performance
+Not effective:
+- Adapt feature scaling
+- Convert categorical features to numerical values (e.g., one-hot encoding)
 
 ## 🛠️ Development
 
