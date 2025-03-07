@@ -386,8 +386,11 @@ class SeqEncStep(nn.Module):
         else:
             assert not cache_trainset_representation
             out = self._forward(*args, **kwargs)
+            # TODO: I think nothing is using _forward now
 
-        assert isinstance(out, tuple)
+        assert isinstance(
+            out, tuple
+        ), f"out is not a tuple: {out}, type: {type(out)}, class: {self.__class__.__name__}"
         assert len(out) == len(self.out_keys)
         state.update({out_key: out[i] for i, out_key in enumerate(self.out_keys)})
         return state
@@ -473,7 +476,9 @@ class NanHandlingEncoderStep(SeqEncStep):
             **kwargs: Additional keyword arguments (unused).
         """
         self.feature_means_ = torch_nanmean(
-            x[:single_eval_pos], axis=0, include_inf=True
+            x[:single_eval_pos],
+            axis=0,
+            include_inf=True,
         )
 
     def _transform(
@@ -505,8 +510,8 @@ class NanHandlingEncoderStep(SeqEncStep):
         # replace nans with the mean of the corresponding feature
         x = x.clone()  # clone to avoid inplace operations
         x[nan_mask] = self.feature_means_.unsqueeze(0).expand_as(x)[nan_mask]
-
         return x, nans_indicator
+
 
 class RemoveEmptyFeaturesEncoderStep(SeqEncStep):
     """Encoder step to remove empty (constant) features.
@@ -649,12 +654,14 @@ class VariableNumFeaturesEncoderStep(SeqEncStep):
             A tuple containing the transformed tensor of shape (seq_len, batch_size, num_features).
         """
         if x.shape[2] == 0:
-            return torch.zeros(
-                x.shape[0],
-                x.shape[1],
-                self.num_features,
-                device=x.device,
-                dtype=x.dtype,
+            return (
+                torch.zeros(
+                    x.shape[0],
+                    x.shape[1],
+                    self.num_features,
+                    device=x.device,
+                    dtype=x.dtype,
+                ),
             )
         if self.normalize_by_used_features:
             if self.normalize_by_sqrt:
