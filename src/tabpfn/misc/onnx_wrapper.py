@@ -249,7 +249,7 @@ def export_model(
 
         # Define dynamic axes for variable input sizes
         dynamic_axes = {
-            "X": {0: "num_datapoints", 1: "batch_size", 2: "num_features"},
+            "X": {0: "num_datapoints", 2: "num_features"},
             "y": {0: "num_labels"},
             "single_eval_pos": {},
             "only_return_standard_out": {},
@@ -291,9 +291,10 @@ def check_input_names(model_path: str) -> None:
         model_path: The path to the ONNX model file.
     """
     onnx.load(model_path)
-    # get input names from graph
-    graph = onnx.load(model_path).graph
-    [input_node.name for input_node in graph.input]
+
+    # Print input names
+
+    # Print output names
 
 
 if __name__ == "__main__":

@@ -90,7 +90,7 @@ def normalize_data(
             mean = torch_nanmean(data, axis=0)  # type: ignore
             std = torch_nanstd(data, axis=0) + 1e-20
 
-        if len(data) == 1 or normalize_positions == 1:
+        if data.shape[0] == 1 or normalize_positions == 1:
             std[:] = 1.0
 
         if std_only:
