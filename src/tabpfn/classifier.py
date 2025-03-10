@@ -389,9 +389,15 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
         """
         static_seed, rng = infer_random_state(self.random_state)
 
+        # Determine device and precision
+        self.device_ = infer_device_and_type(self.device)
+        (self.use_autocast_, self.forced_inference_dtype_, byte_size) = (
+            determine_precision(self.inference_precision, self.device_)
+        )
+
         # Load the model and config
         if self.use_onnx:
-            self.model_ = load_onnx_model("model_classifier.onnx")
+            self.model_ = load_onnx_model("model_classifier.onnx", self.device_)
         else:
             self.model_, self.config_, _ = initialize_tabpfn_model(
                 model_path=self.model_path,
@@ -399,12 +405,6 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
                 fit_mode=self.fit_mode,
                 static_seed=static_seed,
             )
-
-        # Determine device and precision
-        self.device_ = infer_device_and_type(self.device)
-        (self.use_autocast_, self.forced_inference_dtype_, byte_size) = (
-            determine_precision(self.inference_precision, self.device_)
-        )
 
         # Build the interface_config
         self.interface_config_ = ModelInterfaceConfig.from_user_input(

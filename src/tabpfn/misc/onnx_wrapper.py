@@ -21,14 +21,21 @@ from tabpfn import TabPFNClassifier, TabPFNRegressor
 class ONNXModelWrapper:
     """Wrap ONNX model to match the PyTorch model interface."""
 
-    def __init__(self, model_path: str):
+    def __init__(self, model_path: str, device: torch.device):
         """Initialize the ONNX model wrapper.
 
         Args:
             model_path: Path to the ONNX model file.
+            device: The device to run the model on.
         """
         self.model_path = model_path
-        self.providers = ["CPUExecutionProvider"]
+        self.device = device
+        if device.type == "cuda":
+            self.providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+        elif device.type == "cpu":
+            self.providers = ["CPUExecutionProvider"]
+        else:
+            raise ValueError(f"Invalid device: {device}")
         self.session = ort.InferenceSession(
             model_path,
             providers=self.providers,
@@ -46,24 +53,27 @@ class ONNXModelWrapper:
         Returns:
             self
         """
-        if device.type == "cuda":
-            # Check if CUDA is available in ONNX Runtime
-            cuda_provider = "CUDAExecutionProvider"
-            if cuda_provider in ort.get_available_providers():
-                self.providers = [cuda_provider, "CPUExecutionProvider"]
-                # Reinitialize session with CUDA provider
+        # Only recreate session if device type has changed
+        if device.type != self.device.type:
+            if device.type == "cuda":
+                # Check if CUDA is available in ONNX Runtime
+                cuda_provider = "CUDAExecutionProvider"
+                if cuda_provider in ort.get_available_providers():
+                    self.providers = [cuda_provider, "CPUExecutionProvider"]
+                    # Reinitialize session with CUDA provider
+                    self.session = ort.InferenceSession(
+                        self.model_path,
+                        providers=self.providers,
+                    )
+                # If CUDA is not available, keep current session
+            else:
+                self.providers = ["CPUExecutionProvider"]
                 self.session = ort.InferenceSession(
                     self.model_path,
                     providers=self.providers,
                 )
-            else:
-                pass
-        else:
-            self.providers = ["CPUExecutionProvider"]
-            self.session = ort.InferenceSession(
-                self.model_path,
-                providers=self.providers,
-            )
+            # Update the device
+            self.device = device
         return self
 
     def type(

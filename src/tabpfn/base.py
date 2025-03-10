@@ -114,11 +114,13 @@ def initialize_tabpfn_model(
 
 def load_onnx_model(
     model_path: str | Path,
+    device: torch.device,
 ) -> ONNXModelWrapper:
     """Load a TabPFN model in ONNX format.
 
     Args:
         model_path: Path to the ONNX model file.
+        device: The device to run the model on.
 
     Returns:
         The loaded ONNX model wrapped in a PyTorch-compatible interface.
@@ -139,7 +141,7 @@ def load_onnx_model(
     if not model_path.exists():
         raise FileNotFoundError(f"ONNX model not found at: {model_path}")
 
-    return ONNXModelWrapper(str(model_path))
+    return ONNXModelWrapper(str(model_path), device)
 
 
 def determine_precision(

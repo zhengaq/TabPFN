@@ -401,9 +401,15 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
         """
         static_seed, rng = infer_random_state(self.random_state)
 
+        # Determine device and precision
+        self.device_ = infer_device_and_type(self.device)
+        (self.use_autocast_, self.forced_inference_dtype_, byte_size) = (
+            determine_precision(self.inference_precision, self.device_)
+        )
+
         # Load the model and config
         if self.use_onnx:
-            self.model_ = load_onnx_model("model_regressor.onnx")
+            self.model_ = load_onnx_model("model_regressor.onnx", self.device_)
             # Initialize bardist_ for ONNX mode
             # TODO: faster way to do this
             _, self.config_, self.bardist_ = initialize_tabpfn_model(
@@ -419,12 +425,6 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
                 fit_mode=self.fit_mode,
                 static_seed=static_seed,
             )
-
-        # Determine device and precision
-        self.device_ = infer_device_and_type(self.device)
-        (self.use_autocast_, self.forced_inference_dtype_, byte_size) = (
-            determine_precision(self.inference_precision, self.device_)
-        )
 
         # Build the interface_config
         self.interface_config_ = ModelInterfaceConfig.from_user_input(
