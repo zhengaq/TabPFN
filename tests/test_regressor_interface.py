@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 import sklearn.datasets
 import torch
+from sklearn import config_context
 from sklearn.base import check_is_fitted
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
@@ -321,3 +322,69 @@ def test_overflow():
 
     predictions = regressor.predict(X)
     assert predictions.shape == (X.shape[0],), "Predictions shape is incorrect"
+
+
+def test_pandas_output_config():
+    """Test compatibility with sklearn's output configuration settings."""
+    # Generate synthetic regression data
+    X, y = sklearn.datasets.make_regression(
+        n_samples=100,
+        n_features=10,
+        random_state=19,
+    )
+
+    # Initialize TabPFN
+    model = TabPFNRegressor(n_estimators=1, random_state=42)
+
+    # Get default predictions
+    model.fit(X, y)
+    default_pred = model.predict(X)
+
+    # Test with pandas output
+    with config_context(transform_output="pandas"):
+        model.fit(X, y)
+        pandas_pred = model.predict(X)
+        np.testing.assert_array_almost_equal(default_pred, pandas_pred)
+
+    # Test with polars output
+    with config_context(transform_output="polars"):
+        model.fit(X, y)
+        polars_pred = model.predict(X)
+        np.testing.assert_array_almost_equal(default_pred, polars_pred)
+
+
+def test_constant_feature_handling(X_y: tuple[np.ndarray, np.ndarray]) -> None:
+    """Test that constant features are properly handled and don't affect predictions."""
+    X, y = X_y
+
+    # Create a TabPFNRegressor with fixed random state for reproducibility
+    model = TabPFNRegressor(n_estimators=2, random_state=42)
+    model.fit(X, y)
+
+    # Get predictions on original data
+    original_predictions = model.predict(X)
+
+    # Create a new dataset with added constant features
+    X_with_constants = np.hstack(
+        [
+            X,
+            np.zeros((X.shape[0], 3)),  # Add 3 constant zero features
+            np.ones((X.shape[0], 2)),  # Add 2 constant one features
+            np.full((X.shape[0], 1), 5.0),  # Add 1 constant with value 5.0
+        ],
+    )
+
+    # Create and fit a new model with the same random state
+    model_with_constants = TabPFNRegressor(n_estimators=2, random_state=42)
+    model_with_constants.fit(X_with_constants, y)
+
+    # Get predictions on data with constant features
+    constant_predictions = model_with_constants.predict(X_with_constants)
+
+    # Verify predictions are the same (within numerical precision)
+    np.testing.assert_array_almost_equal(
+        original_predictions,
+        constant_predictions,
+        decimal=5,  # Allow small numerical differences
+        err_msg="Predictions changed after adding constant features",
+    )

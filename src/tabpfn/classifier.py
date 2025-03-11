@@ -25,6 +25,7 @@ from typing_extensions import Self
 
 import numpy as np
 import torch
+from sklearn import config_context
 from sklearn.base import BaseEstimator, ClassifierMixin, check_is_fitted
 from sklearn.preprocessing import LabelEncoder
 
@@ -374,6 +375,7 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
         tags.estimator_type = "classifier"
         return tags
 
+    @config_context(transform_output="default")
     def fit(self, X: XType, y: YType) -> Self:
         """Fit the model.
 
@@ -518,6 +520,7 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
         y = np.argmax(proba, axis=1)
         return self.label_encoder_.inverse_transform(y)  # type: ignore
 
+    @config_context(transform_output="default")
     def predict_proba(self, X: XType) -> np.ndarray:
         """Predict the probabilities of the classes for the provided input samples.
 
