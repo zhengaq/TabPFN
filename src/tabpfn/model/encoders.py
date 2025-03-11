@@ -507,7 +507,11 @@ class NanHandlingEncoderStep(SeqEncStep):
 
 
 class RemoveEmptyFeaturesEncoderStep(SeqEncStep):
-    """Encoder step to remove empty (constant) features."""
+    """Encoder step to remove empty (constant) features.
+    Was changed to NOT DO ANYTHING, the removal of empty features now
+    done elsewhere, but the saved model still needs this encoder step.
+    TODO: REMOVE.
+    """
 
     def __init__(self, **kwargs: Any):
         """Initialize the RemoveEmptyFeaturesEncoderStep.
@@ -525,7 +529,7 @@ class RemoveEmptyFeaturesEncoderStep(SeqEncStep):
             x: The input tensor.
             **kwargs: Additional keyword arguments (unused).
         """
-        self.sel = (x[1:] == x[0]).sum(0) != (x.shape[0] - 1)
+        # self.sel = (x[1:] == x[0]).sum(0) != (x.shape[0] - 1)
 
     def _transform(self, x: torch.Tensor, **kwargs: Any) -> tuple[torch.Tensor]:
         """Remove empty features from the input tensor.
@@ -537,7 +541,8 @@ class RemoveEmptyFeaturesEncoderStep(SeqEncStep):
         Returns:
             A tuple containing the transformed tensor with empty features removed.
         """
-        return (select_features(x, self.sel),)
+        # return (select_features(x, self.sel),)
+        return (x,)
 
 
 class RemoveDuplicateFeaturesEncoderStep(SeqEncStep):
