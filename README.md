@@ -15,7 +15,7 @@ CUDA optimization.
 
 ⚠️ **Major Update: Version 2.0:** Complete codebase overhaul with new architecture and 
 features. Previous version available at [v1.0.0](../../tree/v1.0.0) and 
-`pip install tabpfn<2`.
+`pip install tabpfn==0.1.11`.
 
 📚 For detailed usage examples and best practices, check out [Interactive Colab Tutorial](https://tinyurl.com/tabpfn-colab-local)
 
