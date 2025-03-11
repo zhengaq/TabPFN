@@ -345,3 +345,49 @@ def test_pandas_output_config():
         polars_proba = model.predict_proba(X)
         np.testing.assert_array_equal(default_pred, polars_pred)
         np.testing.assert_array_almost_equal(default_proba, polars_proba)
+
+
+def test_constant_feature_handling(X_y: tuple[np.ndarray, np.ndarray]) -> None:
+    """Test that constant features are properly handled and don't affect predictions."""
+    X, y = X_y
+
+    # Create a TabPFNClassifier with fixed random state for reproducibility
+    model = TabPFNClassifier(n_estimators=2, random_state=42)
+    model.fit(X, y)
+
+    # Get predictions on original data
+    original_predictions = model.predict(X)
+    original_probabilities = model.predict_proba(X)
+
+    # Create a new dataset with added constant features
+    X_with_constants = np.hstack(
+        [
+            X,
+            np.zeros((X.shape[0], 3)),  # Add 3 constant zero features
+            np.ones((X.shape[0], 2)),  # Add 2 constant one features
+            np.full((X.shape[0], 1), 5.0),  # Add 1 constant with value 5.0
+        ],
+    )
+
+    # Create and fit a new model with the same random state
+    model_with_constants = TabPFNClassifier(n_estimators=2, random_state=42)
+    model_with_constants.fit(X_with_constants, y)
+
+    # Get predictions on data with constant features
+    constant_predictions = model_with_constants.predict(X_with_constants)
+    constant_probabilities = model_with_constants.predict_proba(X_with_constants)
+
+    # Verify predictions are the same
+    np.testing.assert_array_equal(
+        original_predictions,
+        constant_predictions,
+        err_msg="Predictions changed after adding constant features",
+    )
+
+    # Verify probabilities are the same (within numerical precision)
+    np.testing.assert_array_almost_equal(
+        original_probabilities,
+        constant_probabilities,
+        decimal=5,
+        err_msg="Prediction probabilities changed after adding constant features",
+    )
