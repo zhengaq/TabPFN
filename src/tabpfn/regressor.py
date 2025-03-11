@@ -25,6 +25,7 @@ from typing_extensions import Self, overload
 
 import numpy as np
 import torch
+from sklearn import config_context
 from sklearn.base import (
     BaseEstimator,
     RegressorMixin,
@@ -380,6 +381,7 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
         tags.estimator_type = "regressor"
         return tags
 
+    @config_context(transform_output="default")
     def fit(self, X: XType, y: YType) -> Self:
         """Fit the model.
 
@@ -556,6 +558,7 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
     ) -> dict[str, np.ndarray | FullSupportBarDistribution]: ...
 
     # FIXME: improve to not have noqa C901, PLR0912
+    @config_context(transform_output="default")
     def predict(  # noqa: C901, PLR0912
         self,
         X: XType,
