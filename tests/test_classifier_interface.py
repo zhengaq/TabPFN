@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 import sklearn.datasets
 import torch
+from sklearn import config_context
 from sklearn.base import check_is_fitted
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
@@ -310,3 +311,37 @@ def test_get_embeddings(X_y: tuple[np.ndarray, np.ndarray], data_source: str) ->
     assert embeddings.shape[0] == n_estimators
     assert embeddings.shape[1] == X.shape[0]
     assert embeddings.shape[2] == encoder_shape
+
+
+def test_pandas_output_config():
+    """Test compatibility with sklearn's output configuration settings."""
+    # Generate synthetic classification data
+    X, y = sklearn.datasets.make_classification(
+        n_samples=100,
+        n_features=10,
+        random_state=19,
+    )
+
+    # Initialize TabPFN
+    model = TabPFNClassifier(n_estimators=1, random_state=42)
+
+    # Get default predictions
+    model.fit(X, y)
+    default_pred = model.predict(X)
+    default_proba = model.predict_proba(X)
+
+    # Test with pandas output
+    with config_context(transform_output="pandas"):
+        model.fit(X, y)
+        pandas_pred = model.predict(X)
+        pandas_proba = model.predict_proba(X)
+        np.testing.assert_array_equal(default_pred, pandas_pred)
+        np.testing.assert_array_almost_equal(default_proba, pandas_proba)
+
+    # Test with polars output
+    with config_context(transform_output="polars"):
+        model.fit(X, y)
+        polars_pred = model.predict(X)
+        polars_proba = model.predict_proba(X)
+        np.testing.assert_array_equal(default_pred, polars_pred)
+        np.testing.assert_array_almost_equal(default_proba, polars_proba)

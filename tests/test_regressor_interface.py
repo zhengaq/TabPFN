@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 import sklearn.datasets
 import torch
+from sklearn import config_context
 from sklearn.base import check_is_fitted
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
@@ -321,3 +322,32 @@ def test_overflow():
 
     predictions = regressor.predict(X)
     assert predictions.shape == (X.shape[0],), "Predictions shape is incorrect"
+
+
+def test_pandas_output_config():
+    """Test compatibility with sklearn's output configuration settings."""
+    # Generate synthetic regression data
+    X, y = sklearn.datasets.make_regression(
+        n_samples=100,
+        n_features=10,
+        random_state=19,
+    )
+
+    # Initialize TabPFN
+    model = TabPFNRegressor(n_estimators=1, random_state=42)
+
+    # Get default predictions
+    model.fit(X, y)
+    default_pred = model.predict(X)
+
+    # Test with pandas output
+    with config_context(transform_output="pandas"):
+        model.fit(X, y)
+        pandas_pred = model.predict(X)
+        np.testing.assert_array_almost_equal(default_pred, pandas_pred)
+
+    # Test with polars output
+    with config_context(transform_output="polars"):
+        model.fit(X, y)
+        polars_pred = model.predict(X)
+        np.testing.assert_array_almost_equal(default_pred, polars_pred)
