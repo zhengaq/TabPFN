@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import io
 import os
-import typing
 import sys
+import typing
 from itertools import product
 from typing import Callable, Literal
 
