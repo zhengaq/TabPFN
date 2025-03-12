@@ -38,6 +38,9 @@ Try our [Interactive Colab Tutorial](https://colab.research.google.com/drive/1SH
 # Simple installation
 pip install tabpfn
 
+# Installation from source
+pip install "tabpfn @ git+https://github.com/PriorLabs/TabPFN.git"
+
 # Local development installation
 git clone https://github.com/PriorLabs/TabPFN.git
 pip install -e "TabPFN[dev]"
