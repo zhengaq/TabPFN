@@ -33,12 +33,17 @@ Try our [Interactive Colab Tutorial](https://colab.research.google.com/drive/1SH
 ## 🏁 Quick Start
 
 ### Installation
-
+Official installation (pip)
 ```bash
-# Simple installation
 pip install tabpfn
+```
+OR installation from source
+```bash
+pip install "tabpfn @ git+https://github.com/PriorLabs/TabPFN.git"
+```
+OR local development installation
+```bash
 
-# Local development installation
 git clone https://github.com/PriorLabs/TabPFN.git
 pip install -e "TabPFN[dev]"
 ```
