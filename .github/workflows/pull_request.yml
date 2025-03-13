@@ -30,20 +30,20 @@ jobs:
             python-version: "3.9"
             dependency-set: minimum
           - os: macos-13 # macos-latest doesn't work with python 3.10
-          # https://github.com/actions/setup-python/issues/855
+            # https://github.com/actions/setup-python/issues/855
             python-version: "3.9"
             dependency-set: minimum
           - os: windows-latest
             python-version: "3.9"
             dependency-set: minimum
           - os: ubuntu-latest
-            python-version: "3.12"
+            python-version: "3.13"
             dependency-set: maximum
           - os: macos-latest
-            python-version: "3.12"
+            python-version: "3.13"
             dependency-set: maximum
           - os: windows-latest
-            python-version: "3.12"
+            python-version: "3.13"
             dependency-set: maximum
     runs-on: ${{ matrix.os }}
     
@@ -77,7 +77,12 @@ jobs:
           # onnx is required for onnx export tests
           # we don't install all dev dependencies here for speed
           uv pip install --system -r requirements.txt
-          uv pip install --system pytest onnx psutil
+          uv pip install --system pytest psutil
+          # onnx is not supported on python 3.13 yet https://github.com/onnx/onnx/issues/6339
+          if [[ "${{ matrix.python-version }}" != "3.13" ]]; then
+            uv pip install --system onnx
+          fi
+        shell: bash
 
       - name: Initialize submodules
         run: git submodule update --init --recursive
