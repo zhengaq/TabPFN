@@ -217,19 +217,20 @@ class InferenceEngineCachePreprocessing(InferenceEngine):
     forward pass through the model which is currently done sequentially.
     """
 
-    X_trains: Sequence[np.ndarray]
-    y_trains: Sequence[np.ndarray]
+    X_trains: Sequence[np.ndarray | torch.Tensor]
+    y_trains: Sequence[np.ndarray | torch.Tensor]
     cat_ixs: Sequence[list[int]]
     ensemble_configs: Sequence[EnsembleConfig]
     preprocessors: Sequence[SequentialFeatureTransformer]
     model: PerFeatureTransformer
     force_inference_dtype: torch.dtype | None
+    inference_mode: bool
 
     @classmethod
     def prepare(
         cls,
-        X_train: np.ndarray,
-        y_train: np.ndarray,
+        X_train: np.ndarray | torch.Tensor,
+        y_train: np.ndarray | torch.Tensor,
         *,
         cat_ix: list[int],
         model: PerFeatureTransformer,
@@ -239,6 +240,7 @@ class InferenceEngineCachePreprocessing(InferenceEngine):
         dtype_byte_size: int,
         force_inference_dtype: torch.dtype | None,
         save_peak_mem: bool | Literal["auto"] | float | int,
+        inference_mode: bool
     ) -> InferenceEngineCachePreprocessing:
         """Prepare the inference engine.
 
@@ -253,7 +255,8 @@ class InferenceEngineCachePreprocessing(InferenceEngine):
             dtype_byte_size: The byte size of the dtype.
             force_inference_dtype: The dtype to force inference to.
             save_peak_mem: Whether to save peak memory usage.
-
+            inference_mode: Whether to use torch.inference mode
+                (this is quicker but disables backpropagation)
         Returns:
             The prepared inference engine.
         """
@@ -277,6 +280,7 @@ class InferenceEngineCachePreprocessing(InferenceEngine):
             dtype_byte_size=dtype_byte_size,
             force_inference_dtype=force_inference_dtype,
             save_peak_mem=save_peak_mem,
+            inference_mode=inference_mode
         )
 
     @override
@@ -298,13 +302,15 @@ class InferenceEngineCachePreprocessing(InferenceEngine):
             self.ensemble_configs,
             self.cat_ixs,
         ):
-            X_train = torch.as_tensor(X_train, dtype=torch.float32, device=device)  # noqa: PLW2901
-
+            if not isinstance(X_train, torch.Tensor):
+                X_train = torch.as_tensor(X_train, dtype=torch.float32, device=device)  # noqa: PLW2901
             X_test = preprocessor.transform(X).X
-            X_test = torch.as_tensor(X_test, dtype=torch.float32, device=device)
-
+            if not isinstance(X_test, torch.Tensor): 
+                X_test = torch.as_tensor(X_test, dtype=torch.float32, device=device)
+                
             X_full = torch.cat([X_train, X_test], dim=0).unsqueeze(1)
-            y_train = torch.as_tensor(y_train, dtype=torch.float32, device=device)  # noqa: PLW2901
+            if not isinstance(y_train, torch.Tensor):
+                y_train = torch.as_tensor(y_train, dtype=torch.float32, device=device)  # noqa: PLW2901
 
             # Handle type casting
             with contextlib.suppress(Exception):  # Avoid overflow error
@@ -313,21 +319,24 @@ class InferenceEngineCachePreprocessing(InferenceEngine):
                 X_full = X_full.type(self.force_inference_dtype)
                 y_train = y_train.type(self.force_inference_dtype)  # type: ignore # noqa: PLW2901
 
-            MemoryUsageEstimator.reset_peak_memory_if_required(
-                save_peak_mem=self.save_peak_mem,
-                model=self.model,
-                X=X_full,
-                cache_kv=False,
-                device=device,
-                dtype_byte_size=self.dtype_byte_size,
-                safety_factor=1.2,  # TODO(Arjun): make customizable
-            )
+            if self.inference_mode:
+                MemoryUsageEstimator.reset_peak_memory_if_required(
+                    save_peak_mem=self.save_peak_mem,
+                    model=self.model,
+                    X=X_full,
+                    cache_kv=False,
+                    device=device,
+                    dtype_byte_size=self.dtype_byte_size,
+                    safety_factor=1.2,  # TODO(Arjun): make customizable
+                )
+            else:
+                pass
 
             style = None
 
             with (
                 torch.autocast(device.type, enabled=autocast),
-                torch.inference_mode(),
+                torch.inference_mode(self.inference_mode),
             ):
                 output = self.model(
                     *(style, X_full, y_train),
@@ -339,8 +348,8 @@ class InferenceEngineCachePreprocessing(InferenceEngine):
             output = output if isinstance(output, dict) else output.squeeze(1)
 
             yield output, config
-
-        self.model = self.model.cpu()
+        if self.inference_mode: ## if inference
+            self.model = self.model.cpu()
 
 
 @dataclass
@@ -418,8 +427,12 @@ class InferenceEngineCacheKV(InferenceEngine):
 
             ens_model = deepcopy(model)
             ens_model = ens_model.to(device)
-            X = torch.as_tensor(X, dtype=torch.float32, device=device).unsqueeze(1)  # noqa: PLW2901
-            y = torch.as_tensor(y, dtype=torch.float32, device=device)  # noqa: PLW2901
+            if not isinstance(X, torch.Tensor):
+                X = torch.as_tensor(X, dtype=torch.float32, device=device)
+            X = X.unsqueeze(1)  # noqa: PLW2901
+            
+            if not isinstance(y, torch.Tensor):
+                y = torch.as_tensor(y, dtype=torch.float32, device=device)  # noqa: PLW2901
 
             # We do not reset the peak memory for cache_kv mode
             # because the entire data has to be passed through the model

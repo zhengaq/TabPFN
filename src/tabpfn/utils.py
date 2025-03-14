@@ -31,6 +31,7 @@ from tabpfn.constants import (
 from tabpfn.misc._sklearn_compat import check_array, validate_data
 from tabpfn.model.bar_distribution import FullSupportBarDistribution
 from tabpfn.model.loading import download_model, load_model
+from tabpfn.model.encoders import MulticlassClassificationTargetEncoder, SequentialEncoder
 
 if TYPE_CHECKING:
     from sklearn.base import TransformerMixin
@@ -524,19 +525,26 @@ def validate_Xy_fit(
 ) -> tuple[np.ndarray, np.ndarray, npt.NDArray[Any] | None, int]:
     """Validate the input data for fitting."""
     # Calls `validate_data()` with specification
-    X, y = validate_data(
-        estimator,
-        X=X,
-        y=y,
-        # Parameters to `check_X_y()`
-        accept_sparse=False,
-        dtype=None,  # This is handled later in `fit()`
-        ensure_all_finite="allow-nan",
-        ensure_min_samples=2,
-        ensure_min_features=1,
-        y_numeric=ensure_y_numeric,
-        estimator=estimator,
-    )
+    if is_classifier(estimator) and not estimator.pt_differentiable:
+        X, y = validate_data(
+            estimator,
+            X=X,
+            y=y,
+            # Parameters to `check_X_y()`
+            accept_sparse=False,
+            dtype=None,  # This is handled later in `fit()`
+            ensure_all_finite="allow-nan",
+            ensure_min_samples=2,
+            ensure_min_features=1,
+            y_numeric=ensure_y_numeric,
+            estimator=estimator,
+        )
+    else:
+        assert isinstance(X, torch.Tensor)
+        assert isinstance(y, torch.Tensor)
+        assert(len(X)==len(y))
+        assert(len(X.shape) == 2)
+        estimator.n_features_in_ = X.shape[1]
 
     if X.shape[1] > max_num_features:
         if not ignore_pretraining_limits:
@@ -570,26 +578,26 @@ def validate_Xy_fit(
             stacklevel=2,
         )
 
-    if is_classifier(estimator):
+    if is_classifier(estimator) and not estimator.pt_differentiable:
         check_classification_targets(y)
-    # Annoyingly, the `ensure_all_finite` above only applies to `X` and
-    # there is no way to specify this for `y`. The validation check above
-    # will also only check for NaNs in `y` if `multi_output=True` which is
-    # something we don't want. Hence, we run another check on `y` here.
-    # However we also have to consider if ther dtype is a string type,
-    # then
-
-    y = check_array(
-        y,
-        accept_sparse=False,
-        ensure_all_finite=True,
-        dtype=None,  # type: ignore
-        ensure_2d=False,
-    )
+        # Annoyingly, the `ensure_all_finite` above only applies to `X` and
+        # there is no way to specify this for `y`. The validation check above
+        # will also only check for NaNs in `y` if `multi_output=True` which is
+        # something we don't want. Hence, we run another check on `y` here.
+        # However we also have to consider if ther dtype is a string type,
+        # then
+        y = check_array(
+            y,
+            accept_sparse=False,
+            ensure_all_finite=True,
+            dtype=None,  # type: ignore
+            ensure_2d=False,
+        )
 
     # NOTE: Theoretically we don't need to return the feature names and number,
     # but it makes it clearer in the calling code that these variables now exist
     # and can be set on the estimator.
+    
     return X, y, getattr(estimator, "feature_names_in_", None), estimator.n_features_in_
 
 
@@ -744,7 +752,6 @@ def translate_probs_across_borders(
 
     return (prob_left[..., 1:] - prob_left[..., :-1]).clamp_min(0.0)
 
-
 def update_encoder_outlier_params(
     model: nn.Module,
     remove_outliers_std: float | None,
@@ -752,7 +759,20 @@ def update_encoder_outlier_params(
     *,
     inplace: Literal[True],
 ) -> None:
-    """Update the encoder to handle outliers in the model.
+    """ Deprecated legacy, remove in next update and repace with function below. """
+    return update_encoder_params(model, remove_outliers_std, seed, inplace=inplace)
+
+def update_encoder_params(
+    model: nn.Module,
+    remove_outliers_std: float | None,
+    seed: int | None,
+    *,
+    inplace: Literal[True],
+    pt_differentiable: bool = False
+) -> None:
+    """Update the loaded encoder elements and setting to be compatible with inference requirements
+       This concerns handling outliers in the model and also removes non-differentiable elements from
+       the label encoder.
 
     !!! warning
 
@@ -763,6 +783,8 @@ def update_encoder_outlier_params(
         remove_outliers_std: The standard deviation to remove outliers.
         seed: The seed to use, if any.
         inplace: Whether to do the operation inplace.
+        pt_differentiable: Whether the entire model including forward pass should
+            be differentiable with pt autograd. This disables non-differentiable encoder steps.
 
     Raises:
         ValueError: If `inplace` is not `True`.
@@ -788,6 +810,16 @@ def update_encoder_outlier_params(
 
     norm_layer.seed = seed
     norm_layer.reset_seed()
+    
+    if pt_differentiable:
+        diffable_steps = [] # only differentiable encoder steps.
+        for module in model.y_encoder:
+            if isinstance(module, MulticlassClassificationTargetEncoder):
+                pass
+            else:
+                diffable_steps.append(module)
+                
+        model.y_encoder = SequentialEncoder(*diffable_steps)
 
 
 def _transform_borders_one(

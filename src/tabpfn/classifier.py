@@ -27,12 +27,14 @@ import numpy as np
 import torch
 from sklearn.base import BaseEstimator, ClassifierMixin, check_is_fitted
 from sklearn.preprocessing import LabelEncoder
+from sklearn.exceptions import NotFittedError
 
 from tabpfn.base import (
     create_inference_engine,
     determine_precision,
     initialize_tabpfn_model,
 )
+from tabpfn.model.encoders import SequentialEncoder
 from tabpfn.config import ModelInterfaceConfig
 from tabpfn.constants import (
     PROBABILITY_EPSILON_ROUND_ZERO,
@@ -44,6 +46,7 @@ from tabpfn.preprocessing import (
     ClassifierEnsembleConfig,
     EnsembleConfig,
     default_classifier_preprocessor_configs,
+    PreprocessorConfig
 )
 from tabpfn.utils import (
     _fix_dtypes,
@@ -52,7 +55,7 @@ from tabpfn.utils import (
     infer_categorical_features,
     infer_device_and_type,
     infer_random_state,
-    update_encoder_outlier_params,
+    update_encoder_params,
     validate_X_predict,
     validate_Xy_fit,
 )
@@ -149,6 +152,7 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
         random_state: int | np.random.RandomState | np.random.Generator | None = 0,
         n_jobs: int = -1,
         inference_config: dict | ModelInterfaceConfig | None = None,
+        pt_differentiable: bool = False,
     ) -> None:
         """A TabPFN interface for classification.
 
@@ -338,6 +342,12 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
                 - If `dict`, the key-value pairs are used to update the default
                   `ModelInterfaceConfig`. Raises an error if an unknown key is passed.
                 - If `ModelInterfaceConfig`, the object is used as the configuration.
+                
+            pt_differentiable:
+                If true the preprocessing will be adapted to be end-to-end differentiable
+                with PyTorch. This is useful for explainability and prompt-tuning. If True,
+                the inputs of fit/predict are expected to be torch.Tensors.
+                
         """
         super().__init__()
         self.n_estimators = n_estimators
@@ -360,6 +370,7 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
         self.random_state = random_state
         self.n_jobs = n_jobs
         self.inference_config = inference_config
+        self.pt_differentiable = pt_differentiable
 
     # TODO: We can remove this from scikit-learn lower bound of 1.6
     def _more_tags(self) -> dict[str, Any]:
@@ -381,111 +392,138 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
             X: The input data.
             y: The target variable.
         """
+        
         static_seed, rng = infer_random_state(self.random_state)
-
-        # Load the model and config
-        self.model_, self.config_, _ = initialize_tabpfn_model(
-            model_path=self.model_path,
-            which="classifier",
-            fit_mode=self.fit_mode,
-            static_seed=static_seed,
-        )
-
-        # Determine device and precision
-        self.device_ = infer_device_and_type(self.device)
-        (self.use_autocast_, self.forced_inference_dtype_, byte_size) = (
-            determine_precision(self.inference_precision, self.device_)
-        )
-
-        # Build the interface_config
-        self.interface_config_ = ModelInterfaceConfig.from_user_input(
-            inference_config=self.inference_config,
-        )
-
-        outlier_removal_std = self.interface_config_.OUTLIER_REMOVAL_STD
-        if outlier_removal_std == "auto":
-            outlier_removal_std = (
-                self.interface_config_._CLASSIFICATION_DEFAULT_OUTLIER_REMOVAL_STD
-            )
-        update_encoder_outlier_params(
-            model=self.model_,
-            remove_outliers_std=outlier_removal_std,
-            seed=static_seed,
-            inplace=True,
-        )
-
-        X, y, feature_names_in, n_features_in = validate_Xy_fit(
-            X,
-            y,
-            estimator=self,
-            ensure_y_numeric=False,
-            max_num_samples=self.interface_config_.MAX_NUMBER_OF_SAMPLES,
-            max_num_features=self.interface_config_.MAX_NUMBER_OF_FEATURES,
-            ignore_pretraining_limits=self.ignore_pretraining_limits,
-        )
-        if feature_names_in is not None:
-            self.feature_names_in_ = feature_names_in
-        self.n_features_in_ = n_features_in
-
-        # Ensure that the y values are ordinally encoded
-        # TODO(eddiebergman): Ensure the counts here line up with
-        #   the actual classes after label encoder.
-        _, counts = np.unique(y, return_counts=True)
-        self.class_counts_ = counts
-        self.label_encoder_ = LabelEncoder()
-        y = self.label_encoder_.fit_transform(y)
-        self.classes_ = self.label_encoder_.classes_  # type: ignore
-        self.n_classes_ = len(self.classes_)
-
-        # TODO: Support more classes with a fallback strategy.
-        if self.n_classes_ > self.interface_config_.MAX_NUMBER_OF_CLASSES:
-            raise ValueError(
-                f"Number of classes {self.n_classes_} exceeds the maximal number of "
-                "classes supported by TabPFN. Consider using a strategy to reduce "
-                "the number of classes. For code see "
-                "https://github.com/PriorLabs/tabpfn-extensions/blob/main/src/"
-                "tabpfn_extensions/many_class/many_class_classifier.py",
+        ensemble_configs = None 
+        try:
+            check_is_fitted(self)
+            
+        except NotFittedError as e:
+            # Load the model and config
+            self.model_, self.config_, _ = initialize_tabpfn_model(
+                model_path=self.model_path,
+                which="classifier",
+                fit_mode=self.fit_mode,
+                static_seed=static_seed,
             )
 
-        # Will convert specified categorical indices to category dtype, as well
-        # as handle `np.object` arrays or otherwise `object` dtype pandas columns.
-        X = _fix_dtypes(X, cat_indices=self.categorical_features_indices)
+            # Determine device and precision
+            self.device_ = infer_device_and_type(self.device)
+            (self.use_autocast_, self.forced_inference_dtype_, byte_size) = (
+                determine_precision(self.inference_precision, self.device_)
+            )
 
-        # Ensure categories are ordinally encoded
-        ord_encoder = _get_ordinal_encoder()
-        X = ord_encoder.fit_transform(X)  # type: ignore
-        assert isinstance(X, np.ndarray)
-        self.preprocessor_ = ord_encoder
+            # Build the interface_config
+            self.interface_config_ = ModelInterfaceConfig.from_user_input(
+                inference_config=self.inference_config,
+            )
 
-        self.inferred_categorical_indices_ = infer_categorical_features(
-            X=X,
-            provided=self.categorical_features_indices,
-            min_samples_for_inference=self.interface_config_.MIN_NUMBER_SAMPLES_FOR_CATEGORICAL_INFERENCE,
-            max_unique_for_category=self.interface_config_.MAX_UNIQUE_FOR_CATEGORICAL_FEATURES,
-            min_unique_for_numerical=self.interface_config_.MIN_UNIQUE_FOR_NUMERICAL_FEATURES,
-        )
+            outlier_removal_std = self.interface_config_.OUTLIER_REMOVAL_STD
+            if outlier_removal_std == "auto":
+                outlier_removal_std = (
+                    self.interface_config_._CLASSIFICATION_DEFAULT_OUTLIER_REMOVAL_STD
+                )
+                update_encoder_params(
+                    model=self.model_,
+                    remove_outliers_std=outlier_removal_std,
+                    seed=static_seed,
+                    inplace=True,
+                    pt_differentiable = self.pt_differentiable
+                )
 
-        # Now we build the ensemble configurations with the four main elements:
-        #   feature_shifts, subsamples, class_perms, preprocessor_configs
-        preprocess_transforms = self.interface_config_.PREPROCESS_TRANSFORMS
-        ensemble_configs = EnsembleConfig.generate_for_classification(
-            n=self.n_estimators,
-            subsample_size=self.interface_config_.SUBSAMPLE_SAMPLES,
-            add_fingerprint_feature=self.interface_config_.FINGERPRINT_FEATURE,
-            feature_shift_decoder=self.interface_config_.FEATURE_SHIFT_METHOD,
-            polynomial_features=self.interface_config_.POLYNOMIAL_FEATURES,
-            max_index=len(X),
-            preprocessor_configs=(
-                preprocess_transforms
-                if preprocess_transforms is not None
-                else default_classifier_preprocessor_configs()
-            ),
-            class_shift_method=self.interface_config_.CLASS_SHIFT_METHOD,
-            n_classes=self.n_classes_,
-            random_state=rng,
-        )
-        assert len(ensemble_configs) == self.n_estimators
+            X, y, feature_names_in, n_features_in = validate_Xy_fit(
+                X,
+                y,
+                estimator=self,
+                ensure_y_numeric=False,
+                max_num_samples=self.interface_config_.MAX_NUMBER_OF_SAMPLES,
+                max_num_features=self.interface_config_.MAX_NUMBER_OF_FEATURES,
+                ignore_pretraining_limits=self.ignore_pretraining_limits,
+            )
+            if feature_names_in is not None:
+                self.feature_names_in_ = feature_names_in
+            self.n_features_in_ = n_features_in
 
+            # Ensure that the y values are ordinally encoded
+            # TODO(eddiebergman): Ensure the counts here line up with
+            #   the actual classes after label encoder.
+            
+            if not self.pt_differentiable:
+                _, counts = np.unique(y, return_counts=True)
+                self.class_counts_ = counts
+                self.label_encoder_ = LabelEncoder()
+                y = self.label_encoder_.fit_transform(y)
+                self.classes_ = self.label_encoder_.classes_  # type: ignore
+                self.n_classes_ = len(self.classes_)
+            else: # if pt_diffable, it is a convention that the class labels are [0, ..., n-1]
+                self.label_encoder_ = None
+                self.n_classes_ = int(torch.max(y).item()) + 1
+                self.classes_ = torch.arange(self.n_classes_)
+                
+                
+            # TODO: Support more classes with a fallback strategy.
+            if self.n_classes_ > self.interface_config_.MAX_NUMBER_OF_CLASSES:
+                raise ValueError(
+                    f"Number of classes {self.n_classes_} exceeds the maximal number of "
+                    "classes supported by TabPFN. Consider using a strategy to reduce "
+                    "the number of classes. For code see "
+                    "https://github.com/PriorLabs/tabpfn-extensions/blob/main/src/"
+                    "tabpfn_extensions/many_class/many_class_classifier.py",
+                )
+
+            # Will convert specified categorical indices to category dtype, as well
+            # as handle `np.object` arrays or otherwise `object` dtype pandas columns.
+            
+            if not self.pt_differentiable:
+                X = _fix_dtypes(X, cat_indices=self.categorical_features_indices)
+
+                # Ensure categories are ordinally encoded
+                ord_encoder = _get_ordinal_encoder()
+                X = ord_encoder.fit_transform(X)  # type: ignore
+                assert isinstance(X, np.ndarray)
+                self.preprocessor_ = ord_encoder
+
+                self.inferred_categorical_indices_ = infer_categorical_features(
+                    X=X,
+                    provided=self.categorical_features_indices,
+                    min_samples_for_inference=self.interface_config_.MIN_NUMBER_SAMPLES_FOR_CATEGORICAL_INFERENCE,
+                    max_unique_for_category=self.interface_config_.MAX_UNIQUE_FOR_CATEGORICAL_FEATURES,
+                    min_unique_for_numerical=self.interface_config_.MIN_UNIQUE_FOR_NUMERICAL_FEATURES,
+                )
+                preprocess_transforms = self.interface_config_.PREPROCESS_TRANSFORMS
+            else:
+                self.inferred_categorical_indices_ = []
+                self.preprocessor_ = None
+                preprocess_transforms = [PreprocessorConfig("none", differentiable=True)]
+                
+                ## patch label encoder, remove non-diffabl
+                # Now we build the ensemble configurations with the four main elements:
+                #   feature_shifts, subsamples, class_perms, preprocessor_configs
+        
+            ensemble_configs = EnsembleConfig.generate_for_classification(
+                n=self.n_estimators,
+                subsample_size=self.interface_config_.SUBSAMPLE_SAMPLES,
+                add_fingerprint_feature=self.interface_config_.FINGERPRINT_FEATURE,
+                feature_shift_decoder=self.interface_config_.FEATURE_SHIFT_METHOD,
+                polynomial_features=self.interface_config_.POLYNOMIAL_FEATURES,
+                max_index=len(X),
+                preprocessor_configs=(
+                    preprocess_transforms
+                    if preprocess_transforms is not None
+                    else default_classifier_preprocessor_configs()
+                ),
+                class_shift_method=self.interface_config_.CLASS_SHIFT_METHOD
+                if not self.pt_differentiable
+                else None,
+                n_classes=self.n_classes_,
+                random_state=rng,
+            )
+            assert len(ensemble_configs) == self.n_estimators
+            
+        if not ensemble_configs: # if refit, then take previous ensemble config
+            ensemble_configs = self.executor_.ensemble_configs
+            byte_size = self.executor_.dtype_byte_size
+            
         # Create the inference engine
         self.executor_ = create_inference_engine(
             X_train=X,
@@ -501,6 +539,7 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
             forced_inference_dtype_=self.forced_inference_dtype_,
             memory_saving_mode=self.memory_saving_mode,
             use_autocast_=self.use_autocast_,
+            inference_mode = not self.pt_differentiable
         )
 
         return self
@@ -516,23 +555,32 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
         """
         proba = self.predict_proba(X)
         y = np.argmax(proba, axis=1)
-        return self.label_encoder_.inverse_transform(y)  # type: ignore
-
-    def predict_proba(self, X: XType) -> np.ndarray:
+        if self.label_encoder_:
+            return self.label_encoder_.inverse_transform(y)  # type: ignore
+        else:
+            return y
+        
+    def predict_proba(self, X: XType, return_tensors = False) -> np.ndarray | torch.Tensor:
         """Predict the probabilities of the classes for the provided input samples.
 
         Args:
             X: The input data.
+            return_tensors: whether to return the result as torch.Tensor (autograd-differentiable)
+                or as numpy.ndarray (default). If you would like to fine-tune the model parameters,
+                set return_tensors = True.
 
         Returns:
             The predicted probabilities of the classes.
         """
         check_is_fitted(self)
 
-        X = validate_X_predict(X, self)
-        X = _fix_dtypes(X, cat_indices=self.categorical_features_indices)
-        X = self.preprocessor_.transform(X)
-
+        if not self.pt_differentiable :
+            X = validate_X_predict(X, self)
+            X = _fix_dtypes(X, cat_indices=self.categorical_features_indices)
+            X = self.preprocessor_.transform(X)
+        if return_tensors:
+            self.executor_.inference_mode = False
+            
         outputs: list[torch.Tensor] = []
 
         for output, config in self.executor_.iter_outputs(
@@ -567,17 +615,20 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
             class_prob_in_train = self.class_counts_ / self.class_counts_.sum()
             output = output / torch.Tensor(class_prob_in_train).to(self.device_)
             output = output / output.sum(dim=-1, keepdim=True)
+            
+        if not self.pt_differentiable and not return_tensors:
+            output = output.float().cpu().numpy()
 
-        output = output.float().cpu().numpy()
+            if self.interface_config_.USE_SKLEARN_16_DECIMAL_PRECISION:
+                output = np.around(output, decimals=SKLEARN_16_DECIMAL_PRECISION)
+                output = np.where(output < PROBABILITY_EPSILON_ROUND_ZERO, 0.0, output)
 
-        if self.interface_config_.USE_SKLEARN_16_DECIMAL_PRECISION:
-            output = np.around(output, decimals=SKLEARN_16_DECIMAL_PRECISION)
-            output = np.where(output < PROBABILITY_EPSILON_ROUND_ZERO, 0.0, output)
-
-        # Normalize to guarantee proba sum to 1, required due to precision issues and
-        # going from torch to numpy
-        return output / output.sum(axis=1, keepdims=True)  # type: ignore
-
+            # Normalize to guarantee proba sum to 1, required due to precision issues and
+            # going from torch to numpy
+            return output / output.sum(axis=1, keepdims=True)  # type: ignore
+        else:
+            return output
+        
     def get_embeddings(
         self,
         X: XType,

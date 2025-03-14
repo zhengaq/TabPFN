@@ -168,6 +168,7 @@ def create_inference_engine(  # noqa: PLR0913
     forced_inference_dtype_: torch.dtype | None,
     memory_saving_mode: bool | Literal["auto"] | float | int,
     use_autocast_: bool,
+    inference_mode: bool = True
 ) -> InferenceEngine:
     """Creates the appropriate TabPFN inference engine based on `fit_mode`.
 
@@ -190,6 +191,7 @@ def create_inference_engine(  # noqa: PLR0913
         forced_inference_dtype_: If not None, the forced dtype for inference.
         memory_saving_mode: GPU/CPU memory saving settings.
         use_autocast_: Whether we use torch.autocast for inference.
+        inference_mode: Whether to use torch.inference_model (set False if backprob is needed)
     """
     engine: (
         InferenceEngineOnDemand
@@ -221,6 +223,7 @@ def create_inference_engine(  # noqa: PLR0913
             dtype_byte_size=byte_size,
             force_inference_dtype=forced_inference_dtype_,
             save_peak_mem=memory_saving_mode,
+            inference_mode = inference_mode
         )
     elif fit_mode == "fit_with_cache":
         engine = InferenceEngineCacheKV.prepare(

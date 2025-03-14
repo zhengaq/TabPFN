@@ -385,7 +385,7 @@ class SequentialFeatureTransformer(UserList):
 
     def fit_transform(
         self,
-        X: np.ndarray,
+        X: np.ndarray | torch.tensor,
         categorical_features: list[int],
     ) -> _TransformResult:
         """Fit and transform the data using the fitted pipeline.
@@ -404,7 +404,7 @@ class SequentialFeatureTransformer(UserList):
         self.categorical_features_ = categorical_features
         return _TransformResult(X, categorical_features)
 
-    def fit(self, X: np.ndarray, categorical_features: list[int]) -> Self:
+    def fit(self, X: np.ndarray | torch.tensor, categorical_features: list[int]) -> Self:
         """Fit all the steps in the pipeline.
 
         Args:
@@ -449,8 +449,11 @@ class RemoveConstantFeaturesStep(FeaturePreprocessingTransformerStep):
         self.sel_: list[bool] | None = None
 
     @override
-    def _fit(self, X: np.ndarray, categorical_features: list[int]) -> list[int]:
-        sel_ = ((X[0:1, :] == X).mean(axis=0) < 1.0).tolist()
+    def _fit(self, X: np.ndarray | torch.Tensor, categorical_features: list[int]) -> list[int]:
+        if isinstance(X, torch.Tensor):
+            sel_ = torch.max(X[0:1, :] != X, dim=0)[0].cpu()
+        else:
+            sel_ = ((X[0:1, :] == X).mean(axis=0) < 1.0).tolist()
 
         if not any(sel_):
             raise ValueError(
@@ -466,7 +469,7 @@ class RemoveConstantFeaturesStep(FeaturePreprocessingTransformerStep):
         ]
 
     @override
-    def _transform(self, X: np.ndarray, *, is_test: bool = False) -> np.ndarray:
+    def _transform(self, X: np.ndarray | torch.Tensor, *, is_test: bool = False) -> np.ndarray:
         assert self.sel_ is not None, "You must call fit first"
         return X[:, self.sel_]
 
@@ -540,7 +543,7 @@ class ShuffleFeaturesStep(FeaturePreprocessingTransformerStep):
         self.index_permutation_: list[int] | None = None
 
     @override
-    def _fit(self, X: np.ndarray, categorical_features: list[int]) -> list[int]:
+    def _fit(self, X: np.ndarray | torch.tensor, categorical_features: list[int]) -> list[int]:
         static_seed, rng = infer_random_state(self.random_state)
         if self.shuffle_method == "rotate":
             index_permutation = np.roll(
@@ -553,8 +556,10 @@ class ShuffleFeaturesStep(FeaturePreprocessingTransformerStep):
             index_permutation = np.arange(X.shape[1]).tolist()
         else:
             raise ValueError(f"Unknown shuffle method {self.shuffle_method}")
-
-        self.index_permutation_ = index_permutation
+        if isinstance(X, torch.Tensor):
+            self.index_permutation_ = torch.tensor(index_permutation, dtype=torch.long)
+        else:
+            self.index_permutation_ = index_permutation
 
         return [
             new_idx
@@ -1276,3 +1281,22 @@ class NanHandlingPolynomialFeaturesStep(FeaturePreprocessingTransformerStep):
         poly_features_xs = X[:, self.poly_factor_1_idx] * X[:, self.poly_factor_2_idx]
 
         return np.hstack((X, poly_features_xs))
+    
+    
+class DifferentiableZNormStep(FeaturePreprocessingTransformerStep):
+    def __init__(self):
+        super().__init__()
+
+        self.means = torch.tensor([])
+        self.stds = torch.tensor([])
+        
+    def _fit(self, X: torch.Tensor, categorical_features: list[int]) -> list[int]:
+        self.means = X.mean(dim=0, keepdim=True)
+        self.stds = X.std(dim=0, keepdim=True)
+        return categorical_features
+        
+    def _transform(self, X: torch.Tensor, *, is_test = False):
+        assert X.shape[1] == self.means.shape[1]
+        assert X.shape[1] == self.stds.shape[1]
+        return (X-self.means)/self.stds
+    

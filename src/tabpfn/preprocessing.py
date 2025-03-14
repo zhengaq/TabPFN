@@ -12,7 +12,7 @@ from functools import partial
 from itertools import chain, product, repeat
 from typing import TYPE_CHECKING, Literal, TypeVar
 from typing_extensions import override
-
+import torch
 import numpy as np
 from sklearn.utils.validation import joblib
 
@@ -31,7 +31,9 @@ from tabpfn.model.preprocessing import (
     ReshapeFeatureDistributionsStep,
     SequentialFeatureTransformer,
     ShuffleFeaturesStep,
+    DifferentiableZNormStep,
 )
+
 from tabpfn.utils import infer_random_state
 
 if TYPE_CHECKING:
@@ -120,6 +122,7 @@ class PreprocessorConfig:
     append_original: bool = False
     subsample_features: float = -1
     global_transformer_name: str | None = None
+    differentiable: bool = False
 
     @override
     def __str__(self) -> str:
@@ -150,6 +153,7 @@ class PreprocessorConfig:
             "append_original": self.append_original,
             "subsample_features": self.subsample_features,
             "global_transformer_name": self.global_transformer_name,
+            "differentiable": self.differentiable
         }
 
     @classmethod
@@ -168,6 +172,7 @@ class PreprocessorConfig:
             append_original=config_dict["append_original"],
             subsample_features=config_dict["subsample_features"],
             global_transformer_name=config_dict["global_transformer_name"],
+            differentiable = config_dict["differentiable"]
         )
 
 
@@ -479,28 +484,31 @@ class EnsembleConfig:
                 ),
             )
 
-        steps.extend(
-            [
-                RemoveConstantFeaturesStep(),
-                ReshapeFeatureDistributionsStep(
-                    transform_name=self.preprocess_config.name,
-                    append_to_original=self.preprocess_config.append_original,
-                    subsample_features=self.preprocess_config.subsample_features,
-                    global_transformer_name=self.preprocess_config.global_transformer_name,
-                    apply_to_categorical=(
-                        self.preprocess_config.categorical_name == "numeric"
-                    ),
-                    random_state=random_state,
-                ),
-                EncodeCategoricalFeaturesStep(
-                    self.preprocess_config.categorical_name,
-                    random_state=random_state,
-                ),
-            ],
-        )
+        steps.append(RemoveConstantFeaturesStep())
 
-        if self.add_fingerprint_feature:
-            steps.append(AddFingerprintFeaturesStep(random_state=random_state))
+        if self.preprocess_config.differentiable:
+            steps.append(DifferentiableZNormStep())
+        else:
+            steps.extend([
+                    ReshapeFeatureDistributionsStep(
+                        transform_name=self.preprocess_config.name,
+                        append_to_original=self.preprocess_config.append_original,
+                        subsample_features=self.preprocess_config.subsample_features,
+                        global_transformer_name=self.preprocess_config.global_transformer_name,
+                        apply_to_categorical=(
+                            self.preprocess_config.categorical_name == "numeric"
+                        ),
+                        random_state=random_state,
+                    ),
+                    EncodeCategoricalFeaturesStep(
+                        self.preprocess_config.categorical_name,
+                        random_state=random_state,
+                    ),
+                ],
+            )
+
+            if self.add_fingerprint_feature:
+                steps.append(AddFingerprintFeaturesStep(random_state=random_state))
 
         steps.append(
             ShuffleFeaturesStep(
@@ -534,8 +542,8 @@ class RegressorEnsembleConfig(EnsembleConfig):
 
 def fit_preprocessing_one(
     config: EnsembleConfig,
-    X_train: np.ndarray,
-    y_train: np.ndarray,
+    X_train: np.ndarray | torch.Tensor,
+    y_train: np.ndarray | torch.Tensor,
     random_state: int | np.random.Generator | None = None,
     *,
     cat_ix: list[int],
@@ -562,9 +570,9 @@ def fit_preprocessing_one(
     """
     static_seed, _ = infer_random_state(random_state)
     if config.subsample_ix is not None:
-        X_train = X_train[config.subsample_ix].copy()
-        y_train = y_train[config.subsample_ix].copy()
-    else:
+        X_train = X_train[config.subsample_ix]
+        y_train = y_train[config.subsample_ix]
+    if not isinstance(X_train, torch.Tensor):
         X_train = X_train.copy()
         y_train = y_train.copy()
 
