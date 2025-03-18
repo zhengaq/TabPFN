@@ -35,7 +35,7 @@ For this reason:
 
 We test against specific CI platform configurations:
 - Linux, Windows, and macOS
-- Python 3.9 and 3.12
+- Python 3.9 and 3.13
 
 To ensure reliable CI testing:
 1. Reference values should be generated on a CI-compatible platform
@@ -52,6 +52,8 @@ Update reference values (ideally on a CI-compatible platform):
 ```bash
 python tests/test_consistency.py --update-reference
 ```
+
+> **Important:** If creating reference values on a non-compatible platform, you must manually edit the platform metadata to match the closest CI platform. Otherwise, tests will fail in CI environments.
 
 Run tests on a different platform:
 ```bash
