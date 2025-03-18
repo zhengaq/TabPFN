@@ -86,9 +86,9 @@ CI_PLATFORMS = [
     ("Linux", "3.9"),
     ("Darwin", "3.9"),
     ("Windows", "3.9"),
-    ("Linux", "3.12"),
-    ("Darwin", "3.12"),
-    ("Windows", "3.12"),
+    ("Linux", "3.13"),
+    ("Darwin", "3.13"),
+    ("Windows", "3.13"),
 ]
 
 
@@ -159,12 +159,7 @@ def should_run_consistency_tests():
     Tests run if:
     1. We're on the reference platform, or
     2. FORCE_CONSISTENCY_TESTS=1 in environment
-
-    In CI environments, this will raise pytest.fail with instructions
-    if the platform doesn't match the reference platform.
     """
-    # Use the global CI_PLATFORMS list
-
     # Always run if explicitly forced
     if os.environ.get("FORCE_CONSISTENCY_TESTS", "0") == "1":
         return True
@@ -184,42 +179,43 @@ def should_run_consistency_tests():
             / "platform_metadata.json"
         )
         if metadata_file.exists():
-            with metadata_file.open("r") as f:
-                try:
+            try:
+                with metadata_file.open("r") as f:
                     metadata = json.load(f)
 
-                    # Get reference platform info
-                    ref_os = metadata.get("os", "Unknown")
-                    ref_python = metadata.get("python_version", "Unknown")
-                    ref_python_major_minor = ".".join(ref_python.split(".")[:2]) if ref_python else "Unknown"
+                # Get reference platform info
+                ref_os = metadata.get("os", "Unknown")
+                ref_python = metadata.get("python_version", "Unknown")
+                ".".join(ref_python.split(".")[:2]) if ref_python else "Unknown"
 
-                    # Check if reference platform is CI-compatible
-                    if not is_ci_compatible_platform(ref_os, ref_python):
-                        platform_str = f"{ref_os}, Python {ref_python}"
-                        logging.warning(
-                            f"WARNING: Reference platform ({platform_str})"
-                            f" is not compatible with any CI configuration."
-                            f" Regenerate reference values on a CI platform."
-                        )
-                    # Create platform descriptors for logging
-                    ref_plat = f"{ref_os} with Python {ref_python}"
-                    curr_sys = platform.system()
-                    curr_ver = platform.python_version()
-                    curr_plat = f"{curr_sys} with Python {curr_ver}"
-
-                    # Log a message about why tests are being skipped
+                # Check if reference platform is CI-compatible
+                if not is_ci_compatible_platform(ref_os, ref_python):
+                    platform_str = f"{ref_os}, Python {ref_python}"
                     logging.warning(
-                        f"Skipping consistency tests in CI due to platform mismatch!\n"
-                        f"Reference platform: {ref_plat}\n"
-                        f"Current platform: {curr_plat}\n"
-                        f"Tests need matching platform or FORCE_CONSISTENCY_TESTS=1"
+                        f"WARNING: Reference platform ({platform_str})"
+                        f" is not compatible with any CI configuration."
+                        f" Regenerate reference values on a CI platform."
                     )
 
-                    # Return False to skip test
-                    return False
-                except (json.JSONDecodeError, KeyError, OSError) as e:
-                    logging.warning(f"Error reading metadata in CI: {e}")
-                    return False
+                # Create platform descriptors for logging
+                ref_plat = f"{ref_os} with Python {ref_python}"
+                curr_sys = platform.system()
+                curr_ver = platform.python_version()
+                curr_plat = f"{curr_sys} with Python {curr_ver}"
+
+                # Log a message about why tests are being skipped
+                logging.warning(
+                    f"Skipping consistency tests in CI due to platform mismatch!\n"
+                    f"Reference platform: {ref_plat}\n"
+                    f"Current platform: {curr_plat}\n"
+                    f"Tests need matching platform or FORCE_CONSISTENCY_TESTS=1"
+                )
+
+                # Return False to skip test
+                return False
+            except (json.JSONDecodeError, KeyError, OSError) as e:
+                logging.warning(f"Error reading metadata in CI: {e}")
+                return False
 
     # Not forced and not reference platform, so skip
     return False
@@ -538,8 +534,6 @@ def update_reference_predictions():
     Uses the same test classes as the actual tests to ensure consistency.
     Warns if reference values are being generated on a non-CI platform.
     """
-    # Use the global CI_PLATFORMS list
-
     current_os = platform.system()
     current_python = platform.python_version()
 
@@ -641,29 +635,53 @@ class TestInconsistencyDetection(ConsistencyTest):
         assert "have changed" in str(excinfo.value) or "Not equal" in str(excinfo.value)
 
 
-def print_platform_info():
-    """Print information about the current platform for reference.
+class TestCIPlatformValidation:
+    """Tests that reference platform metadata is valid for CI environments."""
 
-    Displays:
-    - Current platform information
-    - Whether the current platform matches a CI configuration
-    - Reference platform information (if available)
-    - Whether the reference platform matches a CI configuration
-    - Whether the current platform matches the reference platform
+    def test_reference_platform_ci_compatibility(self):
+        """Verifies reference platform matches a supported CI configuration."""
+        metadata_file = ConsistencyTest.PLATFORM_METADATA_FILE
+
+        # Skip if no metadata exists
+        if not metadata_file.exists():
+            pytest.skip("No platform metadata file exists")
+
+        # Load metadata
+        try:
+            with metadata_file.open("r") as f:
+                metadata = json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            pytest.fail(f"Failed to read platform metadata: {e}")
+
+        # Extract platform information and check compatibility
+        ref_os = metadata.get("os")
+        ref_python = metadata.get("python_version", "")
+        is_compatible = is_ci_compatible_platform(ref_os, ref_python)
+
+        # Assert compatibility with detailed error message
+        allowed_platforms = ", ".join(f"{os}/{py}" for os, py in CI_PLATFORMS)
+        message = (
+            f"Reference platform ({ref_os}, Python {ref_python}) is not a CI platform. "
+            f"Allowed: {allowed_platforms}. Regenerate on a CI platform."
+        )
+
+        assert is_compatible, message
+
+
+def print_platform_info():
+    """Print platform information relevant for consistency tests.
+
+    Shows current platform, CI compatibility status, and reference platform details.
     """
-    # Use the global CI_PLATFORMS list
+    # Current platform information
     current_os = platform.system()
     current_python = platform.python_version()
     ".".join(current_python.split(".")[:2])
 
-    # Print current platform info
-
     # Check if we're on a CI-compatible platform
     is_ci_platform = is_ci_compatible_platform(current_os, current_python)
 
-    if is_ci_platform:
-        pass
-    else:
+    if not is_ci_platform:
         for _os_name, _py_ver in CI_PLATFORMS:
             pass
 
@@ -676,7 +694,7 @@ def print_platform_info():
             if metadata:
                 ref_os = metadata.get("os", "N/A")
                 ref_python = metadata.get("python_version", "N/A")
-                (".".join(ref_python.split(".")[:2]) if ref_python else "N/A")
+                ".".join(ref_python.split(".")[:2]) if ref_python else "N/A"
 
                 # Check if reference platform matches CI
                 ref_is_ci = is_ci_compatible_platform(ref_os, ref_python)
