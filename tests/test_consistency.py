@@ -93,6 +93,28 @@ CI_PLATFORMS = [
 
 
 # Platform-specific helper functions
+def is_ci_compatible_platform(os_name, python_version):
+    """Check if a platform is CI-compatible.
+
+    Verifies that the given OS and Python version combination is used in CI.
+
+    Args:
+        os_name: The OS name (from platform.system())
+        python_version: The Python version (e.g., "3.9.1")
+
+    Returns:
+        bool: True if the platform is CI-compatible, False otherwise
+    """
+    # Extract major.minor version for comparison
+    if python_version and "." in python_version:
+        python_major_minor = ".".join(python_version.split(".")[:2])
+    else:
+        python_major_minor = python_version
+
+    # Check against CI platforms list
+    return (os_name, python_major_minor) in CI_PLATFORMS
+
+
 def is_reference_platform():
     """Check if the current platform matches the reference platform.
 
@@ -169,8 +191,16 @@ def should_run_consistency_tests():
                     # Get reference platform info
                     ref_os = metadata.get("os", "Unknown")
                     ref_python = metadata.get("python_version", "Unknown")
-                    ".".join(ref_python.split(".")[:2]) if ref_python else "Unknown"
+                    ref_python_major_minor = ".".join(ref_python.split(".")[:2]) if ref_python else "Unknown"
 
+                    # Check if reference platform is CI-compatible
+                    if not is_ci_compatible_platform(ref_os, ref_python):
+                        platform_str = f"{ref_os}, Python {ref_python}"
+                        logging.warning(
+                            f"WARNING: Reference platform ({platform_str})"
+                            f" is not compatible with any CI configuration."
+                            f" Regenerate reference values on a CI platform."
+                        )
                     # Create platform descriptors for logging
                     ref_plat = f"{ref_os} with Python {ref_python}"
                     curr_sys = platform.system()
@@ -512,10 +542,9 @@ def update_reference_predictions():
 
     current_os = platform.system()
     current_python = platform.python_version()
-    current_python_major_minor = ".".join(current_python.split(".")[:2])
 
     # Check if we're on a CI-compatible platform
-    is_ci_platform = (current_os, current_python_major_minor) in CI_PLATFORMS
+    is_ci_platform = is_ci_compatible_platform(current_os, current_python)
 
     # Ensure reference dir exists
     ref_dir = ConsistencyTest.REFERENCE_DIR
@@ -623,15 +652,14 @@ def print_platform_info():
     - Whether the current platform matches the reference platform
     """
     # Use the global CI_PLATFORMS list
-
     current_os = platform.system()
     current_python = platform.python_version()
-    current_python_major_minor = ".".join(current_python.split(".")[:2])
+    ".".join(current_python.split(".")[:2])
 
     # Print current platform info
 
     # Check if we're on a CI-compatible platform
-    is_ci_platform = (current_os, current_python_major_minor) in CI_PLATFORMS
+    is_ci_platform = is_ci_compatible_platform(current_os, current_python)
 
     if is_ci_platform:
         pass
@@ -640,38 +668,28 @@ def print_platform_info():
             pass
 
     # Load and print reference platform info
-    try:
-        metadata_file = (
-            pathlib.Path(__file__).parent
-            / "reference_predictions"
-            / "platform_metadata.json"
-        )
-        if metadata_file.exists():
-            with metadata_file.open("r") as f:
-                metadata = json.load(f)
+    metadata_file = ConsistencyTest.PLATFORM_METADATA_FILE
+    if metadata_file.exists():
+        try:
+            metadata = ConsistencyTest.load_platform_metadata()
 
-            ref_os = metadata.get("os", "N/A")
-            ref_python = metadata.get("python_version", "N/A")
-            ref_python_major_minor = (
-                ".".join(ref_python.split(".")[:2]) if ref_python else "N/A"
-            )
+            if metadata:
+                ref_os = metadata.get("os", "N/A")
+                ref_python = metadata.get("python_version", "N/A")
+                (".".join(ref_python.split(".")[:2]) if ref_python else "N/A")
 
-            # Check if reference platform matches CI
-            ref_is_ci = (ref_os, ref_python_major_minor) in CI_PLATFORMS
+                # Check if reference platform matches CI
+                ref_is_ci = is_ci_compatible_platform(ref_os, ref_python)
 
-            if ref_is_ci:
-                pass
-            else:
-                pass
+                # Check if current platform matches reference platform
+                is_reference_platform()
 
-            # Check if current platform matches reference platform
-            is_ref_platform = is_reference_platform()
-            if is_ref_platform:
-                pass
-            else:
-                pass
+                if not ref_is_ci:
+                    pass
 
-    except (json.JSONDecodeError, OSError, KeyError):
+        except (json.JSONDecodeError, OSError, KeyError):
+            pass
+    else:
         pass
 
 
