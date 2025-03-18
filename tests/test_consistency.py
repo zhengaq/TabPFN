@@ -74,9 +74,14 @@ platform_specific = pytest.mark.skipif(
 
 
 # Test data generators for reproducible datasets
-def get_tiny_classification_data():
-    """Get a tiny fixed classification dataset for testing."""
-    random_state = check_random_state(FIXED_RANDOM_SEED)
+def get_tiny_classification_data(*, seed_modifier=0):
+    """Get a tiny fixed classification dataset for testing.
+
+    Args:
+        seed_modifier: Optional modifier to the random seed, used in tests
+                      to create intentionally different data
+    """
+    random_state = check_random_state(FIXED_RANDOM_SEED + seed_modifier)
     X = random_state.rand(10, 5)  # 10 samples, 5 features
     y = np.array([0, 1, 0, 1, 0, 1, 0, 1, 0, 1])  # Binary classification
 
@@ -356,6 +361,66 @@ def update_reference_predictions():
     for test_case in test_cases:
         with contextlib.suppress(Exception):
             test_case.run_test(override=True)
+
+
+class TestInconsistencyDetection(ConsistencyTest):
+    """Test that our consistency checks correctly detect inconsistencies.
+
+    This is a meta-test that verifies our consistency test framework works
+    by purposely creating a mismatch between reference and actual predictions.
+    """
+
+    def get_dataset_name(self):
+        return "inconsistency_test"
+
+    def get_test_data(self, seed_modifier=0):
+        """Get test data with an optional seed modifier to create inconsistency."""
+        return get_tiny_classification_data(seed_modifier=seed_modifier)
+
+    def get_model(self):
+        return TabPFNClassifier(
+            n_estimators=DEFAULT_N_ESTIMATORS,
+            random_state=FIXED_RANDOM_SEED,
+            device="cpu",
+        )
+
+    def get_prediction_func(self):
+        return lambda model, X: model.predict_proba(X)
+
+    def test_consistency_detection(self):
+        """Test that our consistency test framework correctly detects inconsistencies.
+
+        This test:
+        1. First creates reference predictions with default data
+        2. Then tries to run the test with different data (modified seed)
+        3. Expects the test to fail with an AssertionError due to changed predictions
+        """
+        # Setup phase - create reference with one dataset
+        X_train, y_train, X_test = self.get_test_data(seed_modifier=0)
+        model = self.get_model()
+        model.fit(X_train, y_train)
+        predictions = self.get_prediction_func()(model, X_test)
+
+        # Save as reference
+        self.save_reference(predictions)
+
+        # Test phase - try with different data
+        X_train_mod, y_train_mod, X_test_mod = self.get_test_data(seed_modifier=10)
+        model_mod = self.get_model()
+        model_mod.fit(X_train_mod, y_train_mod)
+        predictions_mod = self.get_prediction_func()(model_mod, X_test_mod)
+
+        # This should fail because predictions will differ
+        with pytest.raises(AssertionError) as excinfo:
+            np.testing.assert_allclose(
+                predictions_mod,
+                self.load_reference(),
+                rtol=TEST_TOLERANCE_RTOL,
+                atol=TEST_TOLERANCE_ATOL,
+            )
+
+        # Verify the error message mentions predictions have changed
+        assert "have changed" in str(excinfo.value) or "Not equal" in str(excinfo.value)
 
 
 if __name__ == "__main__":
