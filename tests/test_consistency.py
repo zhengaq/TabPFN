@@ -1,8 +1,7 @@
 """Model consistency tests for TabPFN.
 
-These tests verify that TabPFN models produce consistent predictions across code
-changes. If predictions change, developers must explicitly acknowledge and verify
-the improvement.
+Tests that verify TabPFN models produce consistent predictions across code changes.
+When predictions change, developers must explicitly acknowledge improvements.
 """
 
 from __future__ import annotations
@@ -14,8 +13,7 @@ import numpy as np
 import pytest
 from sklearn.utils import check_random_state
 
-# mypy: ignore-errors
-from tabpfn import TabPFNClassifier, TabPFNRegressor  # type: ignore
+from tabpfn import TabPFNClassifier, TabPFNRegressor
 
 
 class TestExactPredictions:
@@ -141,85 +139,49 @@ class TestExactPredictions:
         )
 
 
-# Helper function to update reference predictions
 def update_all_reference_predictions():
     """Generate and save reference predictions for all test datasets.
 
     Run this function manually when intentionally updating reference predictions:
-    ```
-    python -c "from tests.test_consistency import update_all_reference_predictions; \
-    update_all_reference_predictions()"
-    ```
+    python tests/test_consistency.py predictions
     """
     test_instance = TestExactPredictions()
-    # Create the directory manually instead of using the fixture
     test_instance.REFERENCE_DIR.mkdir(exist_ok=True)
 
-    # Force recreation of reference files by deleting existing ones
+    # Clear existing reference files
     for path in test_instance.REFERENCE_DIR.glob("*_predictions.json"):
         path.unlink()
 
-    # Create helper function to generate predictions and save them directly
-    # This avoids using pytest.skip() which is meant for test environments
-    def generate_and_save_reference(dataset_name, model_type, generate_func):
-        try:
-            predictions = generate_func()
-            ref_path = test_instance.get_reference_path(dataset_name, model_type)
-            test_instance.save_reference(predictions, ref_path)
-            return True
-        except (ValueError, TypeError, RuntimeError):
-            # Specific exceptions we might expect during generation
-            return False
-
     # Generate tiny classifier predictions
-    def generate_tiny_classifier():
-        random_state = check_random_state(42)
-        X = random_state.rand(10, 5)  # 10 samples, 5 features
-        y = np.array([0, 1, 0, 1, 0, 1, 0, 1, 0, 1])  # Binary classification
+    random_state = check_random_state(42)
+    X = random_state.rand(10, 5)  # 10 samples, 5 features
+    y = np.array([0, 1, 0, 1, 0, 1, 0, 1, 0, 1])  # Binary classification
 
-        # Split into train/test
-        X_train, X_test = X[:7], X[7:]
-        y_train, _ = y[:7], y[7:]
+    X_train, X_test = X[:7], X[7:]
+    y_train = y[:7]
 
-        # Create classifier with fixed settings
-        clf = TabPFNClassifier(n_estimators=2, random_state=42, device="cpu")
-        clf.fit(X_train, y_train)
+    clf = TabPFNClassifier(n_estimators=2, random_state=42, device="cpu")
+    clf.fit(X_train, y_train)
+    proba = clf.predict_proba(X_test)
 
-        # Get predictions
-        return clf.predict_proba(X_test)
+    clf_path = test_instance.get_reference_path("tiny", "classifier")
+    test_instance.save_reference(proba, clf_path)
 
     # Generate tiny regressor predictions
-    def generate_tiny_regressor():
-        random_state = check_random_state(42)
-        X = random_state.rand(10, 5)  # 10 samples, 5 features
-        y = random_state.rand(10) * 10  # Continuous target
+    y = random_state.rand(10) * 10  # Continuous target
+    X_train, X_test = X[:7], X[7:]
+    y_train = y[:7]
 
-        # Split into train/test
-        X_train, X_test = X[:7], X[7:]
-        y_train, _ = y[:7], y[7:]
+    reg = TabPFNRegressor(n_estimators=2, random_state=42, device="cpu")
+    reg.fit(X_train, y_train)
+    preds = reg.predict(X_test)
 
-        # Create regressor with fixed settings
-        reg = TabPFNRegressor(n_estimators=2, random_state=42, device="cpu")
-        reg.fit(X_train, y_train)
-
-        # Get predictions
-        return reg.predict(X_test)
-
-    # Generate all reference predictions
-    success_count = 0
-    total_count = 0
-
-    total_count += 1
-    if generate_and_save_reference("tiny", "classifier", generate_tiny_classifier):
-        success_count += 1
-
-    total_count += 1
-    if generate_and_save_reference("tiny", "regressor", generate_tiny_regressor):
-        success_count += 1
+    reg_path = test_instance.get_reference_path("tiny", "regressor")
+    test_instance.save_reference(preds, reg_path)
 
 
 if __name__ == "__main__":
-    # This makes it easier to run the prediction reference updates
+    # Run with: python tests/test_consistency.py predictions
     import sys
 
     if len(sys.argv) > 1 and sys.argv[1] == "predictions":
