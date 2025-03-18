@@ -12,15 +12,20 @@ Platform Considerations:
 Reference predictions are platform-specific since floating-point calculations may
 vary slightly across different operating systems, Python versions, and hardware.
 
+Platform Metadata:
+This system automatically stores reference platform information in:
+  /reference_predictions/platform_metadata.json
+
 By default, consistency tests only run on matching platforms:
-- Same operating system (currently Darwin/macOS)
-- Same Python version (currently 3.10)
+- Same operating system (from platform metadata)
+- Same Python major.minor version (e.g., 3.10, ignoring patch version)
 
 To force tests to run on any platform:
 - Set FORCE_CONSISTENCY_TESTS=1 environment variable
 
 CI Configuration:
 - In CI environments, reference values should be generated on a consistent platform
+- Platform metadata is automatically updated when generating references
 - Test runs on different platforms should set FORCE_CONSISTENCY_TESTS=1
 
 If you need to update reference values:
@@ -48,10 +53,12 @@ generation, making it easier to maintain and extend the test suite.
 from __future__ import annotations
 
 import contextlib
+import datetime
 import json
 import os
 import pathlib
 import platform
+import sys
 
 import numpy as np
 import pytest
@@ -69,17 +76,59 @@ TEST_TOLERANCE_ATOL = 1e-3  # 0.001 absolute tolerance
 # Fixed seeds and indices make tests more stable and predictable
 FIXED_RANDOM_SEED = 42  # Always use the same random seed for reproducibility
 
-# Platform compatibility settings
-REFERENCE_OS = "Darwin"  # Reference OS (usually CI environment's OS)
-REFERENCE_PYTHON_VERSION = "3.10"  # Reference Python version
+# Reference platform info is loaded from metadata file
+# No hardcoded defaults needed anymore
+
+# CI platform configurations - platforms supported in our CI system
+# This is used to check compatibility of reference values
+CI_PLATFORMS = [
+    # (OS system name, python major.minor)
+    ("Linux", "3.9"),
+    ("Darwin", "3.9"),
+    ("Windows", "3.9"),
+    ("Linux", "3.12"),
+    ("Darwin", "3.12"),
+    ("Windows", "3.12"),
+]
 
 
 # Platform-specific helper functions
 def is_reference_platform():
-    """Check if the current platform matches the reference platform."""
-    return platform.system() == REFERENCE_OS and platform.python_version().startswith(
-        REFERENCE_PYTHON_VERSION
+    """Check if the current platform matches the reference platform.
+
+    Performs a relaxed Python version check (major.minor only) but exact OS check.
+    Returns False if metadata file doesn't exist or can't be read.
+    """
+    metadata_file = (
+        pathlib.Path(__file__).parent
+        / "reference_predictions"
+        / "platform_metadata.json"
     )
+
+    if not metadata_file.exists():
+        return False
+
+    try:
+        with metadata_file.open("r") as f:
+            metadata = json.load(f)
+
+        # Extract reference info and current info
+        ref_os = metadata.get("os")
+        ref_python = metadata.get("python_version", "")
+
+        # Only compare major.minor versions (e.g., 3.9 instead of 3.9.1)
+        ref_python_major_minor = (
+            ".".join(ref_python.split(".")[:2]) if ref_python else ""
+        )
+        current_python_major_minor = ".".join(platform.python_version().split(".")[:2])
+
+        # Match OS exactly, but only match Python major.minor version
+        return (
+            platform.system() == ref_os
+            and current_python_major_minor == ref_python_major_minor
+        )
+    except (OSError, json.JSONDecodeError):
+        return False
 
 
 def should_run_consistency_tests():
@@ -88,21 +137,78 @@ def should_run_consistency_tests():
     Tests run if:
     1. We're on the reference platform, or
     2. FORCE_CONSISTENCY_TESTS=1 in environment
+
+    In CI environments, this will raise pytest.fail with instructions
+    if the platform doesn't match the reference platform.
     """
+    # Use the global CI_PLATFORMS list
+
     # Always run if explicitly forced
     if os.environ.get("FORCE_CONSISTENCY_TESTS", "0") == "1":
         return True
 
     # Run if we're on the reference platform
-    return is_reference_platform()
+    if is_reference_platform():
+        return True
+
+    # Special handling for CI - fail with helpful message instead of skip
+    if os.environ.get("CI", "false").lower() in ("true", "1", "yes"):
+        import pytest
+
+        # Get reference platform metadata
+        metadata_file = (
+            pathlib.Path(__file__).parent
+            / "reference_predictions"
+            / "platform_metadata.json"
+        )
+        if metadata_file.exists():
+            with metadata_file.open("r") as f:
+                try:
+                    metadata = json.load(f)
+
+                    # Get reference platform info
+                    ref_os = metadata.get("os", "Unknown")
+                    ref_python = metadata.get("python_version", "Unknown")
+                    ".".join(ref_python.split(".")[:2]) if ref_python else "Unknown"
+
+                    # Create platform descriptors to avoid long lines
+                    ref_plat = f"{ref_os} with Python {ref_python}"
+                    curr_plat = (
+                        f"{platform.system()} with Python {platform.python_version()}"
+                    )
+
+                    # Create a nicely formatted list of CI platforms
+                    ci_list = "\n".join(
+                        f"   - {os_name} with Python {py_ver}"
+                        for os_name, py_ver in CI_PLATFORMS
+                    )
+
+                    # Only fail if platform mismatch and in CI
+                    pytest.fail(
+                        f"\nPlatform mismatch in CI environment!\n"
+                        f"Reference platform: {ref_plat}\n"
+                        f"Current platform: {curr_plat}\n\n"
+                        f"To fix this:\n"
+                        f"1. Set FORCE_CONSISTENCY_TESTS=1 in your CI configuration\n"
+                        f"2. Or update reference predictions on a CI platform:\n"
+                        f"{ci_list}\n\n"
+                        f"   Run: python tests/test_consistency.py --update-reference\n"
+                    )
+                except (json.JSONDecodeError, KeyError, OSError) as e:
+                    import logging
+
+                    logging.warning(f"Error reading metadata in CI check: {e}")
+
+    # Not forced and not reference platform, so skip
+    return False
 
 
 # Platform-specific test decorator
 platform_specific = pytest.mark.skipif(
     not should_run_consistency_tests(),
     reason=(
-        f"Tests require {REFERENCE_OS} with Python {REFERENCE_PYTHON_VERSION} "
-        f"or FORCE_CONSISTENCY_TESTS=1 environment variable"
+        "Tests require matching platform (same OS and Python version) "
+        "or FORCE_CONSISTENCY_TESTS=1 environment variable"
     ),
 )
 
@@ -181,10 +287,43 @@ class ConsistencyTest:
     # Reference predictions directory
     REFERENCE_DIR = pathlib.Path(__file__).parent / "reference_predictions"
 
+    # Platform metadata file
+    PLATFORM_METADATA_FILE = REFERENCE_DIR / "platform_metadata.json"
+
     @classmethod
     def setup_class(cls):
         """Ensure the reference predictions directory exists."""
         cls.REFERENCE_DIR.mkdir(exist_ok=True)
+
+    @classmethod
+    def save_platform_metadata(cls):
+        """Save current platform information to metadata file."""
+        metadata = {
+            "os": platform.system(),
+            "os_version": platform.release(),
+            "python_version": platform.python_version(),
+            "machine": platform.machine(),
+            "generated_at": f"{datetime.datetime.now().isoformat()}",
+        }
+
+        with cls.PLATFORM_METADATA_FILE.open("w") as f:
+            json.dump(metadata, f, indent=2)
+
+    @classmethod
+    def load_platform_metadata(cls):
+        """Load platform metadata from file.
+
+        Returns empty dict if file doesn't exist or can't be read.
+        """
+        if not cls.PLATFORM_METADATA_FILE.exists():
+            return {}
+
+        try:
+            with cls.PLATFORM_METADATA_FILE.open("r") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, OSError):
+            # More specific exceptions for file reading issues
+            return {}
 
     def get_dataset_name(self):
         """Get the unique name for this test case."""
@@ -375,7 +514,17 @@ def update_reference_predictions():
     """Generate and save reference predictions for all test cases.
 
     Uses the same test classes as the actual tests to ensure consistency.
+    Warns if reference values are being generated on a non-CI platform.
     """
+    # Use the global CI_PLATFORMS list
+
+    current_os = platform.system()
+    current_python = platform.python_version()
+    current_python_major_minor = ".".join(current_python.split(".")[:2])
+
+    # Check if we're on a CI-compatible platform
+    is_ci_platform = (current_os, current_python_major_minor) in CI_PLATFORMS
+
     # Ensure reference dir exists
     ref_dir = ConsistencyTest.REFERENCE_DIR
     ref_dir.mkdir(exist_ok=True)
@@ -384,7 +533,19 @@ def update_reference_predictions():
     for path in ref_dir.glob("*_predictions.json"):
         path.unlink()
 
-    # Print platform information for reference
+    # Save and display platform information
+    ConsistencyTest.save_platform_metadata()
+
+    if not is_ci_platform:
+        for _os_name, _py_ver in CI_PLATFORMS:
+            pass
+
+        # Ask for confirmation before proceeding
+        proceed = input("\nProceed anyway? (y/n): ")
+        if proceed.lower() not in ["y", "yes"]:
+            return
+    else:
+        pass
 
     # Create and update references for each test case
     test_cases = [
@@ -459,6 +620,92 @@ class TestInconsistencyDetection(ConsistencyTest):
         assert "have changed" in str(excinfo.value) or "Not equal" in str(excinfo.value)
 
 
+def print_platform_info():
+    """Print information about the current platform for reference.
+
+    Displays:
+    - Current platform information
+    - Whether the current platform matches a CI configuration
+    - Reference platform information (if available)
+    - Whether the reference platform matches a CI configuration
+    - Whether the current platform matches the reference platform
+    """
+    # Use the global CI_PLATFORMS list
+
+    current_os = platform.system()
+    current_python = platform.python_version()
+    current_python_major_minor = ".".join(current_python.split(".")[:2])
+
+    # Print current platform info
+
+    # Check if we're on a CI-compatible platform
+    is_ci_platform = (current_os, current_python_major_minor) in CI_PLATFORMS
+
+    if is_ci_platform:
+        pass
+    else:
+        for _os_name, _py_ver in CI_PLATFORMS:
+            pass
+
+    # Load and print reference platform info
+    try:
+        metadata_file = (
+            pathlib.Path(__file__).parent
+            / "reference_predictions"
+            / "platform_metadata.json"
+        )
+        if metadata_file.exists():
+            with metadata_file.open("r") as f:
+                metadata = json.load(f)
+
+            ref_os = metadata.get("os", "N/A")
+            ref_python = metadata.get("python_version", "N/A")
+            ref_python_major_minor = (
+                ".".join(ref_python.split(".")[:2]) if ref_python else "N/A"
+            )
+
+            # Check if reference platform matches CI
+            ref_is_ci = (ref_os, ref_python_major_minor) in CI_PLATFORMS
+
+            if ref_is_ci:
+                pass
+            else:
+                pass
+
+            # Check if current platform matches reference platform
+            is_ref_platform = is_reference_platform()
+            if is_ref_platform:
+                pass
+            else:
+                pass
+
+    except (json.JSONDecodeError, OSError, KeyError):
+        pass
+
+
 if __name__ == "__main__":
-    # Running this file directly will update reference predictions
-    update_reference_predictions()
+    import argparse
+
+    parser = argparse.ArgumentParser(description="TabPFN Consistency Test Utilities")
+    parser.add_argument(
+        "--update-reference",
+        action="store_true",
+        help="Update reference predictions for the current platform",
+    )
+    parser.add_argument(
+        "--print-platform",
+        action="store_true",
+        help="Print information about the current platform",
+    )
+
+    args = parser.parse_args()
+
+    if args.update_reference:
+        # Update reference predictions for the current platform
+        update_reference_predictions()
+    elif args.print_platform or len(sys.argv) == 1:
+        # If no args or explicit request to print platform info
+        print_platform_info()
+    else:
+        # Show help if unknown args
+        parser.print_help()
