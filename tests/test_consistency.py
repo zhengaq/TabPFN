@@ -9,8 +9,19 @@ consistency across code changes. Each test case maintains its own reference file
 
 Platform Considerations:
 -----------------------
-Reference predictions are platform-specific. Tests pass only on matching platforms.
-Set FORCE_CONSISTENCY_TESTS=1 environment variable to override this restriction.
+Reference predictions are platform-specific since floating-point calculations may
+vary slightly across different operating systems, Python versions, and hardware.
+
+By default, consistency tests only run on matching platforms:
+- Same operating system (currently Darwin/macOS)
+- Same Python version (currently 3.10)
+
+To force tests to run on any platform:
+- Set FORCE_CONSISTENCY_TESTS=1 environment variable
+
+CI Configuration:
+- In CI environments, reference values should be generated on a consistent platform
+- Test runs on different platforms should set FORCE_CONSISTENCY_TESTS=1
 
 If you need to update reference values:
 1. Run: python tests/test_consistency.py
@@ -58,18 +69,41 @@ TEST_TOLERANCE_ATOL = 1e-3  # 0.001 absolute tolerance
 # Fixed seeds and indices make tests more stable and predictable
 FIXED_RANDOM_SEED = 42  # Always use the same random seed for reproducibility
 
-# Reference platform settings
-REFERENCE_OS = "Darwin"  # macOS
-REFERENCE_PYTHON_VERSION = "3.10"  # Update when regenerating reference predictions
+# Platform compatibility settings
+REFERENCE_OS = "Darwin"  # Reference OS (usually CI environment's OS)
+REFERENCE_PYTHON_VERSION = "3.10"  # Reference Python version
+
+
+# Platform-specific helper functions
+def is_reference_platform():
+    """Check if the current platform matches the reference platform."""
+    return platform.system() == REFERENCE_OS and platform.python_version().startswith(
+        REFERENCE_PYTHON_VERSION
+    )
+
+
+def should_run_consistency_tests():
+    """Determine if consistency tests should run on this platform.
+
+    Tests run if:
+    1. We're on the reference platform, or
+    2. FORCE_CONSISTENCY_TESTS=1 in environment
+    """
+    # Always run if explicitly forced
+    if os.environ.get("FORCE_CONSISTENCY_TESTS", "0") == "1":
+        return True
+
+    # Run if we're on the reference platform
+    return is_reference_platform()
+
 
 # Platform-specific test decorator
 platform_specific = pytest.mark.skipif(
-    os.environ.get("FORCE_CONSISTENCY_TESTS", "0") != "1"
-    and not (
-        platform.system() == REFERENCE_OS
-        and platform.python_version().startswith(REFERENCE_PYTHON_VERSION)
+    not should_run_consistency_tests(),
+    reason=(
+        f"Tests require {REFERENCE_OS} with Python {REFERENCE_PYTHON_VERSION} "
+        f"or FORCE_CONSISTENCY_TESTS=1 environment variable"
     ),
-    reason=f"Tests require {REFERENCE_OS} with Python {REFERENCE_PYTHON_VERSION}",
 )
 
 
@@ -349,6 +383,8 @@ def update_reference_predictions():
     # Clear existing reference files
     for path in ref_dir.glob("*_predictions.json"):
         path.unlink()
+
+    # Print platform information for reference
 
     # Create and update references for each test case
     test_cases = [
