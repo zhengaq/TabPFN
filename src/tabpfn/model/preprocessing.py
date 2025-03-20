@@ -494,6 +494,9 @@ class AddFingerprintFeaturesStep(FeaturePreprocessingTransformerStep):
     If `is_test = True`, it keeps the first hash even if there are collisions.
     If `is_test = False`, it handles hash collisions by counting up and rehashing
     until a unique hash is found.
+    The idea is basically to add a random feature to help the model distinguish between
+    identical rows. We use hashing to make sure the result does not depend on the order
+    of the rows.
     """
 
     def __init__(self, random_state: int | np.random.Generator | None = None):
