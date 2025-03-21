@@ -222,7 +222,7 @@ def export_model(
 
         # Create sample input tensors
         X = torch.randn(
-            (X.shape[0] * 2, 1, X.shape[1] + 1),
+            (X.shape[0] * 4, 1, X.shape[1] + 1),
             generator=torch.Generator().manual_seed(42),
         )
         # make the first feature categorical
@@ -230,12 +230,12 @@ def export_model(
 
         if model_type == "classifier":
             y = (
-                torch.rand(y.shape, generator=torch.Generator().manual_seed(42))
+                torch.rand((y.shape[0] * 3,), generator=torch.Generator().manual_seed(42))
                 .round()
                 .to(torch.float32)
             )
         else:
-            y = torch.rand(y.shape, generator=torch.Generator().manual_seed(42))
+            y = torch.rand((y.shape[0] * 3,), generator=torch.Generator().manual_seed(42))
 
         single_eval_pos = torch.tensor(
             y.shape[0],
@@ -290,8 +290,13 @@ def check_input_names(model_path: str) -> None:
     Args:
         model_path: The path to the ONNX model file.
     """
-    onnx.load(model_path)
-
+    model = onnx.load(model_path)
+    print("--------------------------------")
+    print("----INPUTS----")
+    print(model.graph.input)
+    print("----OUTPUTS----")
+    print(model.graph.output)
+    print("--------------------------------")
     # Print output names
 
 
@@ -300,82 +305,109 @@ def test_models(
     model_path_regressor: str,
 ) -> None:
     """Test both TabPFNClassifier and TabPFNRegressor with and without ONNX.
-
-    This function validates that both the original PyTorch models and the
+    
+    This function validates that both the original PyTorch models and the 
     exported ONNX models work correctly on simple datasets.
-
+    
     Args:
         model_path_classifier: Path to the exported ONNX classifier model.
         model_path_regressor: Path to the exported ONNX regressor model.
     """
-    from sklearn.datasets import load_diabetes, load_iris
-    from sklearn.metrics import accuracy_score, mean_squared_error
+    import numpy as np
+    from sklearn.datasets import load_iris, load_diabetes
     from sklearn.model_selection import train_test_split
-
+    from sklearn.metrics import accuracy_score, mean_squared_error
     from tabpfn import TabPFNClassifier, TabPFNRegressor
-
+    
     # Test classifier
     def _test_classifier(use_onnx: bool = False) -> float:
+        print(f"\n{'='*20} Testing TabPFNClassifier (use_onnx={use_onnx}) {'='*20}")
+        
         # Load dataset
         X, y = load_iris(return_X_y=True)
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=0.2, random_state=42
-        )
-
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+        
         # Create and fit model
         if use_onnx:
-            model = TabPFNClassifier(n_estimators=1, use_onnx=True)
+            model = TabPFNClassifier(n_estimators=2, use_onnx=True)
         else:
-            model = TabPFNClassifier(n_estimators=1, use_onnx=False)
-
+            model = TabPFNClassifier(n_estimators=2, use_onnx=False)
+        
         model.fit(X_train, y_train)
-
+        
         # Make predictions
         y_pred = model.predict(X_test)
-        return accuracy_score(y_test, y_pred)
-
+        accuracy = accuracy_score(y_test, y_pred)
+        
+        print(f"Accuracy: {accuracy:.4f}")
+        
+        # Test predict_proba
+        proba = model.predict_proba(X_test)
+        print(f"Probability shape: {proba.shape}")
+        
+        return accuracy
+    
     # Test regressor
     def _test_regressor(use_onnx: bool = False) -> float:
+        print(f"\n{'='*20} Testing TabPFNRegressor (use_onnx={use_onnx}) {'='*20}")
+        
         # Load dataset
         X, y = load_diabetes(return_X_y=True)
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=0.2, random_state=42
-        )
-
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+        
         # Create and fit model
         if use_onnx:
-            model = TabPFNRegressor(n_estimators=1, use_onnx=True)
+            model = TabPFNRegressor(n_estimators=2, use_onnx=True)
         else:
-            model = TabPFNRegressor(n_estimators=1, use_onnx=False)
-
+            model = TabPFNRegressor(n_estimators=2, use_onnx=False)
+            
         model.fit(X_train, y_train)
-
+        
         # Make predictions (mean)
         y_pred_mean = model.predict(X_test)
-        return mean_squared_error(y_test, y_pred_mean)
-
+        mse_mean = mean_squared_error(y_test, y_pred_mean)
+        print(f"MSE (mean): {mse_mean:.4f}")
+        
+        # Make predictions (median)
+        y_pred_median = model.predict(X_test, output_type="median")
+        mse_median = mean_squared_error(y_test, y_pred_median)
+        print(f"MSE (median): {mse_median:.4f}")
+        
+        # Test quantiles
+        quantiles = model.predict(X_test, output_type="quantiles", quantiles=[0.1, 0.5, 0.9])
+        print(f"Quantile predictions shape (0.1): {quantiles[0].shape}")
+        
+        return mse_mean
+    
+    print("Testing TabPFN models with PyTorch and ONNX backends")
+    
     # Test with PyTorch backend
     clf_acc_torch = _test_classifier(use_onnx=False)
     reg_mse_torch = _test_regressor(use_onnx=False)
-
+    
     # Test with ONNX backend
     try:
         clf_acc_onnx = _test_classifier(use_onnx=True)
         reg_mse_onnx = _test_regressor(use_onnx=True)
-
+        
         # Compare results
-
+        print("\n" + "="*60)
+        print(f"Classifier accuracy - PyTorch: {clf_acc_torch:.4f}, ONNX: {clf_acc_onnx:.4f}")
+        print(f"Regressor MSE - PyTorch: {reg_mse_torch:.4f}, ONNX: {reg_mse_onnx:.4f}")
+        
         # Check if results are similar
         accuracy_diff = abs(clf_acc_torch - clf_acc_onnx)
         mse_ratio = reg_mse_torch / max(reg_mse_onnx, 1e-10)
-
+        
         if accuracy_diff > 0.1 or mse_ratio < 0.5 or mse_ratio > 2.0:
-            pass
+            print("\nWARNING: Large difference between PyTorch and ONNX model results!")
         else:
-            pass
-
-    except Exception:
-        pass
+            print("\nSUCCESS: PyTorch and ONNX models produce similar results.")
+            
+    except Exception as e:
+        print("\n" + "="*60)
+        print(f"Error testing ONNX models: {e}")
+        print("Make sure ONNX models are correctly exported.")
 
 
 if __name__ == "__main__":
@@ -405,9 +437,9 @@ if __name__ == "__main__":
     export_model(regressor_path, "regressor")
     check_onnx_model(regressor_path)
     check_input_names(regressor_path)
-
+    
     # Run tests if requested
     if args.output == "model":
         test_models(classifier_path, regressor_path)
     else:
-        pass
+        print("using custom output path, the model won't be tested for performance as part of sklearn wrappers")
