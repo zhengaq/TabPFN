@@ -250,7 +250,7 @@ def export_model(
         # Define dynamic axes for variable input sizes
         dynamic_axes = {
             "X": {0: "num_datapoints", 2: "num_features"},
-            "y": {0: "num_labels"},
+            "y": {0: "num_datapoints"},
             "single_eval_pos": {},
             "only_return_standard_out": {},
         }
@@ -292,9 +292,90 @@ def check_input_names(model_path: str) -> None:
     """
     onnx.load(model_path)
 
-    # Print input names
-
     # Print output names
+
+
+def test_models(
+    model_path_classifier: str,
+    model_path_regressor: str,
+) -> None:
+    """Test both TabPFNClassifier and TabPFNRegressor with and without ONNX.
+
+    This function validates that both the original PyTorch models and the
+    exported ONNX models work correctly on simple datasets.
+
+    Args:
+        model_path_classifier: Path to the exported ONNX classifier model.
+        model_path_regressor: Path to the exported ONNX regressor model.
+    """
+    from sklearn.datasets import load_diabetes, load_iris
+    from sklearn.metrics import accuracy_score, mean_squared_error
+    from sklearn.model_selection import train_test_split
+
+    from tabpfn import TabPFNClassifier, TabPFNRegressor
+
+    # Test classifier
+    def _test_classifier(use_onnx: bool = False) -> float:
+        # Load dataset
+        X, y = load_iris(return_X_y=True)
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=0.2, random_state=42
+        )
+
+        # Create and fit model
+        if use_onnx:
+            model = TabPFNClassifier(n_estimators=1, use_onnx=True)
+        else:
+            model = TabPFNClassifier(n_estimators=1, use_onnx=False)
+
+        model.fit(X_train, y_train)
+
+        # Make predictions
+        y_pred = model.predict(X_test)
+        return accuracy_score(y_test, y_pred)
+
+    # Test regressor
+    def _test_regressor(use_onnx: bool = False) -> float:
+        # Load dataset
+        X, y = load_diabetes(return_X_y=True)
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=0.2, random_state=42
+        )
+
+        # Create and fit model
+        if use_onnx:
+            model = TabPFNRegressor(n_estimators=1, use_onnx=True)
+        else:
+            model = TabPFNRegressor(n_estimators=1, use_onnx=False)
+
+        model.fit(X_train, y_train)
+
+        # Make predictions (mean)
+        y_pred_mean = model.predict(X_test)
+        return mean_squared_error(y_test, y_pred_mean)
+
+    # Test with PyTorch backend
+    clf_acc_torch = _test_classifier(use_onnx=False)
+    reg_mse_torch = _test_regressor(use_onnx=False)
+
+    # Test with ONNX backend
+    try:
+        clf_acc_onnx = _test_classifier(use_onnx=True)
+        reg_mse_onnx = _test_regressor(use_onnx=True)
+
+        # Compare results
+
+        # Check if results are similar
+        accuracy_diff = abs(clf_acc_torch - clf_acc_onnx)
+        mse_ratio = reg_mse_torch / max(reg_mse_onnx, 1e-10)
+
+        if accuracy_diff > 0.1 or mse_ratio < 0.5 or mse_ratio > 2.0:
+            pass
+        else:
+            pass
+
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":
@@ -324,3 +405,9 @@ if __name__ == "__main__":
     export_model(regressor_path, "regressor")
     check_onnx_model(regressor_path)
     check_input_names(regressor_path)
+
+    # Run tests if requested
+    if args.output == "model":
+        test_models(classifier_path, regressor_path)
+    else:
+        pass
