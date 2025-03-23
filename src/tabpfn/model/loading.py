@@ -374,7 +374,7 @@ def resolve_model_path(
     model_path: None | str | Path,
     which: Literal["regressor", "classifier"],
     version: Literal["v2"] = "v2",
-) -> tuple[Path, str, str]:
+) -> tuple[Path, Path, str, str]:
     if model_path is None:
         USER_TABPFN_CACHE_DIR_LOCATION = os.environ.get("TABPFN_MODEL_CACHE_DIR", "")
         if USER_TABPFN_CACHE_DIR_LOCATION.strip() != "":
@@ -392,7 +392,7 @@ def resolve_model_path(
         model_dir = model_path.parent
         model_name = model_path.name
 
-    return model_dir, model_name, which
+    return model_path, model_dir, model_name, which
 
 
 def load_model_criterion_config(
@@ -427,7 +427,9 @@ def load_model_criterion_config(
     Returns:
         The model, criterion, and config.
     """
-    model_dir, model_name, which = resolve_model_path(model_path, which, version)
+    (model_path, model_dir, model_name, which) = resolve_model_path(
+        model_path, which, version
+    )
 
     model_dir.mkdir(parents=True, exist_ok=True)
     if not model_path.exists():
