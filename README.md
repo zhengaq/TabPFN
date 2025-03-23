@@ -146,6 +146,10 @@ Choose the right TabPFN implementation for your needs:
 - **[TabPFN UX](https://ux.priorlabs.ai)**  
   No-code graphical interface to explore TabPFN capabilities—ideal for business users and prototyping.
 
+## 📜 License
+
+Prior Labs License (Apache 2.0 with additional attribution requirement): [here](https://priorlabs.ai/tabpfn-license/)
+
 ## 🤝 Join Our Community
 
 We're building the future of tabular machine learning and would love your involvement:
@@ -161,10 +165,6 @@ We're building the future of tabular machine learning and would love your involv
    - Share your research and use cases
 
 3. **Stay Updated**: Star the repo and join Discord for the latest updates
-
-## 📜 License
-
-Prior Labs License (Apache 2.0 with additional attribution requirement): [here](https://priorlabs.ai/tabpfn-license/)
 
 ## 📚 Citation
 
