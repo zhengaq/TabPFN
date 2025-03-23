@@ -19,17 +19,6 @@ features. Previous version available at [v1.0.0](../../tree/v1.0.0) and
 
 📚 For detailed usage examples and best practices, check out [Interactive Colab Tutorial](https://tinyurl.com/tabpfn-colab-local)
 
-## 🌐 TabPFN Ecosystem
-
-Choose the right TabPFN implementation for your needs:
-
-- **[TabPFN Client](https://github.com/automl/tabpfn-client)**: Easy-to-use API client for cloud-based inference
-- **[TabPFN Extensions](https://github.com/priorlabs/tabpfn-extensions)**: Community extensions and integrations
-- **TabPFN (this repo)**: Core implementation for local deployment and research
-- **[TabPFN UX](https://ux.priorlabs.ai)**: No-code TabPFN usage
-
-Try our [Interactive Colab Tutorial](https://colab.research.google.com/drive/1SHa43VuHASLjevzO7y3-wPCxHY18-2H6?usp=sharing) to get started quickly.
-
 ## 🏁 Quick Start
 
 ### Installation
@@ -127,7 +116,35 @@ For optimal performance, use the `AutoTabPFNClassifier` or `AutoTabPFNRegressor`
    predictions = clf.predict(X_test)
    ```
 
-See our [Colab](https://colab.research.google.com/drive/1SHa43VuHASLjevzO7y3-wPCxHY18-2H6#scrollTo=49sMXWT5DYzj&line=1&uniqifier=1)
+## 🌐 TabPFN Ecosystem
+
+Choose the right TabPFN implementation for your needs:
+
+- **[TabPFN Client](https://github.com/automl/tabpfn-client)**  
+  Simple API client for using TabPFN via cloud-based inference.
+
+- **[TabPFN Extensions](https://github.com/priorlabs/tabpfn-extensions)**  
+  A powerful companion repository packed with advanced utilities, integrations, and features - great place to contribute:
+
+  - 🔍 **`interpretability`**: Gain insights with SHAP-based explanations, feature importance, and selection tools.
+  - 🕵️‍♂️ **`unsupervised`**: Tools for outlier detection and synthetic tabular data generation.
+  - 🧬 **`embeddings`**: Extract and use TabPFN’s internal learned embeddings for downstream tasks or analysis.
+  - 🧠 **`many_class`**: Handle multi-class classification problems that exceed TabPFN's built-in class limit.
+  - 🌲 **`rf_pfn`**: Combine TabPFN with traditional models like Random Forests for hybrid approaches.
+  - ⚙️ **`hpo`**: Automated hyperparameter optimization tailored to TabPFN.
+  - 🔁 **`post_hoc_ensembles`**: Boost performance by ensembling multiple TabPFN models post-training.
+
+  ✨ To install:
+  ```bash
+  git clone https://github.com/priorlabs/tabpfn-extensions.git
+  pip install -e tabpfn-extensions
+  ```
+
+- **[TabPFN (this repo)](https://github.com/priorlabs/tabpfn)**  
+  Core implementation for fast and local inference with PyTorch and CUDA support.
+
+- **[TabPFN UX](https://ux.priorlabs.ai)**  
+  No-code graphical interface to explore TabPFN capabilities—ideal for business users and prototyping.
 
 ## 🤝 Join Our Community
 
@@ -194,6 +211,17 @@ A: TabPFN v2 requires **Python 3.9+** due to newer language features. Compatible
 
 TabPFN automatically downloads model weights when first used. For offline usage:
 
+**Using the Provided Download Script**
+
+If you have the TabPFN repository, you can use the included script to download all models (including ensemble variants):
+
+```bash
+# After installing TabPFN
+python scripts/download_all_models.py
+```
+
+This script will download the main classifier and regressor models, as well as all ensemble variant models to your system's default cache directory.
+
 **Manual Download**
 
 1. Download the model files manually from HuggingFace:
@@ -207,17 +235,6 @@ TabPFN automatically downloads model weights when first used. For offline usage:
      - Windows: `%APPDATA%\tabpfn\`
      - macOS: `~/Library/Caches/tabpfn/`
      - Linux: `~/.cache/tabpfn/`
-
-**Using the Provided Download Script**
-
-If you have the TabPFN repository, you can use the included script to download all models (including ensemble variants):
-
-```bash
-# After installing TabPFN
-python scripts/download_all_models.py
-```
-
-This script will download the main classifier and regressor models, as well as all ensemble variant models to your system's default cache directory.
 
 **Q: I'm getting a `pickle` error when loading the model. What should I do?**  
 A: Try the following:
