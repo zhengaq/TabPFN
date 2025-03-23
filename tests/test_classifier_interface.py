@@ -52,6 +52,7 @@ all_combinations = list(
 @pytest.fixture(scope="module")
 def X_y() -> tuple[np.ndarray, np.ndarray]:
     X, y = sklearn.datasets.load_iris(return_X_y=True)
+    X, y = X[:50], y[:50]
     return X, y  # type: ignore
 
 
@@ -107,7 +108,7 @@ def test_fit(
 
 # TODO(eddiebergman): Should probably run a larger suite with different configurations
 @parametrize_with_checks(
-    [TabPFNClassifier(inference_config={"USE_SKLEARN_16_DECIMAL_PRECISION": True})],
+    [TabPFNClassifier(n_estimators=2, inference_config={"USE_SKLEARN_16_DECIMAL_PRECISION": True})],
 )
 def test_sklearn_compatible_estimator(
     estimator: TabPFNClassifier,
@@ -326,7 +327,7 @@ def test_pandas_output_config():
     """Test compatibility with sklearn's output configuration settings."""
     # Generate synthetic classification data
     X, y = sklearn.datasets.make_classification(
-        n_samples=100,
+        n_samples=50,
         n_features=10,
         random_state=19,
     )

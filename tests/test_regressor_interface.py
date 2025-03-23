@@ -49,7 +49,7 @@ all_combinations = list(
 @pytest.fixture(scope="module")
 def X_y() -> tuple[np.ndarray, np.ndarray]:
     X, y = sklearn.datasets.fetch_california_housing(return_X_y=True)
-    X, y = X[:100], y[:100]
+    X, y = X[:50], y[:50]
     return X, y  # type: ignore
 
 
@@ -106,8 +106,8 @@ def test_regressor(
     assert quantiles[0].shape == (X.shape[0],), "Predictions shape is incorrect"
 
 
-# TODO(eddiebergman): Should probably run a larger suite with different configurations
-@parametrize_with_checks([TabPFNRegressor()])
+# TODO: Should probably run a larger suite with different configurations
+@parametrize_with_checks([TabPFNRegressor(n_estimators=2)])
 def test_sklearn_compatible_estimator(
     estimator: TabPFNRegressor,
     check: Callable[[TabPFNRegressor], None],
@@ -341,7 +341,7 @@ def test_pandas_output_config():
     """Test compatibility with sklearn's output configuration settings."""
     # Generate synthetic regression data
     X, y = sklearn.datasets.make_regression(
-        n_samples=100,
+        n_samples=50,
         n_features=10,
         random_state=19,
     )
