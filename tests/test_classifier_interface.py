@@ -108,7 +108,12 @@ def test_fit(
 
 # TODO(eddiebergman): Should probably run a larger suite with different configurations
 @parametrize_with_checks(
-    [TabPFNClassifier(n_estimators=2, inference_config={"USE_SKLEARN_16_DECIMAL_PRECISION": True})],
+    [
+        TabPFNClassifier(
+            n_estimators=2,
+            inference_config={"USE_SKLEARN_16_DECIMAL_PRECISION": True}
+        ),
+    ],
 )
 def test_sklearn_compatible_estimator(
     estimator: TabPFNClassifier,
