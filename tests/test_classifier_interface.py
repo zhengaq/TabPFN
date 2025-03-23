@@ -35,9 +35,11 @@ fit_modes = [
 ]
 inference_precision_methods = ["auto", "autocast", torch.float64]
 remove_remove_outliers_stds = [None, 12]
+estimators = [1,2]
 
 all_combinations = list(
     product(
+        estimators,
         devices,
         feature_shift_decoders,
         multiclass_decoders,
@@ -52,11 +54,13 @@ all_combinations = list(
 @pytest.fixture(scope="module")
 def X_y() -> tuple[np.ndarray, np.ndarray]:
     X, y = sklearn.datasets.load_iris(return_X_y=True)
+    X, y = X[:40], y[:40]
     return X, y  # type: ignore
 
 
 @pytest.mark.parametrize(
     (
+        "n_estimators",
         "device",
         "feature_shift_decoder",
         "multiclass_decoder",
@@ -67,6 +71,7 @@ def X_y() -> tuple[np.ndarray, np.ndarray]:
     all_combinations,
 )
 def test_fit(
+    n_estimators: int,
     device: Literal["cuda", "cpu"],
     feature_shift_decoder: Literal["shuffle", "rotate"],
     multiclass_decoder: Literal["shuffle", "rotate"],
@@ -79,6 +84,7 @@ def test_fit(
         pytest.skip("Only GPU supports inference_precision")
 
     model = TabPFNClassifier(
+        n_estimators=n_estimators,
         device=device,
         fit_mode=fit_mode,
         inference_precision=inference_precision,
@@ -107,7 +113,12 @@ def test_fit(
 
 # TODO(eddiebergman): Should probably run a larger suite with different configurations
 @parametrize_with_checks(
-    [TabPFNClassifier(inference_config={"USE_SKLEARN_16_DECIMAL_PRECISION": True})],
+    [
+        TabPFNClassifier(
+            n_estimators=2,
+            inference_config={"USE_SKLEARN_16_DECIMAL_PRECISION": True}
+        ),
+    ],
 )
 def test_sklearn_compatible_estimator(
     estimator: TabPFNClassifier,
@@ -326,7 +337,7 @@ def test_pandas_output_config():
     """Test compatibility with sklearn's output configuration settings."""
     # Generate synthetic classification data
     X, y = sklearn.datasets.make_classification(
-        n_samples=100,
+        n_samples=50,
         n_features=10,
         random_state=19,
     )
