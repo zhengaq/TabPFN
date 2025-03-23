@@ -31,6 +31,7 @@ from sklearn.base import BaseEstimator, ClassifierMixin, check_is_fitted
 from sklearn.preprocessing import LabelEncoder
 
 from tabpfn.base import (
+    check_cpu_warning,
     create_inference_engine,
     determine_precision,
     initialize_tabpfn_model,
@@ -426,6 +427,9 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
             max_num_features=self.interface_config_.MAX_NUMBER_OF_FEATURES,
             ignore_pretraining_limits=self.ignore_pretraining_limits,
         )
+
+        check_cpu_warning(self.device, X)
+
         if feature_names_in is not None:
             self.feature_names_in_ = feature_names_in
         self.n_features_in_ = n_features_in

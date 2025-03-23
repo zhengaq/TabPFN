@@ -35,6 +35,7 @@ from sklearn.base import (
 )
 
 from tabpfn.base import (
+    check_cpu_warning,
     create_inference_engine,
     determine_precision,
     initialize_tabpfn_model,
@@ -455,6 +456,7 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
             ignore_pretraining_limits=self.ignore_pretraining_limits,
         )
         assert isinstance(X, np.ndarray)
+        check_cpu_warning(self.device, X)
 
         if feature_names_in is not None:
             self.feature_names_in_ = feature_names_in

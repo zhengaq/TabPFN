@@ -33,7 +33,7 @@ fit_modes = [
 ]
 inference_precision_methods = ["auto", "autocast", torch.float64]
 remove_remove_outliers_stds = [None, 12]
-estimators = [1,2]
+estimators = [1, 2]
 
 all_combinations = list(
     product(
@@ -339,6 +339,46 @@ def test_overflow():
 
     predictions = regressor.predict(X)
     assert predictions.shape == (X.shape[0],), "Predictions shape is incorrect"
+
+
+def test_cpu_large_dataset_warning():
+    """Test that a warning is raised when using CPU with large datasets."""
+    # Create a CPU model
+    model = TabPFNRegressor(device="cpu")
+
+    # Create synthetic data slightly above the warning threshold
+    rng = np.random.default_rng(seed=42)
+    X_large = rng.random((201, 10))
+    y_large = rng.random(201)
+
+    # Check that a warning is raised
+    with pytest.warns(
+        UserWarning, match="Running on CPU with more than 200 samples may be slow"
+    ):
+        # Set environment variable to allow large datasets to avoid RuntimeError
+        os.environ["TABPFN_ALLOW_CPU_LARGE_DATASET"] = "1"
+        try:
+            model.fit(X_large, y_large)
+        finally:
+            # Clean up environment variable
+            os.environ.pop("TABPFN_ALLOW_CPU_LARGE_DATASET")
+
+
+def test_cpu_large_dataset_error():
+    """Test that an error is raised when using CPU with very large datasets."""
+    # Create a CPU model
+    model = TabPFNRegressor(device="cpu")
+
+    # Create synthetic data above the error threshold
+    rng = np.random.default_rng(seed=42)
+    X_large = rng.random((1501, 10))
+    y_large = rng.random(1501)
+
+    # Check that a RuntimeError is raised
+    with pytest.raises(
+        RuntimeError, match="Running on CPU with more than 1000 samples is not"
+    ):
+        model.fit(X_large, y_large)
 
 
 def test_pandas_output_config():
