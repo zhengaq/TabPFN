@@ -35,9 +35,11 @@ fit_modes = [
 ]
 inference_precision_methods = ["auto", "autocast", torch.float64]
 remove_remove_outliers_stds = [None, 12]
+estimators = [1,2]
 
 all_combinations = list(
     product(
+        estimators,
         devices,
         feature_shift_decoders,
         multiclass_decoders,
@@ -52,12 +54,13 @@ all_combinations = list(
 @pytest.fixture(scope="module")
 def X_y() -> tuple[np.ndarray, np.ndarray]:
     X, y = sklearn.datasets.load_iris(return_X_y=True)
-    X, y = X[:50], y[:50]
+    X, y = X[:40], y[:40]
     return X, y  # type: ignore
 
 
 @pytest.mark.parametrize(
     (
+        "n_estimators",
         "device",
         "feature_shift_decoder",
         "multiclass_decoder",
@@ -68,6 +71,7 @@ def X_y() -> tuple[np.ndarray, np.ndarray]:
     all_combinations,
 )
 def test_fit(
+    n_estimators: int,
     device: Literal["cuda", "cpu"],
     feature_shift_decoder: Literal["shuffle", "rotate"],
     multiclass_decoder: Literal["shuffle", "rotate"],
@@ -80,6 +84,7 @@ def test_fit(
         pytest.skip("Only GPU supports inference_precision")
 
     model = TabPFNClassifier(
+        n_estimators=n_estimators,
         device=device,
         fit_mode=fit_mode,
         inference_precision=inference_precision,

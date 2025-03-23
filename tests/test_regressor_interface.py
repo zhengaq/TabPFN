@@ -33,9 +33,11 @@ fit_modes = [
 ]
 inference_precision_methods = ["auto", "autocast", torch.float64]
 remove_remove_outliers_stds = [None, 12]
+estimators = [1,2]
 
 all_combinations = list(
     product(
+        estimators,
         devices,
         feature_shift_decoders,
         fit_modes,
@@ -49,12 +51,13 @@ all_combinations = list(
 @pytest.fixture(scope="module")
 def X_y() -> tuple[np.ndarray, np.ndarray]:
     X, y = sklearn.datasets.fetch_california_housing(return_X_y=True)
-    X, y = X[:50], y[:50]
+    X, y = X[:40], y[:40]
     return X, y  # type: ignore
 
 
 @pytest.mark.parametrize(
     (
+        "n_estimators",
         "device",
         "feature_shift_decoder",
         "fit_mode",
@@ -64,6 +67,7 @@ def X_y() -> tuple[np.ndarray, np.ndarray]:
     all_combinations,
 )
 def test_regressor(
+    n_estimators: int,
     device: Literal["cuda", "cpu"],
     feature_shift_decoder: Literal["shuffle", "rotate"],
     fit_mode: Literal["low_memory", "fit_preprocessors", "fit_with_cache"],
@@ -75,7 +79,7 @@ def test_regressor(
         pytest.skip("Only GPU supports inference_precision")
 
     model = TabPFNRegressor(
-        n_estimators=2,
+        n_estimators=n_estimators,
         device=device,
         fit_mode=fit_mode,
         inference_precision=inference_precision,
