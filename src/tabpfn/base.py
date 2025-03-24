@@ -151,7 +151,8 @@ def load_onnx_model(
             f"ONNX model not found at: {model_path}, "
             "please compile the model by running "
             "`from tabpfn.misc.compile_to_onnx import compile_onnx_models; "
-            "compile_onnx_models()`",
+            "compile_onnx_models()`"
+            "or change `model_path`.",
         )
 
     return ONNXModelWrapper(str(model_path), device)

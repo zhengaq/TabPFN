@@ -424,11 +424,12 @@ def test_models() -> None:
     )
 
 
-def compile_onnx_models(suffix: str = "") -> None:
+def compile_onnx_models(suffix: str = "", *, skip_test: bool = False) -> None:
     """Compile the ONNX models.
 
     Args:
         suffix: The suffix to append to the file names of the ONNX models.
+        skip_test: Whether to skip the performance test of the ONNX models.
     """
     classifier_path, _, _ = resolve_model_path(None, "classifier", "v2", use_onnx=True)
     regressor_path, _, _ = resolve_model_path(None, "regressor", "v2", use_onnx=True)
@@ -444,7 +445,7 @@ def compile_onnx_models(suffix: str = "") -> None:
     check_onnx_model(regressor_path)
     check_input_names(regressor_path)
 
-    if not len(suffix):
+    if not len(suffix) and not skip_test:
         test_models()
-    else:
+    elif not skip_test:
         print("model name suffix is not empty, skipping test")

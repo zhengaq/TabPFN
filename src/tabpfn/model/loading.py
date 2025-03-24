@@ -369,7 +369,8 @@ def resolve_model_path(
         model_path = Path(model_path)
         model_dir = model_path.parent
         if use_onnx and not model_path.name.endswith(".onnx"):
-            model_name = model_path.name.replace(".ckpt", ".onnx")
+            # More general approach - replace any extension with .onnx
+            model_name = model_path.stem + ".onnx"
         else:
             model_name = model_path.name
 
