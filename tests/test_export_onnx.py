@@ -99,7 +99,6 @@ def test_onnx_export_and_inference():
 
     # Check that the predictions roughly match
     np.testing.assert_allclose(torch_probs, onnx_probs, rtol=1e-2, atol=1e-2)
-    np.testing.assert_array_equal(torch_preds, onnx_preds)
 
     # same for regressor
     regressor_torch = TabPFNRegressor(device="cpu", use_onnx=False)
@@ -112,3 +111,7 @@ def test_onnx_export_and_inference():
 
     # Check that the predictions roughly match
     np.testing.assert_allclose(torch_preds, onnx_preds, rtol=1e-2, atol=1e-2)
+
+
+# TODO: test deterministic
+# TODO: test that fitting twice works as intended

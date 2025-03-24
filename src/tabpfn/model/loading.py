@@ -379,7 +379,7 @@ def resolve_model_path(
 
 @overload
 def load_model_criterion_config(
-    model_path: str | Path | None,
+    model_path: Path,
     *,
     check_bar_distribution_criterion: Literal[False],
     cache_trainset_representation: bool,
@@ -396,7 +396,7 @@ def load_model_criterion_config(
 
 @overload
 def load_model_criterion_config(
-    model_path: str | Path | None,
+    model_path: Path,
     *,
     check_bar_distribution_criterion: Literal[True],
     cache_trainset_representation: bool,
@@ -408,7 +408,7 @@ def load_model_criterion_config(
 
 
 def load_model_criterion_config(
-    model_path: None | str | Path,
+    model_path: Path,
     *,
     check_bar_distribution_criterion: bool,
     cache_trainset_representation: bool,
@@ -439,7 +439,7 @@ def load_model_criterion_config(
     Returns:
         The model, criterion, and config.
     """
-    model_path, model_dir, model_name = resolve_model_path(model_path, which, version)
+    model_dir, model_name = model_path.parent, model_path.name
 
     model_dir.mkdir(parents=True, exist_ok=True)
     if not model_path.exists():

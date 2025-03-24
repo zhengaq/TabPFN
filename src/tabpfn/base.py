@@ -29,7 +29,6 @@ from tabpfn.inference import (
 )
 from tabpfn.model.loading import (
     load_model_criterion_config,
-    resolve_model_path,
 )
 from tabpfn.utils import (
     infer_fp16_inference_mode,
@@ -47,7 +46,7 @@ if TYPE_CHECKING:
 
 @overload
 def initialize_tabpfn_model(
-    model_path: str | Path | Literal["auto"],
+    model_path: Path,
     which: Literal["regressor"],
     fit_mode: Literal["low_memory", "fit_preprocessors", "fit_with_cache"],
     static_seed: int,
@@ -56,7 +55,7 @@ def initialize_tabpfn_model(
 
 @overload
 def initialize_tabpfn_model(
-    model_path: str | Path | Literal["auto"],
+    model_path: Path,
     which: Literal["classifier"],
     fit_mode: Literal["low_memory", "fit_preprocessors", "fit_with_cache"],
     static_seed: int,
@@ -64,7 +63,7 @@ def initialize_tabpfn_model(
 
 
 def initialize_tabpfn_model(
-    model_path: str | Path | Literal["auto"],
+    model_path: Path,
     which: Literal["classifier", "regressor"],
     fit_mode: Literal["low_memory", "fit_preprocessors", "fit_with_cache"],
     static_seed: int,
@@ -117,9 +116,7 @@ def initialize_tabpfn_model(
 
 
 def load_onnx_model(
-    model_path: str | Path,
-    which: Literal["classifier", "regressor"],
-    version: Literal["v2"],
+    model_path: Path,
     device: torch.device,
 ) -> ONNXModelWrapper:
     """Load a TabPFN model in ONNX format.
@@ -142,10 +139,10 @@ def load_onnx_model(
     except ImportError as err:
         raise ImportError(
             "onnxruntime is required to load ONNX models. "
-            "Install it with: pip install onnxruntime",
+            "Install it with: pip install onnxruntime-gpu"
+            "or pip install onnxruntime",
         ) from err
 
-    model_path, _, _ = resolve_model_path(model_path, which, version, use_onnx=True)
     if not model_path.exists():
         raise FileNotFoundError(
             f"ONNX model not found at: {model_path}, "
@@ -155,7 +152,7 @@ def load_onnx_model(
             "or change `model_path`.",
         )
 
-    return ONNXModelWrapper(str(model_path), device)
+    return ONNXModelWrapper(model_path, device)
 
 
 def determine_precision(

@@ -7,6 +7,8 @@ and validate ONNX models derived from TabPFN models.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import onnx
 import onnxruntime as ort
@@ -21,7 +23,7 @@ from tabpfn.model.loading import resolve_model_path
 class ONNXModelWrapper:
     """Wrap ONNX model to match the PyTorch model interface."""
 
-    def __init__(self, model_path: str, device: torch.device):
+    def __init__(self, model_path: Path, device: torch.device):
         """Initialize the ONNX model wrapper.
 
         Args:
@@ -434,8 +436,8 @@ def compile_onnx_models(suffix: str = "", *, skip_test: bool = False) -> None:
     classifier_path, _, _ = resolve_model_path(None, "classifier", "v2", use_onnx=True)
     regressor_path, _, _ = resolve_model_path(None, "regressor", "v2", use_onnx=True)
     # add suffix to the file names
-    classifier_path = str(classifier_path) + suffix
-    regressor_path = str(regressor_path) + suffix
+    classifier_path = classifier_path.stem + suffix + ".onnx"
+    regressor_path = regressor_path.stem + suffix + ".onnx"
 
     export_model(classifier_path, "classifier")
     check_onnx_model(classifier_path)

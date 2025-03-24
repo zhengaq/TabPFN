@@ -43,6 +43,7 @@ from tabpfn.base import (
 )
 from tabpfn.config import ModelInterfaceConfig
 from tabpfn.model.bar_distribution import FullSupportBarDistribution
+from tabpfn.model.loading import resolve_model_path
 from tabpfn.model.preprocessing import (
     ReshapeFeatureDistributionsStep,
 )
@@ -80,7 +81,9 @@ if TYPE_CHECKING:
     from tabpfn.inference import (
         InferenceEngine,
     )
+    from tabpfn.misc.compile_to_onnx import ONNXModelWrapper
     from tabpfn.model.config import InferenceConfig
+    from tabpfn.model.transformer import PerFeatureTransformer
 
     try:
         from sklearn.base import Tags
@@ -159,6 +162,9 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
 
     preprocessor_: ColumnTransformer
     """The column transformer used to preprocess the input data to be numeric."""
+
+    model_: PerFeatureTransformer | ONNXModelWrapper
+    """The loaded model used for inference."""
 
     # TODO: consider moving the following to constants.py
     _OUTPUT_TYPES_BASIC = ("mean", "median", "mode")
@@ -430,25 +436,38 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
             determine_precision(self.inference_precision, self.device_)
         )
 
+        model_path, _, _ = resolve_model_path(
+            self.model_path,
+            which="regressor",
+            version="v2",
+            use_onnx=self.use_onnx,
+        )
+
         # Load the model and config
         if self.use_onnx:
-            self.model_ = load_onnx_model(
-                self.model_path,
-                which="regressor",
-                version="v2",
-                device=self.device_,
-            )
+            # if the model was already loaded with the same config,
+            # use the same ONNX session
+            if hasattr(self, "model_") and (model_path, self.device_) == (
+                self.model_.model_path,
+                self.model_.device,
+            ):
+                print("Using same ONNX session as last fit call")  # noqa: T201
+            else:
+                self.model_ = load_onnx_model(
+                    model_path,
+                    device=self.device_,
+                )
             # Initialize bardist_ for ONNX mode
             # TODO: faster way to do this
             _, self.config_, self.bardist_ = initialize_tabpfn_model(
-                model_path=self.model_path,
+                model_path=model_path.with_stem(model_path.stem).with_suffix(".ckpt"),
                 which="regressor",
                 fit_mode=self.fit_mode,
                 static_seed=static_seed,
             )
         else:
             self.model_, self.config_, self.bardist_ = initialize_tabpfn_model(
-                model_path=self.model_path,
+                model_path=model_path,
                 which="regressor",
                 fit_mode=self.fit_mode,
                 static_seed=static_seed,

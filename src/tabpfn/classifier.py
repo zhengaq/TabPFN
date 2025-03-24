@@ -44,6 +44,7 @@ from tabpfn.constants import (
     XType,
     YType,
 )
+from tabpfn.model.loading import resolve_model_path
 from tabpfn.preprocessing import (
     ClassifierEnsembleConfig,
     EnsembleConfig,
@@ -69,7 +70,9 @@ if TYPE_CHECKING:
     from torch.types import _dtype
 
     from tabpfn.inference import InferenceEngine
+    from tabpfn.misc.compile_to_onnx import ONNXModelWrapper
     from tabpfn.model.config import InferenceConfig
+    from tabpfn.model.transformer import PerFeatureTransformer
 
     try:
         from sklearn.base import Tags
@@ -131,6 +134,9 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
 
     preprocessor_: ColumnTransformer
     """The column transformer used to preprocess the input data to be numeric."""
+
+    model_: PerFeatureTransformer | ONNXModelWrapper
+    """The loaded model used for inference."""
 
     def __init__(  # noqa: PLR0913
         self,
@@ -399,17 +405,29 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
             determine_precision(self.inference_precision, self.device_)
         )
 
+        model_path, _, _ = resolve_model_path(
+            self.model_path,
+            which="classifier",
+            version="v2",
+            use_onnx=self.use_onnx,
+        )
         # Load the model and config
         if self.use_onnx:
-            self.model_ = load_onnx_model(
-                self.model_path,
-                which="classifier",
-                version="v2",
-                device=self.device_,
-            )
+            # if the model was already loaded with the same config
+            # use the same ONNX session
+            if hasattr(self, "model_") and (model_path, self.device_) != (
+                self.model_.model_path,
+                self.model_.device,
+            ):
+                print("Using same ONNX session as last fit call")  # noqa: T201
+            else:
+                self.model_ = load_onnx_model(
+                    model_path,
+                    device=self.device_,
+                )
         else:
             self.model_, self.config_, _ = initialize_tabpfn_model(
-                model_path=self.model_path,
+                model_path=model_path,
                 which="classifier",
                 fit_mode=self.fit_mode,
                 static_seed=static_seed,
