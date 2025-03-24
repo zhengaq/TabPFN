@@ -80,7 +80,7 @@ jobs:
           uv pip install --system pytest psutil
           # onnx is not supported on python 3.13 yet https://github.com/onnx/onnx/issues/6339
           if [[ "${{ matrix.python-version }}" != "3.13" ]]; then
-            uv pip install --system onnx
+            uv pip install --system onnx onnxruntime
           fi
         shell: bash
 
