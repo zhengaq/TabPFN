@@ -415,7 +415,7 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
         if self.use_onnx:
             # if the model was already loaded with the same config
             # use the same ONNX session
-            if hasattr(self, "model_") and (model_path, self.device_) != (
+            if hasattr(self, "model_") and (model_path, self.device_) == (
                 self.model_.model_path,
                 self.model_.device,
             ):
