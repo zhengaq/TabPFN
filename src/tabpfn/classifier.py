@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+import typing
 from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -25,10 +26,12 @@ from typing_extensions import Self
 
 import numpy as np
 import torch
+from sklearn import config_context
 from sklearn.base import BaseEstimator, ClassifierMixin, check_is_fitted
 from sklearn.preprocessing import LabelEncoder
 
 from tabpfn.base import (
+    check_cpu_warning,
     create_inference_engine,
     determine_precision,
     initialize_tabpfn_model,
@@ -44,12 +47,14 @@ from tabpfn.constants import (
 from tabpfn.preprocessing import (
     ClassifierEnsembleConfig,
     EnsembleConfig,
+    PreprocessorConfig,
     default_classifier_preprocessor_configs,
 )
 from tabpfn.utils import (
     _fix_dtypes,
     _get_embeddings,
     _get_ordinal_encoder,
+    _process_text_na_dataframe,
     infer_categorical_features,
     infer_device_and_type,
     infer_random_state,
@@ -63,9 +68,7 @@ if TYPE_CHECKING:
     from sklearn.compose import ColumnTransformer
     from torch.types import _dtype
 
-    from tabpfn.inference import (
-        InferenceEngine,
-    )
+    from tabpfn.inference import InferenceEngine
     from tabpfn.model.config import InferenceConfig
 
     try:
@@ -380,6 +383,7 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
         tags.estimator_type = "classifier"
         return tags
 
+    @config_context(transform_output="default")  # type: ignore
     def fit(self, X: XType, y: YType) -> Self:
         """Fit the model.
 
@@ -437,6 +441,9 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
             max_num_features=self.interface_config_.MAX_NUMBER_OF_FEATURES,
             ignore_pretraining_limits=self.ignore_pretraining_limits,
         )
+
+        check_cpu_warning(self.device, X)
+
         if feature_names_in is not None:
             self.feature_names_in_ = feature_names_in
         self.n_features_in_ = n_features_in
@@ -467,7 +474,13 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
 
         # Ensure categories are ordinally encoded
         ord_encoder = _get_ordinal_encoder()
-        X = ord_encoder.fit_transform(X)  # type: ignore
+
+        X = _process_text_na_dataframe(
+            X,
+            ord_encoder=ord_encoder,
+            fit_encoder=True,
+        )
+
         assert isinstance(X, np.ndarray)
         self.preprocessor_ = ord_encoder
 
@@ -489,10 +502,11 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
             feature_shift_decoder=self.interface_config_.FEATURE_SHIFT_METHOD,
             polynomial_features=self.interface_config_.POLYNOMIAL_FEATURES,
             max_index=len(X),
-            preprocessor_configs=(
+            preprocessor_configs=typing.cast(
+                Sequence[PreprocessorConfig],
                 preprocess_transforms
                 if preprocess_transforms is not None
-                else default_classifier_preprocessor_configs()
+                else default_classifier_preprocessor_configs(),
             ),
             class_shift_method=self.interface_config_.CLASS_SHIFT_METHOD,
             n_classes=self.n_classes_,
@@ -533,6 +547,7 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
         y = np.argmax(proba, axis=1)
         return self.label_encoder_.inverse_transform(y)  # type: ignore
 
+    @config_context(transform_output="default")  # type: ignore
     def predict_proba(self, X: XType) -> np.ndarray:
         """Predict the probabilities of the classes for the provided input samples.
 
@@ -546,7 +561,8 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
 
         X = validate_X_predict(X, self)
         X = _fix_dtypes(X, cat_indices=self.categorical_features_indices)
-        X = self.preprocessor_.transform(X)
+
+        X = _process_text_na_dataframe(X, ord_encoder=self.preprocessor_)
 
         outputs: list[torch.Tensor] = []
 

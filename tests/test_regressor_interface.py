@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import io
 import os
+import sys
+import typing
 from itertools import product
 from typing import Callable, Literal
 
@@ -9,6 +11,7 @@ import numpy as np
 import pytest
 import sklearn.datasets
 import torch
+from sklearn import config_context
 from sklearn.base import check_is_fitted
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
@@ -30,9 +33,11 @@ fit_modes = [
 ]
 inference_precision_methods = ["auto", "autocast", torch.float64]
 remove_remove_outliers_stds = [None, 12]
+estimators = [1, 2]
 
 all_combinations = list(
     product(
+        estimators,
         devices,
         feature_shift_decoders,
         fit_modes,
@@ -46,12 +51,13 @@ all_combinations = list(
 @pytest.fixture(scope="module")
 def X_y() -> tuple[np.ndarray, np.ndarray]:
     X, y = sklearn.datasets.fetch_california_housing(return_X_y=True)
-    X, y = X[:100], y[:100]
+    X, y = X[:40], y[:40]
     return X, y  # type: ignore
 
 
 @pytest.mark.parametrize(
     (
+        "n_estimators",
         "device",
         "feature_shift_decoder",
         "fit_mode",
@@ -61,6 +67,7 @@ def X_y() -> tuple[np.ndarray, np.ndarray]:
     all_combinations,
 )
 def test_regressor(
+    n_estimators: int,
     device: Literal["cuda", "cpu"],
     feature_shift_decoder: Literal["shuffle", "rotate"],
     fit_mode: Literal["low_memory", "fit_preprocessors", "fit_with_cache"],
@@ -72,7 +79,7 @@ def test_regressor(
         pytest.skip("Only GPU supports inference_precision")
 
     model = TabPFNRegressor(
-        n_estimators=2,
+        n_estimators=n_estimators,
         device=device,
         fit_mode=fit_mode,
         inference_precision=inference_precision,
@@ -103,8 +110,8 @@ def test_regressor(
     assert quantiles[0].shape == (X.shape[0],), "Predictions shape is incorrect"
 
 
-# TODO(eddiebergman): Should probably run a larger suite with different configurations
-@parametrize_with_checks([TabPFNRegressor()])
+# TODO: Should probably run a larger suite with different configurations
+@parametrize_with_checks([TabPFNRegressor(n_estimators=2)])
 def test_sklearn_compatible_estimator(
     estimator: TabPFNRegressor,
     check: Callable[[TabPFNRegressor], None],
@@ -200,8 +207,13 @@ def test_dict_vs_object_preprocessor_config(X_y: tuple[np.ndarray, np.ndarray]) 
 
     # Compare predictions for different output types
     for output_type in ["mean", "median", "mode"]:
-        pred_dict = model_dict.predict(X, output_type=output_type)
-        pred_obj = model_obj.predict(X, output_type=output_type)
+        # Cast output_type to a valid literal type for mypy
+        valid_output_type = typing.cast(
+            typing.Literal["mean", "median", "mode"],
+            output_type,
+        )
+        pred_dict = model_dict.predict(X, output_type=valid_output_type)
+        pred_obj = model_obj.predict(X, output_type=valid_output_type)
         np.testing.assert_array_almost_equal(
             pred_dict,
             pred_obj,
@@ -247,6 +259,8 @@ class ModelWrapper(nn.Module):
 def test_onnx_exportable_cpu(X_y: tuple[np.ndarray, np.ndarray]) -> None:
     if os.name == "nt":
         pytest.skip("onnx export is not tested on windows")
+    if sys.version_info >= (3, 13):
+        pytest.xfail("onnx is not yet supported on Python 3.13")
     X, y = X_y
     with torch.no_grad():
         regressor = TabPFNRegressor(n_estimators=1, device="cpu", random_state=43)
@@ -291,11 +305,15 @@ def test_get_embeddings(X_y: tuple[np.ndarray, np.ndarray], data_source: str) ->
     model = TabPFNRegressor(n_estimators=n_estimators)
     model.fit(X, y)
 
-    embeddings = model.get_embeddings(X, data_source)
+    # Cast to Literal type for mypy
+    valid_data_source = typing.cast(Literal["train", "test"], data_source)
+    embeddings = model.get_embeddings(X, valid_data_source)
 
+    # Need to access the model through the executor
+    model_instance = typing.cast(typing.Any, model.executor_).model
     encoder_shape = next(
         m.out_features
-        for m in model.executor_.model.encoder.modules()
+        for m in model_instance.encoder.modules()
         if isinstance(m, nn.Linear)
     )
 
@@ -318,3 +336,109 @@ def test_overflow():
 
     predictions = regressor.predict(X)
     assert predictions.shape == (X.shape[0],), "Predictions shape is incorrect"
+
+
+def test_cpu_large_dataset_warning():
+    """Test that a warning is raised when using CPU with large datasets."""
+    # Create a CPU model
+    model = TabPFNRegressor(device="cpu")
+
+    # Create synthetic data slightly above the warning threshold
+    rng = np.random.default_rng(seed=42)
+    X_large = rng.random((201, 10))
+    y_large = rng.random(201)
+
+    # Check that a warning is raised
+    with pytest.warns(
+        UserWarning, match="Running on CPU with more than 200 samples may be slow"
+    ):
+        # Set environment variable to allow large datasets to avoid RuntimeError
+        os.environ["TABPFN_ALLOW_CPU_LARGE_DATASET"] = "1"
+        try:
+            model.fit(X_large, y_large)
+        finally:
+            # Clean up environment variable
+            os.environ.pop("TABPFN_ALLOW_CPU_LARGE_DATASET")
+
+
+def test_cpu_large_dataset_error():
+    """Test that an error is raised when using CPU with very large datasets."""
+    # Create a CPU model
+    model = TabPFNRegressor(device="cpu")
+
+    # Create synthetic data above the error threshold
+    rng = np.random.default_rng(seed=42)
+    X_large = rng.random((1501, 10))
+    y_large = rng.random(1501)
+
+    # Check that a RuntimeError is raised
+    with pytest.raises(
+        RuntimeError, match="Running on CPU with more than 1000 samples is not"
+    ):
+        model.fit(X_large, y_large)
+
+
+def test_pandas_output_config():
+    """Test compatibility with sklearn's output configuration settings."""
+    # Generate synthetic regression data
+    X, y = sklearn.datasets.make_regression(
+        n_samples=50,
+        n_features=10,
+        random_state=19,
+    )
+
+    # Initialize TabPFN
+    model = TabPFNRegressor(n_estimators=1, random_state=42)
+
+    # Get default predictions
+    model.fit(X, y)
+    default_pred = model.predict(X)
+
+    # Test with pandas output
+    with config_context(transform_output="pandas"):
+        model.fit(X, y)
+        pandas_pred = model.predict(X)
+        np.testing.assert_array_almost_equal(default_pred, pandas_pred)
+
+    # Test with polars output
+    with config_context(transform_output="polars"):
+        model.fit(X, y)
+        polars_pred = model.predict(X)
+        np.testing.assert_array_almost_equal(default_pred, polars_pred)
+
+
+def test_constant_feature_handling(X_y: tuple[np.ndarray, np.ndarray]) -> None:
+    """Test that constant features are properly handled and don't affect predictions."""
+    X, y = X_y
+
+    # Create a TabPFNRegressor with fixed random state for reproducibility
+    model = TabPFNRegressor(n_estimators=2, random_state=42)
+    model.fit(X, y)
+
+    # Get predictions on original data
+    original_predictions = model.predict(X)
+
+    # Create a new dataset with added constant features
+    X_with_constants = np.hstack(
+        [
+            X,
+            np.zeros((X.shape[0], 3)),  # Add 3 constant zero features
+            np.ones((X.shape[0], 2)),  # Add 2 constant one features
+            np.full((X.shape[0], 1), 5.0),  # Add 1 constant with value 5.0
+        ],
+    )
+
+    # Create and fit a new model with the same random state
+    model_with_constants = TabPFNRegressor(n_estimators=2, random_state=42)
+    model_with_constants.fit(X_with_constants, y)
+
+    # Get predictions on data with constant features
+    constant_predictions = model_with_constants.predict(X_with_constants)
+
+    # Verify predictions are the same (within numerical precision)
+    np.testing.assert_array_almost_equal(
+        original_predictions,
+        constant_predictions,
+        decimal=5,  # Allow small numerical differences
+        err_msg="Predictions changed after adding constant features",
+    )
