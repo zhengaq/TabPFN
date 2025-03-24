@@ -22,7 +22,7 @@ being dramatically faster. This repository contains the core PyTorch implementat
 CUDA optimization.
 
 > ⚡ **GPU Recommended**:  
-> For optimal performance, use a GPU (even older ones with ~8GB VRAM work well).  
+> For optimal performance, use a GPU (even older ones with ~8GB VRAM work well; 16GB needed for some large datasets).  
 > On CPU, only small datasets (≲1000 samples) are feasible.  
 > No GPU? Use our free hosted inference via [TabPFN Client](https://github.com/PriorLabs/tabpfn-client).
 
