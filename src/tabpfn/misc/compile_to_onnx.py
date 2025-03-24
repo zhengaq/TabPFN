@@ -20,6 +20,17 @@ from tabpfn import TabPFNClassifier, TabPFNRegressor
 from tabpfn.model.loading import resolve_model_path
 
 
+def _check_cuda_provider(device: torch.device) -> None:
+    if (
+        device.type == "cuda"
+        and "CUDAExecutionProvider" not in ort.get_available_providers()
+    ):
+        raise ValueError(
+            "Device is cuda but CUDAExecutionProvider is not available in ONNX. "
+            "Check that you installed onnxruntime-gpu and have a GPU."
+        )
+
+
 class ONNXModelWrapper:
     """Wrap ONNX model to match the PyTorch model interface."""
 
@@ -32,6 +43,7 @@ class ONNXModelWrapper:
         """
         self.model_path = model_path
         self.device = device
+        _check_cuda_provider(self.device)
         if device.type == "cuda":
             self.providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
         elif device.type == "cpu":
@@ -56,18 +68,16 @@ class ONNXModelWrapper:
             self
         """
         # Only recreate session if device type has changed
+        _check_cuda_provider(device)
         if device.type != self.device.type:
             if device.type == "cuda":
-                # Check if CUDA is available in ONNX Runtime
                 cuda_provider = "CUDAExecutionProvider"
-                if cuda_provider in ort.get_available_providers():
-                    self.providers = [cuda_provider, "CPUExecutionProvider"]
-                    # Reinitialize session with CUDA provider
-                    self.session = ort.InferenceSession(
-                        self.model_path,
-                        providers=self.providers,
-                    )
-                # If CUDA is not available, keep current session
+                self.providers = [cuda_provider, "CPUExecutionProvider"]
+                # Reinitialize session with CUDA provider
+                self.session = ort.InferenceSession(
+                    self.model_path,
+                    providers=self.providers,
+                )
             else:
                 self.providers = ["CPUExecutionProvider"]
                 self.session = ort.InferenceSession(

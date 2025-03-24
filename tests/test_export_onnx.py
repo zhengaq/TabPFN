@@ -279,3 +279,49 @@ def test_onnx_deterministic(which: Literal["classifier", "regressor"]):
         # Predictions should be different (with high probability)
         with pytest.raises(AssertionError):
             np.testing.assert_array_equal(pred1, pred3)
+
+
+@pytest.mark.filterwarnings("ignore::torch.jit.TracerWarning")
+@pytest.mark.parametrize("model_class", [TabPFNClassifier, TabPFNRegressor])
+def test_cuda_provider_missing_error(model_class):
+    """Test that TabPFN models raise the correct error when trying to use CUDA
+    without CUDAExecutionProvider available in ONNX Runtime.
+    """
+    if os.name == "nt":
+        pytest.skip("ONNX export is not tested on Windows")
+    if sys.version_info >= (3, 13):
+        pytest.xfail("ONNX is not yet supported on Python 3.13")
+
+    try:
+        import onnxruntime as ort
+    except ImportError:
+        pytest.skip("ONNX Runtime not available")
+
+    # Generate synthetic data
+    rng = np.random.default_rng(42)
+    X = rng.standard_normal((20, 5)).astype(np.float32)
+    y = (
+        rng.integers(0, 2, size=20)
+        if model_class == TabPFNClassifier
+        else rng.standard_normal(20)
+    )
+
+    # Mock ort.get_available_providers to return only CPUExecutionProvider
+    original_get_providers = ort.get_available_providers
+
+    try:
+        # Replace providers with only CPU
+        ort.get_available_providers = lambda: ["CPUExecutionProvider"]
+
+        # Create model with CUDA device and ONNX enabled
+        model = model_class(device="cuda", use_onnx=True)
+
+        # The error should be raised during fit
+        with pytest.raises(
+            ValueError,
+            match="Device is cuda but CUDAExecutionProvider is not available in ONNX",
+        ):
+            model.fit(X, y)
+    finally:
+        # Restore original function
+        ort.get_available_providers = original_get_providers
