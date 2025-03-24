@@ -235,7 +235,6 @@ class ModelWrapper(nn.Module):
         y,
         single_eval_pos,
         only_return_standard_out,
-        categorical_inds,
     ):
         return self.model(
             None,
@@ -243,7 +242,6 @@ class ModelWrapper(nn.Module):
             y,
             single_eval_pos=single_eval_pos,
             only_return_standard_out=only_return_standard_out,
-            categorical_inds=categorical_inds,
         )
 
 
@@ -281,7 +279,6 @@ def test_onnx_exportable_cpu(X_y: tuple[np.ndarray, np.ndarray]) -> None:
                 "y",
                 "single_eval_pos",
                 "only_return_standard_out",
-                "categorical_inds",
             ],
             output_names=["output"],
             opset_version=17,  # using 17 since we use torch>=2.1
