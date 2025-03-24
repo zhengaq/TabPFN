@@ -7,7 +7,6 @@ import numpy as np
 import pytest
 
 from tabpfn import TabPFNClassifier, TabPFNRegressor
-from tabpfn.misc.compile_to_onnx import compile_onnx_models
 
 
 @pytest.mark.filterwarnings("ignore::torch.jit.TracerWarning")
@@ -64,6 +63,8 @@ def test_onnx_export_and_inference():
         import onnxruntime  # noqa: F401
     except ImportError:
         pytest.skip("ONNX or ONNX Runtime not available")
+
+    from tabpfn.misc.compile_to_onnx import compile_onnx_models
 
     # Compile the model to ONNX format (using default output directory)
     compile_onnx_models(skip_test=True)
