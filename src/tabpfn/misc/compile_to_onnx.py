@@ -1,3 +1,4 @@
+# ruff: noqa: T201
 """Module providing wrappers to use ONNX models with a PyTorch-like interface.
 
 This module defines wrappers for ONNX models as well as helper functions to export
@@ -5,9 +6,6 @@ and validate ONNX models derived from TabPFN models.
 """
 
 from __future__ import annotations
-
-import os
-import sys
 
 import numpy as np
 import onnx
@@ -17,7 +15,7 @@ import torch
 from torch import nn
 
 from tabpfn import TabPFNClassifier, TabPFNRegressor
-from tabpfn.utils import _user_cache_dir
+from tabpfn.model.loading import resolve_model_path
 
 
 class ONNXModelWrapper:
@@ -157,7 +155,7 @@ class ONNXModelWrapper:
         if "CUDAExecutionProvider" in self.providers:
             output_tensor = output_tensor.cuda()
         return output_tensor
-    
+
     def forward(
         self,
         style: torch.Tensor | None,
@@ -202,10 +200,12 @@ class ModelWrapper(nn.Module):
         super().__init__()
         self.model = original_model
 
-    def forward(self, X: torch.Tensor,
-                y: torch.Tensor,
-                single_eval_pos: torch.Tensor,
-                only_return_standard_out: torch.Tensor,
+    def forward(
+        self,
+        X: torch.Tensor,
+        y: torch.Tensor,
+        single_eval_pos: torch.Tensor,
+        only_return_standard_out: torch.Tensor,
     ) -> dict[str, torch.Tensor]:
         """Perform a forward pass.
 
@@ -416,29 +416,25 @@ def test_models() -> None:
             f"Accuracy PyTorch: {clf_acc_torch}, Accuracy ONNX: {clf_acc_onnx}, \n"
             f"MSE PyTorch: {reg_mse_torch}, MSE ONNX: {reg_mse_onnx}"
         )
-    else:
-        print("SUCCESS: the performance of the ONNX model is "
-              "similar to the PyTorch model. \n"
-              f"Accuracy PyTorch: {clf_acc_torch}, Accuracy ONNX: {clf_acc_onnx}, \n"
-              f"MSE PyTorch: {reg_mse_torch}, MSE ONNX: {reg_mse_onnx}")
+    print(
+        "SUCCESS: the performance of the ONNX model is "
+        "similar to the PyTorch model. \n"
+        f"Accuracy PyTorch: {clf_acc_torch}, Accuracy ONNX: {clf_acc_onnx}, \n"
+        f"MSE PyTorch: {reg_mse_torch}, MSE ONNX: {reg_mse_onnx}"
+    )
 
 
-
-def compile_onnx_models(suffix: str = ""):
+def compile_onnx_models(suffix: str = "") -> None:
     """Compile the ONNX models.
 
     Args:
         suffix: The suffix to append to the file names of the ONNX models.
     """
-    USER_TABPFN_CACHE_DIR_LOCATION = os.environ.get("TABPFN_MODEL_CACHE_DIR", "")
-    if USER_TABPFN_CACHE_DIR_LOCATION.strip() != "":
-        cache_dir = USER_TABPFN_CACHE_DIR_LOCATION
-    else:
-        cache_dir = _user_cache_dir(platform=sys.platform, appname="tabpfn")
-
-    # Export both models with appropriate suffixes
-    classifier_path = f"{cache_dir}/tabpfn-v2-classifier{suffix}.onnx"
-    regressor_path = f"{cache_dir}/tabpfn-v2-regressor{suffix}.onnx"
+    classifier_path, _, _ = resolve_model_path(None, "classifier", "v2", use_onnx=True)
+    regressor_path, _, _ = resolve_model_path(None, "regressor", "v2", use_onnx=True)
+    # add suffix to the file names
+    classifier_path = str(classifier_path) + suffix
+    regressor_path = str(regressor_path) + suffix
 
     export_model(classifier_path, "classifier")
     check_onnx_model(classifier_path)

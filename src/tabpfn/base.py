@@ -27,9 +27,11 @@ from tabpfn.inference import (
     InferenceEngineCachePreprocessing,
     InferenceEngineOnDemand,
 )
-from tabpfn.model.loading import load_model_criterion_config
+from tabpfn.model.loading import (
+    load_model_criterion_config,
+    resolve_model_path,
+)
 from tabpfn.utils import (
-    get_model_path,
     infer_fp16_inference_mode,
 )
 
@@ -135,7 +137,6 @@ def load_onnx_model(
         ImportError: If onnxruntime is not installed.
         FileNotFoundError: If the model file doesn't exist.
     """
-    model_path = get_model_path(model_path, which, version, use_onnx=True)
     try:
         from tabpfn.misc.compile_to_onnx import ONNXModelWrapper
     except ImportError as err:
@@ -144,7 +145,7 @@ def load_onnx_model(
             "Install it with: pip install onnxruntime",
         ) from err
 
-    model_path = Path(model_path)
+    model_path, _, _ = resolve_model_path(model_path, which, version, use_onnx=True)
     if not model_path.exists():
         raise FileNotFoundError(
             f"ONNX model not found at: {model_path}, "
