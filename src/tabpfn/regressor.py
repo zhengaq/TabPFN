@@ -409,7 +409,12 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
 
         # Load the model and config
         if self.use_onnx:
-            self.model_ = load_onnx_model("model_regressor.onnx", self.device_)
+            self.model_ = load_onnx_model(
+                self.model_path,
+                which="regressor",
+                version="v2",
+                device=self.device_,
+            )
             # Initialize bardist_ for ONNX mode
             # TODO: faster way to do this
             _, self.config_, self.bardist_ = initialize_tabpfn_model(

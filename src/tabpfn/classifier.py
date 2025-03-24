@@ -397,7 +397,12 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
 
         # Load the model and config
         if self.use_onnx:
-            self.model_ = load_onnx_model("model_classifier.onnx", self.device_)
+            self.model_ = load_onnx_model(
+                self.model_path,
+                which="classifier",
+                version="v2",
+                device=self.device_,
+            )
         else:
             self.model_, self.config_, _ = initialize_tabpfn_model(
                 model_path=self.model_path,

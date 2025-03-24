@@ -286,6 +286,53 @@ def _user_cache_dir(platform: str, appname: str = "tabpfn") -> Path:
     return use_instead_path
 
 
+def get_cache_dir() -> Path:
+    """Get the cache directory for the TabPFN model.
+
+    Returns:
+        The cache directory for the TabPFN model.
+    """
+    USER_TABPFN_CACHE_DIR_LOCATION = os.environ.get("TABPFN_MODEL_CACHE_DIR", "")
+    if USER_TABPFN_CACHE_DIR_LOCATION.strip() != "":
+        cache_dir = Path(USER_TABPFN_CACHE_DIR_LOCATION)
+    else:
+        cache_dir = _user_cache_dir(platform=sys.platform, appname="tabpfn")
+    return cache_dir
+
+
+def get_model_path(
+    model_path: str | Path | None,
+    which: Literal["classifier", "regressor"],
+    version: Literal["v2"],
+    *,
+    use_onnx: bool = False,
+) -> Path:
+    """Get the model path for the given task.
+
+    Args:
+        model_path: The path to the model.
+        which: The task to get the model path for.
+        version: The version of the model.
+        use_onnx: Whether to use ONNX models instead of PyTorch models.
+
+    Returns:
+        The model path.
+    """
+    if isinstance(model_path, str) and model_path == "auto":
+        model_path = None  # type: ignore
+    if model_path is None:
+        USER_TABPFN_CACHE_DIR_LOCATION = os.environ.get("TABPFN_MODEL_CACHE_DIR", "")
+        if USER_TABPFN_CACHE_DIR_LOCATION.strip() != "":
+            model_dir = Path(USER_TABPFN_CACHE_DIR_LOCATION)
+        else:
+            model_dir = _user_cache_dir(platform=sys.platform, appname="tabpfn")
+    if use_onnx:
+        model_name = f"tabpfn-{version}-{which}.onnx"
+    else:
+        model_name = f"tabpfn-{version}-{which}.ckpt"
+    return model_dir / model_name
+
+
 @overload
 def load_model_criterion_config(
     model_path: str | Path | None,
@@ -348,22 +395,9 @@ def load_model_criterion_config(
     Returns:
         The model, criterion, and config.
     """
-    if model_path is None:
-        USER_TABPFN_CACHE_DIR_LOCATION = os.environ.get("TABPFN_MODEL_CACHE_DIR", "")
-        if USER_TABPFN_CACHE_DIR_LOCATION.strip() != "":
-            model_dir = Path(USER_TABPFN_CACHE_DIR_LOCATION)
-        else:
-            model_dir = _user_cache_dir(platform=sys.platform, appname="tabpfn")
-
-        model_name = f"tabpfn-{version}-{which}.ckpt"
-        model_path = model_dir / model_name
-    else:
-        if not isinstance(model_path, (str, Path)):
-            raise ValueError(f"Invalid model_path: {model_path}")
-
-        model_path = Path(model_path)
-        model_dir = model_path.parent
-        model_name = model_path.name
+    model_path = get_model_path(model_path, which, version)
+    model_dir = model_path.parent
+    model_name = model_path.name
 
     model_dir.mkdir(parents=True, exist_ok=True)
     if not model_path.exists():

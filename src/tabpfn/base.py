@@ -26,6 +26,7 @@ from tabpfn.inference import (
     InferenceEngineOnDemand,
 )
 from tabpfn.utils import (
+    get_model_path,
     infer_fp16_inference_mode,
     load_model_criterion_config,
 )
@@ -33,7 +34,7 @@ from tabpfn.utils import (
 if TYPE_CHECKING:
     import numpy as np
 
-    from tabpfn.misc.onnx_wrapper import ONNXModelWrapper
+    from tabpfn.misc.compile_to_onnx import ONNXModelWrapper
     from tabpfn.model.bar_distribution import FullSupportBarDistribution
     from tabpfn.model.config import InferenceConfig
     from tabpfn.model.transformer import PerFeatureTransformer
@@ -79,8 +80,6 @@ def initialize_tabpfn_model(
     """
     # Handle auto model_path
     download = True
-    if isinstance(model_path, str) and model_path == "auto":
-        model_path = None  # type: ignore
 
     # Load model with potential caching
     if which == "classifier":
@@ -114,12 +113,16 @@ def initialize_tabpfn_model(
 
 def load_onnx_model(
     model_path: str | Path,
+    which: Literal["classifier", "regressor"],
+    version: Literal["v2"],
     device: torch.device,
 ) -> ONNXModelWrapper:
     """Load a TabPFN model in ONNX format.
 
     Args:
         model_path: Path to the ONNX model file.
+        which: Which TabPFN model to load.
+        version: The version of the model.
         device: The device to run the model on.
 
     Returns:
@@ -129,8 +132,9 @@ def load_onnx_model(
         ImportError: If onnxruntime is not installed.
         FileNotFoundError: If the model file doesn't exist.
     """
+    model_path = get_model_path(model_path, which, version, use_onnx=True)
     try:
-        from tabpfn.misc.onnx_wrapper import ONNXModelWrapper
+        from tabpfn.misc.compile_to_onnx import ONNXModelWrapper
     except ImportError as err:
         raise ImportError(
             "onnxruntime is required to load ONNX models. "
@@ -139,7 +143,12 @@ def load_onnx_model(
 
     model_path = Path(model_path)
     if not model_path.exists():
-        raise FileNotFoundError(f"ONNX model not found at: {model_path}")
+        raise FileNotFoundError(
+            f"ONNX model not found at: {model_path}, "
+            "please compile the model by running "
+            "`from tabpfn.misc.compile_to_onnx import compile_onnx_models; "
+            "compile_onnx_models()`",
+        )
 
     return ONNXModelWrapper(str(model_path), device)
 
@@ -190,7 +199,7 @@ def create_inference_engine(  # noqa: PLR0913
     *,
     X_train: np.ndarray,
     y_train: np.ndarray,
-    model: PerFeatureTransformer,
+    model: PerFeatureTransformer | ONNXModelWrapper,
     ensemble_configs: Any,
     cat_ix: list[int],
     fit_mode: Literal["low_memory", "fit_preprocessors", "fit_with_cache"],
