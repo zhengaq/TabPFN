@@ -11,6 +11,22 @@ import torch
 from tabpfn import TabPFNClassifier, TabPFNRegressor
 
 
+# Common fixture to handle all the skip conditions for ONNX tests
+@pytest.fixture(autouse=True, scope="module")
+def check_onnx_compatible():
+    if os.name == "nt":
+        pytest.skip("ONNX export is not tested on Windows")
+    if sys.version_info >= (3, 13):
+        pytest.xfail("ONNX is not yet supported on Python 3.13")
+    if sys.version_info <= (3, 9):
+        pytest.skip("our onnx export doesn't work on python 3.9")
+    try:
+        import onnx  # noqa: F401
+        import onnxruntime  # noqa: F401
+    except ImportError:
+        pytest.skip("ONNX or ONNX Runtime not available")
+
+
 @pytest.mark.filterwarnings("ignore::torch.jit.TracerWarning")
 def test_onnx_missing_model_error():
     """Test that appropriate error is raised when trying to
@@ -18,17 +34,6 @@ def test_onnx_missing_model_error():
     that does not exist to simulate the case where the model
     has not been compiled.
     """
-    if os.name == "nt":
-        pytest.skip("ONNX export is not tested on Windows")
-    if sys.version_info >= (3, 13):
-        pytest.xfail("ONNX is not yet supported on Python 3.13")
-
-    try:
-        import onnx  # noqa: F401
-        import onnxruntime  # noqa: F401
-    except ImportError:
-        pytest.skip("ONNX or ONNX Runtime not available")
-
     # Generate synthetic data
     rng = np.random.default_rng()
     X = rng.standard_normal((50, 10)).astype(np.float32)
@@ -55,17 +60,6 @@ def test_onnx_export_and_inference():
     """Test that TabPFN models can be exported to ONNX
     and produce correct predictions.
     """
-    if os.name == "nt":
-        pytest.skip("ONNX export is not tested on Windows")
-    if sys.version_info >= (3, 13):
-        pytest.xfail("ONNX is not yet supported on Python 3.13")
-
-    try:
-        import onnx  # noqa: F401
-        import onnxruntime  # noqa: F401
-    except ImportError:
-        pytest.skip("ONNX or ONNX Runtime not available")
-
     from tabpfn.misc.compile_to_onnx import compile_onnx_models
 
     # Compile the model to ONNX format (using default output directory)
@@ -121,17 +115,6 @@ def test_onnx_session_reuse(which: Literal["classifier", "regressor"]):
     """Test that the ONNX session is reused when fitting a model multiple times
     with the same model path and device.
     """
-    if os.name == "nt":
-        pytest.skip("ONNX export is not tested on Windows")
-    if sys.version_info >= (3, 13):
-        pytest.xfail("ONNX is not yet supported on Python 3.13")
-
-    try:
-        import onnx  # noqa: F401
-        import onnxruntime  # noqa: F401
-    except ImportError:
-        pytest.skip("ONNX or ONNX Runtime not available")
-
     # Generate synthetic data
     rng = np.random.default_rng(42)
     X1 = rng.standard_normal((50, 10)).astype(np.float32)
@@ -203,17 +186,6 @@ def test_onnx_session_reuse(which: Literal["classifier", "regressor"]):
 @pytest.mark.parametrize("which", ["classifier", "regressor"])
 def test_onnx_deterministic(which: Literal["classifier", "regressor"]):
     """Test that TabPFN models using ONNX are deterministic when using the same seed."""
-    if os.name == "nt":
-        pytest.skip("ONNX export is not tested on Windows")
-    if sys.version_info >= (3, 13):
-        pytest.xfail("ONNX is not yet supported on Python 3.13")
-
-    try:
-        import onnx  # noqa: F401
-        import onnxruntime  # noqa: F401
-    except ImportError:
-        pytest.skip("ONNX or ONNX Runtime not available")
-
     from tabpfn.misc.compile_to_onnx import compile_onnx_models
 
     # Compile the model to ONNX format if needed
@@ -287,15 +259,7 @@ def test_cuda_provider_missing_error(model_class):
     """Test that TabPFN models raise the correct error when trying to use CUDA
     without CUDAExecutionProvider available in ONNX Runtime.
     """
-    if os.name == "nt":
-        pytest.skip("ONNX export is not tested on Windows")
-    if sys.version_info >= (3, 13):
-        pytest.xfail("ONNX is not yet supported on Python 3.13")
-
-    try:
-        import onnxruntime as ort
-    except ImportError:
-        pytest.skip("ONNX Runtime not available")
+    import onnxruntime as ort
 
     # Generate synthetic data
     rng = np.random.default_rng(42)
