@@ -7,6 +7,7 @@ and validate ONNX models derived from TabPFN models.
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -29,6 +30,20 @@ def _check_cuda_provider(device: torch.device) -> None:
             "Device is cuda but CUDAExecutionProvider is not available in ONNX. "
             "Check that you installed onnxruntime-gpu and have a GPU."
         )
+
+
+def _check_onnx_setup() -> None:
+    try:
+        import onnx  # noqa: F401
+    except ImportError:
+        raise ImportError(
+            "ONNX is not installed. " "Please install it using `pip install onnx`."
+        ) from None
+    if sys.version_info < (3, 10):
+        raise ValueError(
+            "TabPFN ONNX export is not yet supported on Python 3.9. "
+            "Please upgrade to Python 3.10 or higher."
+        ) from None
 
 
 class ONNXModelWrapper:
@@ -443,6 +458,8 @@ def compile_onnx_models(suffix: str = "", *, skip_test: bool = False) -> None:
         suffix: The suffix to append to the file names of the ONNX models.
         skip_test: Whether to skip the performance test of the ONNX models.
     """
+    _check_onnx_setup()
+
     classifier_path, _, _ = resolve_model_path(None, "classifier", "v2", use_onnx=True)
     regressor_path, _, _ = resolve_model_path(None, "regressor", "v2", use_onnx=True)
 
