@@ -460,7 +460,7 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
             # Initialize bardist_ for ONNX mode
             # TODO: faster way to do this
             _, self.config_, self.bardist_ = initialize_tabpfn_model(
-                model_path=model_path.with_stem(model_path.stem).with_suffix(".ckpt"),
+                model_path=model_path.with_suffix(".ckpt"),
                 which="regressor",
                 fit_mode=self.fit_mode,
                 static_seed=static_seed,

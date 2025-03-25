@@ -11,14 +11,13 @@ import torch
 from tabpfn import TabPFNClassifier, TabPFNRegressor
 
 
-# Common fixture to handle all the skip conditions for ONNX tests
 @pytest.fixture(autouse=True, scope="module")
 def check_onnx_compatible():
     if os.name == "nt":
         pytest.skip("ONNX export is not tested on Windows")
     if sys.version_info >= (3, 13):
         pytest.xfail("ONNX is not yet supported on Python 3.13")
-    if sys.version_info <= (3, 9):
+    if sys.version_info < (3, 10):
         pytest.skip("our onnx export doesn't work on python 3.9")
     try:
         import onnx  # noqa: F401

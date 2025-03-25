@@ -240,7 +240,7 @@ class ModelWrapper(nn.Module):
 
 
 def export_model(
-    output_path: str,
+    output_path: Path,
     model_type: str = "classifier",
 ) -> None:
     """Export the TabPFN model to the ONNX format.
@@ -321,7 +321,7 @@ def export_model(
         )
 
 
-def check_onnx_model(model_path: str) -> None:
+def check_onnx_model(model_path: Path) -> None:
     """Validate the ONNX model.
 
     Loads the ONNX model and runs a checker to ensure that the model is valid.
@@ -333,7 +333,7 @@ def check_onnx_model(model_path: str) -> None:
     onnx.checker.check_model(onnx_model)  # Check if the model is valid
 
 
-def check_input_names(model_path: str) -> None:
+def check_input_names(model_path: Path) -> None:
     """Load the ONNX model to check its input names.
 
     Args:
@@ -445,9 +445,12 @@ def compile_onnx_models(suffix: str = "", *, skip_test: bool = False) -> None:
     """
     classifier_path, _, _ = resolve_model_path(None, "classifier", "v2", use_onnx=True)
     regressor_path, _, _ = resolve_model_path(None, "regressor", "v2", use_onnx=True)
-    # add suffix to the file names
-    classifier_path = classifier_path.stem + suffix + ".onnx"
-    regressor_path = regressor_path.stem + suffix + ".onnx"
+
+    # Add suffix before the .onnx extension
+    stem = classifier_path.stem
+    classifier_path = classifier_path.with_name(f"{stem}{suffix}").with_suffix(".onnx")
+    stem = regressor_path.stem
+    regressor_path = regressor_path.with_name(f"{stem}{suffix}").with_suffix(".onnx")
 
     export_model(classifier_path, "classifier")
     check_onnx_model(classifier_path)
