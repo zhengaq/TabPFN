@@ -10,9 +10,10 @@ from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from functools import partial
 from itertools import chain, product, repeat
-from typing import TYPE_CHECKING, Literal, TypeVar
+from typing import TYPE_CHECKING, Literal, TypeVar, List
 from typing_extensions import override
 import torch
+from torch.utils.data import Dataset
 import numpy as np
 from sklearn.utils.validation import joblib
 
@@ -22,6 +23,7 @@ from tabpfn.constants import (
     PARALLEL_MODE_TO_RETURN_AS,
     SUPPORTS_RETURN_AS,
 )
+
 from tabpfn.model.preprocessing import (
     AddFingerprintFeaturesStep,
     EncodeCategoricalFeaturesStep,
@@ -546,7 +548,7 @@ def fit_preprocessing_one(
     y_train: np.ndarray | torch.Tensor,
     random_state: int | np.random.Generator | None = None,
     *,
-    cat_ix: list[int],
+    cat_ix: list[int]
 ) -> tuple[
     EnsembleConfig,
     SequentialFeatureTransformer,
@@ -562,6 +564,8 @@ def fit_preprocessing_one(
         y_train: Training target.
         random_state: Random seed.
         cat_ix: Indices of categorical features.
+        process_idx: Which indices to consider. Only return the values for these indices.
+            if None, all indices are processed, which is the default.
 
     Returns:
         Tuple containing the ensemble configuration, the fitted preprocessing pipeline,
@@ -578,9 +582,14 @@ def fit_preprocessing_one(
 
     preprocessor = config.to_pipeline(random_state=static_seed)
     res = preprocessor.fit_transform(X_train, cat_ix)
-
+        
     # TODO(eddiebergman): Not a fan of this, wish it was more transparent, but we want
     # to distuinguish what to do with the `ys` based on the ensemble config type
+    y_train = transform_labels_one(config, y_train)
+
+    return (config, preprocessor, res.X, y_train, res.categorical_features)
+
+def transform_labels_one(config, y_train):
     if isinstance(config, RegressorEnsembleConfig):
         if config.target_transform is not None:
             # TODO(eddiebergman): Verify this transformer is fitted back in the main
@@ -594,9 +603,7 @@ def fit_preprocessing_one(
             y_train = config.class_permutation[y_train]
     else:
         raise ValueError(f"Invalid ensemble config type: {type(config)}")
-
-    return (config, preprocessor, res.X, y_train, res.categorical_features)
-
+    return y_train
 
 def fit_preprocessing(
     configs: Sequence[EnsembleConfig],
@@ -676,3 +683,67 @@ def fit_preprocessing(
             for config, seed in zip(configs, seeds)
         ],
     )
+
+class DatasetCollectionWithPreprocessing(Dataset):
+    def __init__(self, split_fn, rng, config_lists: List[EnsembleConfig], n_workers=1):
+        self.configs = config_lists
+        self.split_fn = split_fn
+        self.rng = rng
+        self.n_workers = n_workers
+        
+    def __len__(self):
+        return len(self.configs)
+    
+    def __getitem__(self, index):
+        """ Returns lists of processed training datasets, training labels, test datasets. Test labels are passed through without processing. """
+        if index < 0 or index > len(self):
+            raise IndexError("Index out of bounds.")
+        
+        conf, x_full, y_full, cat_ix = self.configs[index]
+        x_train, x_test, y_train, y_test = self.split_fn(x_full, y_full)
+        itr = fit_preprocessing(
+            configs=conf,
+            X_train=x_train,
+            y_train=y_train,
+            random_state=self.rng,
+            cat_ix=cat_ix,
+            n_workers=self.n_workers,
+            parallel_mode="block")
+        configs, preprocessors, X_trains, y_trains, cat_ixs = list(zip(*itr))
+        X_trains = list(X_trains)
+        y_trains = list(y_trains)
+
+        ## Process test data for all ensemble estimators.
+        X_tests, y_tests = [], []
+        for estim_config, estim_preprocessor in zip(configs, preprocessors):
+            X_tests.append(estim_preprocessor.transform(x_test).X)
+            y_tests.append(transform_labels_one(estim_config, y_test))
+            
+        ## Convert to tensors.
+        for i in range(len(X_trains)):
+            if not isinstance(X_trains[i], torch.Tensor):
+                X_trains[i] = torch.as_tensor(X_trains[i], dtype=torch.float32)
+            if not isinstance(X_tests[i], torch.Tensor):
+                X_tests[i] = torch.as_tensor(X_tests[i], dtype=torch.float32)
+            if not isinstance(y_trains[i], torch.Tensor):
+                y_trains[i] = torch.as_tensor(y_trains[i], dtype=torch.float32)
+            if not isinstance(y_tests[i], torch.Tensor):
+                y_tests[i] = torch.from_numpy(y_tests[i])
+                if torch.is_floating_point(y_tests[i]):
+                    y_tests[i] = y_tests[i].float()
+                else:
+                    y_tests[i] = y_tests[i].long()
+                    
+        # Convert y_train to tensor, while preserving its float or discrete nature
+        # but converting all floats to float32 and discrete to long so they can 
+        # be concatenated to tensors.
+        
+        return X_trains, X_tests, y_trains, y_tests
+            
+
+
+
+        
+        
+        
+    

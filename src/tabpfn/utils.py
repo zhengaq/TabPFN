@@ -905,3 +905,18 @@ def get_total_memory_windows() -> float:
     k32_lib.GlobalMemoryStatusEx(ctypes.byref(mem_status))
 
     return mem_status.ullTotalPhys / 1e9  # Convert bytes to GB
+
+def split_large_data(largeX: XType, largey: Ytype, max_data_size):
+        tot_size = len(largeX)
+        num_chunks = ((tot_size-1) // max_data_size) + 1
+        basechunk_size = tot_size // num_chunks
+        remainder = tot_size % num_chunks
+        
+        offset = 0
+        xlst, ylst = [], []
+        for b in range(num_chunks):
+            chunk_sz = basechunk_size + (1 if b < remainder else 0)
+            xlst.append(largeX[offset: offset+chunk_sz])
+            ylst.append(largey[offset: offset+chunk_sz])
+            offset += chunk_sz
+        return xlst, ylst

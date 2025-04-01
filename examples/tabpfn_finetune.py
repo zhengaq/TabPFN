@@ -3,7 +3,7 @@ from sklearn.metrics import accuracy_score, roc_auc_score
 from sklearn.model_selection import train_test_split
 from tabpfn import TabPFNClassifier
 import json
-
+from functools import partial
 from tqdm import tqdm
 import torch
 
@@ -14,8 +14,19 @@ if __name__ == "__main__":
     n_samples = 200
     device = "cuda:0"
     res, data_adult_train_labels, res_test, data_adult_test_labels, cat_indicses = get_adult_preprocessed_inputs()
-    clf = TabPFNClassifier(ignore_pretraining_limits=True, device=device, n_estimators=1,
+    
+    clf = TabPFNClassifier(ignore_pretraining_limits=True, device=device, n_estimators=4,
                            random_state=2, inference_precision=torch.float32, pt_differentiable=False)
+    
+    X_data = [res, res_test]
+    y_data = [data_adult_train_labels, data_adult_test_labels]
+    
+    splitfn = partial(train_test_split, test_size=0.3)
+    
+    datasets_list = clf.get_preprocessed_datasets(X_data, y_data, splitfn, True, 5000)
+    
+    xtr, ytr, xt, yt = datasets_list[0]
+    
     input_x_tensor = torch.tensor(res[:n_samples], dtype=torch.float).to(device)
     train_x_tensor = torch.tensor(res[n_samples:], dtype=torch.float).to(device)
     input_y_tensor = torch.tensor(data_adult_train_labels[:n_samples], dtype=torch.float).to(device)

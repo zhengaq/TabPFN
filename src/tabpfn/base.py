@@ -191,7 +191,7 @@ def create_inference_engine(  # noqa: PLR0913
         forced_inference_dtype_: If not None, the forced dtype for inference.
         memory_saving_mode: GPU/CPU memory saving settings.
         use_autocast_: Whether we use torch.autocast for inference.
-        inference_mode: Whether to use torch.inference_model (set False if backprob is needed)
+        inference_mode: Whether to use torch.inference_model (set False if backprop is needed)
     """
     engine: (
         InferenceEngineOnDemand
