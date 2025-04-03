@@ -38,7 +38,7 @@ if __name__ == "__main__":
     res, data_adult_train_labels, res_test, data_adult_test_labels, cat_indicses = get_adult_preprocessed_inputs()
     
     clf = TabPFNClassifier(ignore_pretraining_limits=True, device=device, n_estimators=2, 
-                           random_state=2, inference_precision=torch.float32, pt_differentiable=False)
+                           random_state=2, inference_precision=torch.float32)
     
     X_data = [res]
     y_data = [data_adult_train_labels]
@@ -50,13 +50,13 @@ if __name__ == "__main__":
     my_dl_train = DataLoader(datasets_list, batch_size=2, collate_fn=collate_for_tabpfn_dataset)
     my_dl_test = DataLoader(datasets_list_test, batch_size=1, collate_fn=collate_for_tabpfn_dataset)
     
-    optim_impl = Adam(clf.model_.parameters(), lr=1e-4)
+    optim_impl = Adam(clf.model_.parameters(), lr=1e-5)
     lossfn = torch.nn.NLLLoss()
     loss_batches = []
     acc_batches = []
     steps = 0
     for epochs in range(10):
-        for data_batch in my_dl_test:
+        for data_batch in tqdm(my_dl_train):
             optim_impl.zero_grad()
             X_trains, X_tests, y_trains, y_tests, cat_ixs, confs = data_batch
             y_test_padded = torch.stack(pad_tensors(y_tests, labels=True))
@@ -65,12 +65,12 @@ if __name__ == "__main__":
             loss = lossfn(torch.log(preds), y_test_padded.to(device))
             loss.backward()
             optim_impl.step()
-            
-            if steps % 3 == 0:
-                loss_test, res_acc = eval_test(clf, my_dl_test, lossfn)
-                loss_batches.append(loss_test)
-                acc_batches.append(res_acc)
-                json.dump({"loss": loss_batches, "acc": acc_batches}, open("finetune.json", "w"))
+        steps += 1
+        
+        loss_test, res_acc = eval_test(clf, my_dl_test, lossfn)
+        loss_batches.append(loss_test)
+        acc_batches.append(res_acc)
+        json.dump({"loss": loss_batches, "acc": acc_batches}, open("finetune.json", "w"))
 
-            steps += 1
+            
         

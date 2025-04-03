@@ -509,8 +509,8 @@ class EnsembleConfig:
                 ],
             )
 
-            if self.add_fingerprint_feature:
-                steps.append(AddFingerprintFeaturesStep(random_state=random_state))
+        if self.add_fingerprint_feature:
+            steps.append(AddFingerprintFeaturesStep(random_state=random_state))
 
         steps.append(
             ShuffleFeaturesStep(

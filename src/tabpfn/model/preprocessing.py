@@ -495,25 +495,30 @@ class AddFingerprintFeaturesStep(FeaturePreprocessingTransformerStep):
         self.random_state = random_state
 
     @override
-    def _fit(self, X: np.ndarray, categorical_features: list[int]) -> list[int]:
+    def _fit(self, X: np.ndarray | torch.Tensor, categorical_features: list[int]) -> list[int]:
         _, rng = infer_random_state(self.random_state)
         self.rnd_salt_ = int(rng.integers(0, 2**16))
         return [*categorical_features]
 
     @override
-    def _transform(self, X: np.ndarray, *, is_test: bool = False) -> np.ndarray:
-        X_h = np.zeros(X.shape[0], dtype=X.dtype)
-
+    def _transform(self, X: np.ndarray | torch.Tensor, *, is_test: bool = False) -> np.ndarray | torch.Tensor:  
+        if isinstance(X, torch.Tensor):
+            X_det = X.detach().cpu().numpy()
+        else:
+            X_det = X # no detach necessary for numpy
+            
+        X_h = np.zeros(X.shape[0], dtype=X_det.dtype)
+            
         if is_test:
             # Keep the first hash even if there are collisions
-            salted_X = X + self.rnd_salt_
+            salted_X = X_det + self.rnd_salt_
             for i, row in enumerate(salted_X):
                 h = float_hash_arr(row + self.rnd_salt_)
                 X_h[i] = h
         else:
             # Handle hash collisions by counting up and rehashing
             seen_hashes = set()
-            salted_X = X + self.rnd_salt_
+            salted_X = X_det + self.rnd_salt_
             for i, row in enumerate(salted_X):
                 h = float_hash_arr(row)
                 add_to_hash = 0
@@ -522,8 +527,11 @@ class AddFingerprintFeaturesStep(FeaturePreprocessingTransformerStep):
                     h = float_hash_arr(row + add_to_hash)
                 X_h[i] = h
                 seen_hashes.add(h)
-
-        return np.concatenate([X, X_h.reshape(-1, 1)], axis=1)
+                
+        if isinstance(X, torch.Tensor):
+            return torch.cat([X, torch.from_numpy(X_h).float().reshape(-1,1).to(X.device)], dim=1)
+        else:
+            return np.concatenate([X, X_h.reshape(-1, 1)], axis=1)
 
 
 class ShuffleFeaturesStep(FeaturePreprocessingTransformerStep):

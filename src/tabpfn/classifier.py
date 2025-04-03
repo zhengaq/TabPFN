@@ -63,6 +63,8 @@ from tabpfn.utils import (
     split_large_data
 )
 
+from tabpfn.inference import InferenceEngineBatchedNoPreprocessing
+
 if TYPE_CHECKING:
     import numpy.typing as npt
     from sklearn.compose import ColumnTransformer
@@ -529,7 +531,7 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
             self.inferred_categorical_indices_ = []
             self.preprocessor_ = None
             preprocess_transforms = [PreprocessorConfig("none", differentiable=True)]
-            cat_ix = None
+            cat_ix = []
             
         ensemble_configs = EnsembleConfig.generate_for_classification(
             n=self.n_estimators,
@@ -563,7 +565,9 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
             byte_size, rng = self._initialize_model_variables()
             self.ensemble_configs, cat_ix, X, y = self._initialize_dataset_preprocessing(X, y)
         else: #already fitted and prompt_tuning mode: no cat. features
-            cat_ix = None
+            cat_ix = []
+            _, rng = infer_random_state(self.random_state)
+            _, _, byte_size = determine_precision(self.inference_precision, self.device_)
             
         # Create the inference engine
         self.executor_ = create_inference_engine(
@@ -589,15 +593,19 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
                               y_preprocessed: List[List[torch.Tensor]], 
                               cat_ix: List[List[List[int]]],
                               configs: List[List[EnsembleConfig]],
-                              padding_val: float = 0.0, lazy=True) -> TabPFNClassifier:
+                              padding_val: float = 0.0, no_refit=True) -> TabPFNClassifier:
         """Fit the model.
 
         Args:
-            X: The input data.
-            y: The target variable.
+            X: The input features obtained from the preprocessed Dataset
+            y: The target variable obtained from the preproecessed Dataset
+            cat_ix: categorical indices obtained from the preprocessed Dataset
+            config: Ensemble configurations obtained from the preprocessed Dataset
+            padding_val: value used to pad datasets with different amount of features or samples
+            no_refit: if True, the classifier will not be reinitialized when calling fit multiple times.
         """
         # If there isa model, and we are lazy, we skip reinitialization
-        if not hasattr(self, "model_") or not lazy: 
+        if not hasattr(self, "model_") or not no_refit: 
             byte_size, rng = self._initialize_model_variables()
         else:
             _, _, byte_size = determine_precision(self.inference_precision, self.device_)
@@ -654,9 +662,10 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
             X = validate_X_predict(X, self)
             X = _fix_dtypes(X, cat_indices=self.categorical_features_indices)
             X = self.preprocessor_.transform(X)
+
+        output = self.predict_proba_tensor(X)
             
-        output = self._predict_proba_impl(X)
-        output = output.float().cpu().numpy()
+        output = output.float().detach().cpu().numpy()
 
         if self.interface_config_.USE_SKLEARN_16_DECIMAL_PRECISION:
             output = np.around(output, decimals=SKLEARN_16_DECIMAL_PRECISION)
@@ -677,6 +686,11 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
         Returns:
             The predicted probabilities of the classes.
         """
+        if not isinstance(self.executor_, InferenceEngineBatchedNoPreprocessing):
+            raise ValueError("Error using batched mode: \
+                predict_proba_from_preprocessed can only be called \
+                following fit_from_preprocessed.")
+            
         self.executor_.use_torch_inference_mode(False)
         outputs = []
         for output, config in self.executor_.iter_outputs(
@@ -714,10 +728,17 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
             
         return output.transpose(0, 1).transpose(1, 2) # for NLLLoss [B, C, D1]
         
-    def _predict_proba_impl(self, X: torch.Tensor) -> torch.Tensor:
-        """ Internal funtion to call the transformer for prediction. """
+    def predict_proba_tensor(self, X: torch.Tensor) -> torch.Tensor:
+        """ Same as predict_proba, but without preprocessing and with
+            Tensor inputs and outputs. Use, e.g., for prompt-tuning or
+            or when the outputs need to be differentiable.
+        """
         outputs: list[torch.Tensor] = []
-
+        if isinstance(self.executor_, InferenceEngineBatchedNoPreprocessing):
+            raise ValueError("Error using predict_proba: \
+                If you use fit_from_preprocessed use \
+                predict_proba_from_preprocessed for following inferences.")
+                
         for output, config in self.executor_.iter_outputs(
             X,
             device=self.device_,
