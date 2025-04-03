@@ -9,7 +9,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Iterator, Sequence
 from copy import deepcopy
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, List
 from typing_extensions import override
 
 import numpy as np
@@ -23,7 +23,7 @@ if TYPE_CHECKING:
     from tabpfn.model.transformer import PerFeatureTransformer
     from tabpfn.preprocessing import EnsembleConfig
 
-
+from tabpfn.utils import pad_tensors
 @dataclass
 class InferenceEngine(ABC):
     """These define how tabpfn inference can be run.
@@ -211,6 +211,124 @@ class InferenceEngineOnDemand(InferenceEngine):
         self.model = self.model.cpu()
 
 
+
+@dataclass
+class InferenceEngineBatchedNoPreprocessing(InferenceEngine):
+    """ Inference engine that uses preprocessed inputs, and allows batched predictions
+        on several datasets at once. 
+        
+        Args:
+            Xtrains: List of preprocessed inputs. One item on the first level corresponds to one dataset,
+                the items on the second level, correspond to the ensemble elements. All second layer lists
+                are required to have the same number of items.
+            padding_val: inputs of datasets with different sizes and feature values are padded with this value.
+    """
+    X_trains: List[List[torch.Tensor]]
+    y_trains: List[List[torch.Tensor]]
+    cat_ix: List[List[List[int]]]
+    model: PerFeatureTransformer
+    ensemble_configs: Sequence[EnsembleConfig]
+    force_inference_dtype: torch.dtype | None
+    padding_val: float
+    inference_mode: bool
+    
+    @classmethod
+    def prepare(
+        cls,
+        X_trains: List[List[torch.Tensor]],
+        y_trains: List[List[torch.Tensor]],
+        *,
+        cat_ix: List[List[List[int]]],
+        model: PerFeatureTransformer,
+        ensemble_configs: Sequence[EnsembleConfig],
+        force_inference_dtype: torch.dtype | None,
+        padding_val: float,
+        inference_mode: bool,
+        dtype_byte_size: int,
+        save_peak_mem: bool | Literal["auto"] | float | int
+        
+    ) -> InferenceEngineBatchedNoPreprocessing:
+        """Prepare the inference engine.
+
+        Args:
+            X_train: The training data.
+            y_train: The training target.
+            cat_ix: The categorical indices.
+            model: The model to use.
+            ensemble_configs: The ensemble configurations to use.
+            rng: The random number generator.
+            n_workers: The number of workers to use.
+            dtype_byte_size: The byte size of the dtype.
+            force_inference_dtype: The dtype to force inference to.
+            save_peak_mem: Whether to save peak memory usage.
+        """
+        # We save it as a static seed to be reproducible across predicts
+        return cls(
+            X_trains=X_trains,
+            y_trains=y_trains,
+            cat_ix=cat_ix,
+            model=model,
+            ensemble_configs=ensemble_configs,
+            force_inference_dtype=force_inference_dtype,
+            padding_val=padding_val,
+            inference_mode = inference_mode,
+            dtype_byte_size=dtype_byte_size,
+            save_peak_mem=save_peak_mem
+        )
+        
+    @override
+    def iter_outputs(
+        self,
+        X: List[torch.Tensor],
+        *,
+        device: torch.device,
+        autocast: bool,
+    ) -> Iterator[tuple[torch.Tensor | dict, EnsembleConfig]]:
+        self.model = self.model.to(device)
+        
+        ensemble_size = len(self.X_trains[0])
+        for i in range(ensemble_size):
+            
+            ## Pad all elements in the ensemble classifier 0.
+            train_x_batch = torch.stack(pad_tensors([dset_item[i] for dset_item in self.X_trains], padding_val=self.padding_val)) #shape [B, RowMax, FeatMax]
+            test_x_batch = torch.stack(pad_tensors([dset_item[i] for dset_item in X], padding_val=self.padding_val)) #shape [B, RowMaxTest, FeatMax]
+            assert train_x_batch.size(-1) == test_x_batch.size(-1) # FeatMax
+            assert train_x_batch.size(-3) == test_x_batch.size(-3) # Batch
+            
+            single_eval_pos = train_x_batch.size(-2) # End of train data
+            train_x_full = torch.cat([train_x_batch, test_x_batch], dim=-2)
+            train_y_batch = torch.stack(pad_tensors([dset_item[i] for dset_item in self.y_trains], labels=True, padding_val=self.padding_val))
+            
+            train_x_full = train_x_full.to(device)
+            train_y_batch = train_y_batch.to(device)
+            if self.force_inference_dtype is not None:
+                train_x_full = train_x_full.type(self.force_inference_dtype)
+                train_y_batch = train_y_batch.type(self.force_inference_dtype)  # type: ignore # noqa: PLW2901
+
+            
+            style = None
+            with (
+                torch.autocast(device.type, enabled=autocast),
+                torch.inference_mode(self.inference_mode),
+            ):
+                output = self.model(
+                    *(style, train_x_full.transpose(0, 1), train_y_batch.transpose(0, 1)),
+                    only_return_standard_out=True,
+                    #categorical_inds=self.cat_ix[0][i],
+                    categorical_inds=list([cat_item[i] for cat_item in self.cat_ix]),
+                    single_eval_pos=single_eval_pos,
+                )
+
+            #output = output if isinstance(output, dict) else output.squeeze(1)
+
+            yield output, list([cat_item[i] for cat_item in self.ensemble_configs])
+        if self.inference_mode: ## if inference
+            self.model = self.model.cpu()
+
+    @override
+    def use_torch_inference_mode(self, use_inference: bool):
+        self.inference_mode = use_inference
+        
 @dataclass
 class InferenceEngineCachePreprocessing(InferenceEngine):
     """Inference engine that caches the preprocessing for feeding as model context on

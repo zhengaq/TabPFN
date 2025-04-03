@@ -24,6 +24,7 @@ from tabpfn.inference import (
     InferenceEngineCacheKV,
     InferenceEngineCachePreprocessing,
     InferenceEngineOnDemand,
+    InferenceEngineBatchedNoPreprocessing
 )
 from tabpfn.utils import (
     infer_fp16_inference_mode,
@@ -160,7 +161,7 @@ def create_inference_engine(  # noqa: PLR0913
     model: PerFeatureTransformer,
     ensemble_configs: Any,
     cat_ix: list[int],
-    fit_mode: Literal["low_memory", "fit_preprocessors", "fit_with_cache"],
+    fit_mode: Literal["low_memory", "fit_preprocessors", "fit_with_cache", "batched"],
     device_: torch.device,
     rng: np.random.Generator,
     n_jobs: int,
@@ -168,7 +169,8 @@ def create_inference_engine(  # noqa: PLR0913
     forced_inference_dtype_: torch.dtype | None,
     memory_saving_mode: bool | Literal["auto"] | float | int,
     use_autocast_: bool,
-    inference_mode: bool = True
+    inference_mode: bool = True,
+    padding_val_: float = 0.0
 ) -> InferenceEngine:
     """Creates the appropriate TabPFN inference engine based on `fit_mode`.
 
@@ -191,12 +193,14 @@ def create_inference_engine(  # noqa: PLR0913
         forced_inference_dtype_: If not None, the forced dtype for inference.
         memory_saving_mode: GPU/CPU memory saving settings.
         use_autocast_: Whether we use torch.autocast for inference.
-        inference_mode: Whether to use torch.inference_model (set False if backprop is needed)
+        inference_mode: Whether to use torch.inference_mode (set False if backprop is needed)
+        padding_val_: filling value to use if the engine does padding (batched engine only)
     """
     engine: (
         InferenceEngineOnDemand
         | InferenceEngineCachePreprocessing
         | InferenceEngineCacheKV
+        | InferenceEngineBatchedNoPreprocessing
     )
     if fit_mode == "low_memory":
         engine = InferenceEngineOnDemand.prepare(
@@ -239,6 +243,19 @@ def create_inference_engine(  # noqa: PLR0913
             force_inference_dtype=forced_inference_dtype_,
             save_peak_mem=memory_saving_mode,
             autocast=use_autocast_,
+        )
+    elif fit_mode == "batched":
+        engine = InferenceEngineBatchedNoPreprocessing.prepare(
+            X_trains=X_train,
+            y_trains=y_train,
+            cat_ix=cat_ix,
+            model=model,
+            ensemble_configs=ensemble_configs,
+            force_inference_dtype=forced_inference_dtype_,
+            inference_mode = inference_mode,
+            padding_val = padding_val_,
+            save_peak_mem=memory_saving_mode,
+            dtype_byte_size=byte_size
         )
     else:
         raise ValueError(f"Invalid fit_mode: {fit_mode}")

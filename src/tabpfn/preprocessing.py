@@ -714,10 +714,10 @@ class DatasetCollectionWithPreprocessing(Dataset):
         y_trains = list(y_trains)
 
         ## Process test data for all ensemble estimators.
-        X_tests, y_tests = [], []
+        X_tests = []
         for estim_config, estim_preprocessor in zip(configs, preprocessors):
             X_tests.append(estim_preprocessor.transform(x_test).X)
-            y_tests.append(transform_labels_one(estim_config, y_test))
+            #y_tests.append(transform_labels_one(estim_config, y_test))
             
         ## Convert to tensors.
         for i in range(len(X_trains)):
@@ -727,18 +727,18 @@ class DatasetCollectionWithPreprocessing(Dataset):
                 X_tests[i] = torch.as_tensor(X_tests[i], dtype=torch.float32)
             if not isinstance(y_trains[i], torch.Tensor):
                 y_trains[i] = torch.as_tensor(y_trains[i], dtype=torch.float32)
-            if not isinstance(y_tests[i], torch.Tensor):
-                y_tests[i] = torch.from_numpy(y_tests[i])
-                if torch.is_floating_point(y_tests[i]):
-                    y_tests[i] = y_tests[i].float()
-                else:
-                    y_tests[i] = y_tests[i].long()
+        if not isinstance(y_test, torch.Tensor):
+            y_test = torch.from_numpy(y_test)
+            if torch.is_floating_point(y_test):
+                y_test = y_test.float()
+            else:
+                y_test = y_test.long()
                     
         # Convert y_train to tensor, while preserving its float or discrete nature
         # but converting all floats to float32 and discrete to long so they can 
         # be concatenated to tensors.
         
-        return X_trains, X_tests, y_trains, y_tests
+        return X_trains, X_tests, y_trains, y_test, cat_ixs, conf
             
 
 

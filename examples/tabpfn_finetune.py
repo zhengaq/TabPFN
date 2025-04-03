@@ -2,69 +2,75 @@
 from sklearn.metrics import accuracy_score, roc_auc_score
 from sklearn.model_selection import train_test_split
 from tabpfn import TabPFNClassifier
+from tabpfn.utils import collate_for_tabpfn_dataset, pad_tensors
 import json
 from functools import partial
 from tqdm import tqdm
 import torch
+from torch.utils.data import DataLoader
 
 from example_dataloaders import get_adult_preprocessed_inputs
 from torch.optim import Adam
 
+def eval_test(clf, my_dl_test, lossfn):
+    with torch.no_grad():
+        loss_sum = 0.0
+        acc_sum = 0.0
+        acc_items = 0
+        for i, data_batch in enumerate(my_dl_test):
+            X_trains, X_tests, y_trains, y_tests, cat_ixs, confs = data_batch
+            y_test_padded = torch.stack(pad_tensors(y_tests, labels=True))
+            clf.fit_from_preprocessed(X_trains, y_trains, cat_ixs, confs)
+            preds = clf.predict_proba_from_preprocessed(X_tests)
+            loss_sum += lossfn(torch.log(preds), y_test_padded.to(device)).item()
+            acc_sum += accuracy_score(y_test_padded.flatten().cpu(), preds[:,1,:].flatten().cpu()>0.5)*y_test_padded.numel()
+            acc_items += y_test_padded.numel()
+        
+        res_accuracy = acc_sum/acc_items
+        print("Test Acc:", res_accuracy)
+        print("Test Loss:", loss_sum)
+        
+        return loss_sum, res_accuracy
+    
 if __name__ == "__main__":
     n_samples = 200
-    device = "cuda:0"
+    device = "cuda:1"
     res, data_adult_train_labels, res_test, data_adult_test_labels, cat_indicses = get_adult_preprocessed_inputs()
     
-    clf = TabPFNClassifier(ignore_pretraining_limits=True, device=device, n_estimators=4,
+    clf = TabPFNClassifier(ignore_pretraining_limits=True, device=device, n_estimators=2, 
                            random_state=2, inference_precision=torch.float32, pt_differentiable=False)
     
-    X_data = [res, res_test]
-    y_data = [data_adult_train_labels, data_adult_test_labels]
+    X_data = [res]
+    y_data = [data_adult_train_labels]
     
     splitfn = partial(train_test_split, test_size=0.3)
     
-    datasets_list = clf.get_preprocessed_datasets(X_data, y_data, splitfn, True, 5000)
+    datasets_list = clf.get_preprocessed_datasets(X_data, y_data, splitfn, True, 1000)
+    datasets_list_test = clf.get_preprocessed_datasets([res_test], [data_adult_test_labels], splitfn, True, 1000)
+    my_dl_train = DataLoader(datasets_list, batch_size=2, collate_fn=collate_for_tabpfn_dataset)
+    my_dl_test = DataLoader(datasets_list_test, batch_size=1, collate_fn=collate_for_tabpfn_dataset)
     
-    xtr, ytr, xt, yt = datasets_list[0]
-    
-    input_x_tensor = torch.tensor(res[:n_samples], dtype=torch.float).to(device)
-    train_x_tensor = torch.tensor(res[n_samples:], dtype=torch.float).to(device)
-    input_y_tensor = torch.tensor(data_adult_train_labels[:n_samples], dtype=torch.float).to(device)
-    train_y_tensor = torch.tensor(data_adult_train_labels[n_samples:].values, dtype=torch.long).to(device)
-    query_x_tensor = torch.tensor(res_test, dtype=torch.float).to(device) #.requires_grad_(True)
-    query_y_tensor = torch.tensor(data_adult_test_labels, dtype=torch.long).to(device)
-    
-    input_x_tensor.requires_grad_(True)
-    input_y_tensor.requires_grad_(True)
-
-    #clf.fit(input_x_tensor.detach(), input_y_tensor.flatten().detach())
-    clf.fit(res[:n_samples], data_adult_train_labels[:n_samples])
-    with torch.no_grad():
-        predictions = clf.predict_proba(res_test, return_tensors=True)
-        res_accuracy = accuracy_score(data_adult_test_labels, (predictions[:,1].detach().cpu()>0.5))
-        print("Initial:", res_accuracy)
-    
-    for p in clf.model_.parameters():
-        p.requires_grad_(True)
-        
     optim_impl = Adam(clf.model_.parameters(), lr=1e-4)
+    lossfn = torch.nn.NLLLoss()
     loss_batches = []
     acc_batches = []
-    for i in tqdm(range(400)):
-        optim_impl.zero_grad()
-        #input_x_t, input_y_t = torch.split(input_matrix, [input_matrix.shape[1]-1, 1], dim = 1)
-        #clf.fit(input_x_tensor, input_y_tensor.flatten())
-        predictions = clf.predict_proba(res[n_samples:], return_tensors=True)
-        lossfn = torch.nn.NLLLoss()
-        loss = lossfn(torch.log(predictions), train_y_tensor)
-        loss.backward()
-        optim_impl.step()
-        if i % 10 == 9:
-            with torch.no_grad():
-                predictions = clf.predict_proba(res_test, return_tensors=True)
-                res_accuracy = accuracy_score(data_adult_test_labels, (predictions[:,1].detach().cpu()>0.5))
-                print("Test Acc:", res_accuracy)
-                print("Test Loss:", loss.item())
-                loss_batches.append(loss.item())
-                acc_batches.append(res_accuracy)
-        json.dump({"loss": loss_batches, "acc": acc_batches}, open("finetune.json", "w"))
+    steps = 0
+    for epochs in range(10):
+        for data_batch in my_dl_test:
+            optim_impl.zero_grad()
+            X_trains, X_tests, y_trains, y_tests, cat_ixs, confs = data_batch
+            y_test_padded = torch.stack(pad_tensors(y_tests, labels=True))
+            clf.fit_from_preprocessed(X_trains, y_trains, cat_ixs, confs)
+            preds = clf.predict_proba_from_preprocessed(X_tests)
+            loss = lossfn(torch.log(preds), y_test_padded.to(device))
+            loss.backward()
+            optim_impl.step()
+            
+            if steps % 3 == 0:
+                loss_test, res_acc = eval_test(clf, my_dl_test, lossfn)
+                loss_batches.append(loss_test)
+                acc_batches.append(res_acc)
+                json.dump({"loss": loss_batches, "acc": acc_batches}, open("finetune.json", "w"))
+
+            steps += 1
+        

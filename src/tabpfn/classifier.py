@@ -155,7 +155,7 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
         random_state: int | np.random.RandomState | np.random.Generator | None = 0,
         n_jobs: int = -1,
         inference_config: dict | ModelInterfaceConfig | None = None,
-        pt_differentiable: bool = False,
+        differentiable_input: bool = False,
     ) -> None:
         """A TabPFN interface for classification.
 
@@ -346,7 +346,7 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
                   `ModelInterfaceConfig`. Raises an error if an unknown key is passed.
                 - If `ModelInterfaceConfig`, the object is used as the configuration.
                 
-            pt_differentiable:
+            differentiable_input:
                 If true the preprocessing will be adapted to be end-to-end differentiable
                 with PyTorch. This is useful for explainability and prompt-tuning.
                 
@@ -372,7 +372,7 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
         self.random_state = random_state
         self.n_jobs = n_jobs
         self.inference_config = inference_config
-        self.pt_differentiable = pt_differentiable
+        self.differentiable_input = differentiable_input
 
     # TODO: We can remove this from scikit-learn lower bound of 1.6
     def _more_tags(self) -> dict[str, Any]:
@@ -421,7 +421,7 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
             
         config_collection = []
         for X_item, y_item in zip(X, y):
-            configs, cat_ix = self._initialize_dataset_preprocessing(X_item, y_item)
+            configs, cat_ix, X_item, y_item = self._initialize_dataset_preprocessing(X_item, y_item)
             config_collection.append([configs, X_item, y_item, cat_ix])
         meta_dataset = DatasetCollectionWithPreprocessing(split_fn, rng, config_collection)
         return meta_dataset
@@ -458,7 +458,7 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
                 remove_outliers_std=outlier_removal_std,
                 seed=static_seed,
                 inplace=True,
-                pt_differentiable = self.pt_differentiable
+                differentiable_input = self.differentiable_input
             )
         return byte_size, rng
 
@@ -482,7 +482,7 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
         # TODO(eddiebergman): Ensure the counts here line up with
         #   the actual classes after label encoder.
         
-        if not self.pt_differentiable:
+        if not self.differentiable_input:
             _, counts = np.unique(y, return_counts=True)
             self.class_counts_ = counts
             self.label_encoder_ = LabelEncoder()
@@ -507,7 +507,7 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
         # Will convert specified categorical indices to category dtype, as well
         # as handle `np.object` arrays or otherwise `object` dtype pandas columns.
         
-        if not self.pt_differentiable:
+        if not self.differentiable_input:
             X = _fix_dtypes(X, cat_indices=self.categorical_features_indices)
 
             # Ensure categories are ordinally encoded
@@ -529,7 +529,8 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
             self.inferred_categorical_indices_ = []
             self.preprocessor_ = None
             preprocess_transforms = [PreprocessorConfig("none", differentiable=True)]
-    
+            cat_ix = None
+            
         ensemble_configs = EnsembleConfig.generate_for_classification(
             n=self.n_estimators,
             subsample_size=self.interface_config_.SUBSAMPLE_SAMPLES,
@@ -543,13 +544,13 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
                 else default_classifier_preprocessor_configs()
             ),
             class_shift_method=self.interface_config_.CLASS_SHIFT_METHOD
-            if not self.pt_differentiable
+            if not self.differentiable_input
             else None,
             n_classes=self.n_classes_,
             random_state=rng,
         )
         assert len(ensemble_configs) == self.n_estimators
-        return ensemble_configs, cat_ix
+        return ensemble_configs, cat_ix, X, y
         
     def fit(self, X: XType, y: YType) -> Self:
         """Fit the model.
@@ -558,17 +559,18 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
             X: The input data.
             y: The target variable.
         """
-        assert y is not None
-        byte_size, rng = self._initialize_model_variables()
-
-        ensemble_configs, X, y, cat_ix = self._initialize_dataset_preprocessing(X, y)
-        
+        if not hasattr(self, "model_") or not self.differentiable_input:
+            byte_size, rng = self._initialize_model_variables()
+            self.ensemble_configs, cat_ix, X, y = self._initialize_dataset_preprocessing(X, y)
+        else: #already fitted and prompt_tuning mode: no cat. features
+            cat_ix = None
+            
         # Create the inference engine
         self.executor_ = create_inference_engine(
             X_train=X,
             y_train=y,
             model=self.model_,
-            ensemble_configs=ensemble_configs,
+            ensemble_configs=self.ensemble_configs,
             cat_ix=cat_ix,
             fit_mode=self.fit_mode,
             device_=self.device_,
@@ -578,11 +580,48 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
             forced_inference_dtype_=self.forced_inference_dtype_,
             memory_saving_mode=self.memory_saving_mode,
             use_autocast_=self.use_autocast_,
-            inference_mode = not self.pt_differentiable
+            inference_mode = not self.differentiable_input
         )
 
         return self
 
+    def fit_from_preprocessed(self, X_preprocessed: List[List[torch.Tensor]],
+                              y_preprocessed: List[List[torch.Tensor]], 
+                              cat_ix: List[List[List[int]]],
+                              configs: List[List[EnsembleConfig]],
+                              padding_val: float = 0.0, lazy=True) -> TabPFNClassifier:
+        """Fit the model.
+
+        Args:
+            X: The input data.
+            y: The target variable.
+        """
+        # If there isa model, and we are lazy, we skip reinitialization
+        if not hasattr(self, "model_") or not lazy: 
+            byte_size, rng = self._initialize_model_variables()
+        else:
+            _, _, byte_size = determine_precision(self.inference_precision, self.device_)
+            
+        # Create the inference engine
+        self.executor_ = create_inference_engine(
+            X_train=X_preprocessed,
+            y_train=y_preprocessed,
+            model=self.model_,
+            ensemble_configs=configs,
+            cat_ix=cat_ix,
+            fit_mode="batched",
+            device_=self.device_,
+            rng=None,
+            n_jobs=self.n_jobs,
+            byte_size=byte_size,
+            forced_inference_dtype_=self.forced_inference_dtype_,
+            memory_saving_mode=self.memory_saving_mode,
+            use_autocast_=self.use_autocast_,
+            inference_mode = not self.differentiable_input,
+            padding_val_= padding_val
+        )
+
+        return self
 
     def predict(self, X: XType) -> np.ndarray:
         """Predict the class labels for the provided input samples.
@@ -611,7 +650,7 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
         """
         check_is_fitted(self)
 
-        if not self.pt_differentiable:
+        if not self.differentiable_input:
             X = validate_X_predict(X, self)
             X = _fix_dtypes(X, cat_indices=self.categorical_features_indices)
             X = self.preprocessor_.transform(X)
@@ -627,7 +666,7 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
         # going from torch to numpy
         return output / output.sum(axis=1, keepdims=True)  # type: ignore
         
-    def predict_proba_from_preprocessed(self, X: torch.Tensor, lazy= True) -> torch.Tensor:
+    def predict_proba_from_preprocessed(self, X: List[List[torch.Tensor]]) -> torch.Tensor:
         """Predict the probabilities of the classes for the provided input samples
         Different that the main predict proba function, this interface allows to backpropagate through 
         the tensors which can be used to fine-tune or prompt-tune the model.
@@ -639,7 +678,41 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
             The predicted probabilities of the classes.
         """
         self.executor_.use_torch_inference_mode(False)
-        return self._predict_proba_impl(X)
+        outputs = []
+        for output, config in self.executor_.iter_outputs(
+            X,
+            device=self.device_,
+            autocast=self.use_autocast_,
+        ):
+            # Cut out logits for classes which do not exist
+            assert output.ndim == 3  # [Batch, Nsamples, NClasses]
+            n_classes = output.size(-1)
+            if self.softmax_temperature != 1:
+                output = (  # noqa: PLW2901
+                    output[:, :, :n_classes].float() / self.softmax_temperature
+                )
+                
+            if config is not None:
+                output_batch = []
+                for i, batch_config in enumerate(config):
+                    output_batch.append(output[:, i, batch_config.class_permutation])  # noqa: PLW2901
+                output_all = torch.stack(output_batch, dim=1)
+            outputs.append(output_all)
+        
+        if self.average_before_softmax:
+            output = torch.stack(outputs).mean(dim=0)
+            output = torch.nn.functional.softmax(output, dim=-1)
+        else:
+            # Softmax each 2d outputs before average
+            outputs = [torch.nn.functional.softmax(o, dim=-1) for o in outputs]
+            output = torch.stack(outputs).mean(dim=0)
+        
+        if self.balance_probabilities:
+            class_prob_in_train = self.class_counts_ / self.class_counts_.sum()
+            output = output / torch.Tensor(class_prob_in_train).to(self.device_)
+            output = output / output.sum(dim=-1, keepdim=True)
+            
+        return output.transpose(0, 1).transpose(1, 2) # for NLLLoss [B, C, D1]
         
     def _predict_proba_impl(self, X: torch.Tensor) -> torch.Tensor:
         """ Internal funtion to call the transformer for prediction. """
@@ -656,7 +729,7 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
 
             if self.softmax_temperature != 1:
                 output = (  # noqa: PLW2901
-                    output[:, : self.n_classes_].float() / self.softmax_temperature
+                    output[:, :self.n_classes_].float() / self.softmax_temperature
                 )
 
             # Reverse class permutation if exists

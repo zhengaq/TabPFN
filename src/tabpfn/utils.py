@@ -525,7 +525,7 @@ def validate_Xy_fit(
 ) -> tuple[np.ndarray, np.ndarray, npt.NDArray[Any] | None, int]:
     """Validate the input data for fitting."""
     # Calls `validate_data()` with specification
-    if is_classifier(estimator) and not estimator.pt_differentiable:
+    if is_classifier(estimator) and not estimator.differentiable_input:
         X, y = validate_data(
             estimator,
             X=X,
@@ -578,7 +578,7 @@ def validate_Xy_fit(
             stacklevel=2,
         )
 
-    if is_classifier(estimator) and not estimator.pt_differentiable:
+    if is_classifier(estimator) and not estimator.differentiable_input:
         check_classification_targets(y)
         # Annoyingly, the `ensure_all_finite` above only applies to `X` and
         # there is no way to specify this for `y`. The validation check above
@@ -768,7 +768,7 @@ def update_encoder_params(
     seed: int | None,
     *,
     inplace: Literal[True],
-    pt_differentiable: bool = False
+    differentiable_input: bool = False
 ) -> None:
     """Update the loaded encoder elements and setting to be compatible with inference requirements
        This concerns handling outliers in the model and also removes non-differentiable elements from
@@ -783,7 +783,7 @@ def update_encoder_params(
         remove_outliers_std: The standard deviation to remove outliers.
         seed: The seed to use, if any.
         inplace: Whether to do the operation inplace.
-        pt_differentiable: Whether the entire model including forward pass should
+        differentiable_input: Whether the entire model including forward pass should
             be differentiable with pt autograd. This disables non-differentiable encoder steps.
 
     Raises:
@@ -811,7 +811,7 @@ def update_encoder_params(
     norm_layer.seed = seed
     norm_layer.reset_seed()
     
-    if pt_differentiable:
+    if differentiable_input:
         diffable_steps = [] # only differentiable encoder steps.
         for module in model.y_encoder:
             if isinstance(module, MulticlassClassificationTargetEncoder):
@@ -920,3 +920,25 @@ def split_large_data(largeX: XType, largey: Ytype, max_data_size):
             ylst.append(largey[offset: offset+chunk_sz])
             offset += chunk_sz
         return xlst, ylst
+    
+    
+def pad_tensors(tensor_list, padding_val=0, labels=False):
+    """ Pad tensors to maximum dims at the last dimensions.
+        if labels=False, 2d tensors are expected, if labels=True, one 1d 
+        vectors are expected as inputs.
+    """
+    max_size_clms = max([item.size(-1) for item in tensor_list])
+    if not labels: 
+        max_size_rows = max([item.size(-2) for item in tensor_list])
+    ret_list = []
+    for item in tensor_list:
+        pad_seqence = [0, max_size_clms-item.size(-1)]
+        if not labels:
+            pad_seqence.extend([0, max_size_rows-item.size(-2)])
+        padded_item = torch.nn.functional.pad(item, pad_seqence, mode="constant", value=padding_val)
+        ret_list.append(padded_item)
+    return ret_list
+    
+
+def collate_for_tabpfn_dataset(batch):
+    return tuple(zip(*list(batch)))
