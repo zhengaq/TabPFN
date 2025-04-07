@@ -427,11 +427,11 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
         for X_item, y_item in zip(X, y):
             configs, X_item, y_item = self._initialize_dataset_preprocessing(X_item, y_item)
             config_collection.append([configs, X_item, y_item, 
-                                      self.inferred_categorical_indices_, configs])
+                                      self.inferred_categorical_indices_])
         meta_dataset = DatasetCollectionWithPreprocessing(split_fn, rng, config_collection)
         return meta_dataset
     
-    def _initialize_model_variables(self) -> tuple[int,  np.random.Generator]
+    def _initialize_model_variables(self) -> tuple[int,  np.random.Generator]:
         """Perform initialization of the model, return determined byte_size
             and RNG object.
         """

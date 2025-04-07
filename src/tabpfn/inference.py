@@ -289,12 +289,6 @@ class InferenceEngineBatchedNoPreprocessing(InferenceEngine):
         ensemble_size = len(self.X_trains)
         for i in range(ensemble_size):
             
-            ## Pad all elements in the ensemble classifier 0.
-            #train_x_batch = torch.stack(pad_tensors([dset_item[i] for dset_item in self.X_trains], padding_val=self.padding_val)) #shape [B, RowMax, FeatMax]
-            #test_x_batch = torch.stack(pad_tensors([dset_item[i] for dset_item in X], padding_val=self.padding_val)) #shape [B, RowMaxTest, FeatMax]
-            #assert train_x_batch.size(-1) == test_x_batch.size(-1) # FeatMax
-            #assert train_x_batch.size(-3) == test_x_batch.size(-3) # Batch
-            
             single_eval_pos = self.X_trains[i].size(-2) # End of train data
             train_x_full = torch.cat([self.X_trains[i], X[i]], dim=-2)
             train_y_batch = self.y_trains[i]
@@ -314,7 +308,6 @@ class InferenceEngineBatchedNoPreprocessing(InferenceEngine):
                 output = self.model(
                     *(style, train_x_full.transpose(0, 1), train_y_batch.transpose(0, 1)),
                     only_return_standard_out=True,
-                    #categorical_inds=self.cat_ix[0][i],
                     categorical_inds=list([cat_item[i] for cat_item in self.cat_ix]),
                     single_eval_pos=single_eval_pos,
                 )

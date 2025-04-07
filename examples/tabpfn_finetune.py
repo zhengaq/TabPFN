@@ -45,8 +45,8 @@ if __name__ == "__main__":
     
     splitfn = partial(train_test_split, test_size=0.3)
     
-    datasets_list = clf.get_preprocessed_datasets(X_data, y_data, splitfn, True, 1000)
-    datasets_list_test = clf.get_preprocessed_datasets([res_test], [data_adult_test_labels], splitfn, True, 1000)
+    datasets_list = clf.get_preprocessed_datasets(X_data, y_data, splitfn, 1000)
+    datasets_list_test = clf.get_preprocessed_datasets([res_test], [data_adult_test_labels], splitfn, 1000)
     my_dl_train = DataLoader(datasets_list, batch_size=3, collate_fn=collate_for_tabpfn_dataset)
     my_dl_test = DataLoader(datasets_list_test, batch_size=1, collate_fn=collate_for_tabpfn_dataset)
     
