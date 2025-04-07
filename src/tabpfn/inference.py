@@ -286,18 +286,18 @@ class InferenceEngineBatchedNoPreprocessing(InferenceEngine):
     ) -> Iterator[tuple[torch.Tensor | dict, EnsembleConfig]]:
         self.model = self.model.to(device)
         
-        ensemble_size = len(self.X_trains[0])
+        ensemble_size = len(self.X_trains)
         for i in range(ensemble_size):
             
             ## Pad all elements in the ensemble classifier 0.
-            train_x_batch = torch.stack(pad_tensors([dset_item[i] for dset_item in self.X_trains], padding_val=self.padding_val)) #shape [B, RowMax, FeatMax]
-            test_x_batch = torch.stack(pad_tensors([dset_item[i] for dset_item in X], padding_val=self.padding_val)) #shape [B, RowMaxTest, FeatMax]
-            assert train_x_batch.size(-1) == test_x_batch.size(-1) # FeatMax
-            assert train_x_batch.size(-3) == test_x_batch.size(-3) # Batch
+            #train_x_batch = torch.stack(pad_tensors([dset_item[i] for dset_item in self.X_trains], padding_val=self.padding_val)) #shape [B, RowMax, FeatMax]
+            #test_x_batch = torch.stack(pad_tensors([dset_item[i] for dset_item in X], padding_val=self.padding_val)) #shape [B, RowMaxTest, FeatMax]
+            #assert train_x_batch.size(-1) == test_x_batch.size(-1) # FeatMax
+            #assert train_x_batch.size(-3) == test_x_batch.size(-3) # Batch
             
-            single_eval_pos = train_x_batch.size(-2) # End of train data
-            train_x_full = torch.cat([train_x_batch, test_x_batch], dim=-2)
-            train_y_batch = torch.stack(pad_tensors([dset_item[i] for dset_item in self.y_trains], labels=True, padding_val=self.padding_val))
+            single_eval_pos = self.X_trains[i].size(-2) # End of train data
+            train_x_full = torch.cat([self.X_trains[i], X[i]], dim=-2)
+            train_y_batch = self.y_trains[i]
             
             train_x_full = train_x_full.to(device)
             train_y_batch = train_y_batch.to(device)
@@ -321,7 +321,7 @@ class InferenceEngineBatchedNoPreprocessing(InferenceEngine):
 
             #output = output if isinstance(output, dict) else output.squeeze(1)
 
-            yield output, list([cat_item[i] for cat_item in self.ensemble_configs])
+            yield output, self.ensemble_configs[i]
         if self.inference_mode: ## if inference
             self.model = self.model.cpu()
 

@@ -351,7 +351,7 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
                 - If `ModelInterfaceConfig`, the object is used as the configuration.
                 
             differentiable_input:
-                If true the preprocessing will be adapted to be end-to-end differentiable
+                If true, the preprocessing will be adapted to be end-to-end differentiable
                 with PyTorch. This is useful for explainability and prompt-tuning.
                 
         """
@@ -391,16 +391,14 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
         tags.estimator_type = "classifier"
         return tags
         
-    def get_preprocessed_datasets(self, X: XType | List[XType], y: YType | List[YType] | None, 
-            split_fn, batch_large_data=False, max_data_size=10000) -> Dataset:
+    def get_preprocessed_datasets(self, X: XType | List[XType], y: YType | List[YType], 
+            split_fn, max_data_size: None | int =10000) -> Dataset:
         """ Get a torch.utils.data.Dataset which contains the different small datasets or splits of one dataset.
 
             Args:
                 X: list of input dataset features
                 y: list of input dataset labels
                 split_fn: A function to dissect a dataset into train and test partition.
-                batch_large_data: whether large datasets should be split up into chunks of
-                    max_data_size rows.
                 max_data_size: Number of chunks.
         """
         if not isinstance(X, list):
@@ -415,22 +413,28 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
         else:
             static_seed, rng = infer_random_state(self.random_state)
             
-        if batch_large_data:
-            X_split, y_split = [], []
-            for (X_item, y_item) in zip(X, y): 
+        X_split, y_split = [], []
+        for (X_item, y_item) in zip(X, y):
+            if max_data_size is not None:
                 Xparts, yparts = split_large_data(X_item, y_item, max_data_size)
-                X_split.extend(Xparts)
-                y_split.extend(yparts)
-            X, y = X_split, y_split
+            else:
+                Xparts, yparts = [X_item], [y_item]
+            X_split.extend(Xparts)
+            y_split.extend(yparts)
+        X, y = X_split, y_split
             
         config_collection = []
         for X_item, y_item in zip(X, y):
-            configs, cat_ix, X_item, y_item = self._initialize_dataset_preprocessing(X_item, y_item)
-            config_collection.append([configs, X_item, y_item, cat_ix])
+            configs, X_item, y_item = self._initialize_dataset_preprocessing(X_item, y_item)
+            config_collection.append([configs, X_item, y_item, 
+                                      self.inferred_categorical_indices_, configs])
         meta_dataset = DatasetCollectionWithPreprocessing(split_fn, rng, config_collection)
         return meta_dataset
     
-    def _initialize_model_variables(self):
+    def _initialize_model_variables(self) -> tuple[int,  np.random.Generator]
+        """Perform initialization of the model, return determined byte_size
+            and RNG object.
+        """
         static_seed, rng = infer_random_state(self.random_state)
 
         # Load the model and config
@@ -466,7 +470,13 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
             )
         return byte_size, rng
 
-    def _initialize_dataset_preprocessing(self, X: XType, y: YType) -> List[ClassifierEnsembleConfig]:
+    def _initialize_dataset_preprocessing(self, X: XType, y: YType) -> \
+        tuple[List[ClassifierEnsembleConfig], List[int], XType, YType]:
+        """ Internal preprocessing method for input arguemtns.
+            Returns ClassifierEnsembleConfigs, inferred categorical indices,
+            and modelfied features X and labels y. 
+            Sets self.inferred_categorical_indices_.
+        """
         _, rng = infer_random_state(self.random_state)
         
         X, y, feature_names_in, n_features_in = validate_Xy_fit(
@@ -528,20 +538,18 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
             assert isinstance(X, np.ndarray)
             self.preprocessor_ = ord_encoder
 
-            cat_ix = infer_categorical_features(
+            self.inferred_categorical_indices_ = infer_categorical_features(
                 X=X,
                 provided=self.categorical_features_indices,
                 min_samples_for_inference=self.interface_config_.MIN_NUMBER_SAMPLES_FOR_CATEGORICAL_INFERENCE,
                 max_unique_for_category=self.interface_config_.MAX_UNIQUE_FOR_CATEGORICAL_FEATURES,
                 min_unique_for_numerical=self.interface_config_.MIN_UNIQUE_FOR_NUMERICAL_FEATURES,
             )
-            self.inferred_categorical_indices_ = cat_ix
             preprocess_transforms = self.interface_config_.PREPROCESS_TRANSFORMS
         else: # Minimal preprocessing for prompt tuning
             self.inferred_categorical_indices_ = []
             self.preprocessor_ = None
             preprocess_transforms = [PreprocessorConfig("none", differentiable=True)]
-            cat_ix = []
             
         ensemble_configs = EnsembleConfig.generate_for_classification(
             n=self.n_estimators,
@@ -563,7 +571,7 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
             random_state=rng,
         )
         assert len(ensemble_configs) == self.n_estimators
-        return ensemble_configs, cat_ix, X, y
+        return ensemble_configs, X, y
     
     @config_context(transform_output="default")  # type: ignore
     def fit(self, X: XType, y: YType) -> Self:
@@ -575,9 +583,8 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
         """
         if not hasattr(self, "model_") or not self.differentiable_input:
             byte_size, rng = self._initialize_model_variables()
-            self.ensemble_configs, cat_ix, X, y = self._initialize_dataset_preprocessing(X, y)
+            self.ensemble_configs, X, y = self._initialize_dataset_preprocessing(X, y)
         else: #already fitted and prompt_tuning mode: no cat. features
-            cat_ix = []
             _, rng = infer_random_state(self.random_state)
             _, _, byte_size = determine_precision(self.inference_precision, self.device_)
             
@@ -587,7 +594,7 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
             y_train=y,
             model=self.model_,
             ensemble_configs=self.ensemble_configs,
-            cat_ix=cat_ix,
+            cat_ix=self.inferred_categorical_indices_,
             fit_mode=self.fit_mode,
             device_=self.device_,
             rng=rng,
@@ -606,7 +613,7 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
                               cat_ix: List[List[List[int]]],
                               configs: List[List[EnsembleConfig]],
                               padding_val: float = 0.0, no_refit=True) -> TabPFNClassifier:
-        """Fit the model.
+        """Fit the model to preprocessed inputs from a Dataset provided by get_preprocessed_datasets
 
         Args:
             X: The input features obtained from the preprocessed Dataset

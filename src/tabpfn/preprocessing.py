@@ -699,7 +699,11 @@ class DatasetCollectionWithPreprocessing(Dataset):
         if index < 0 or index > len(self):
             raise IndexError("Index out of bounds.")
         
-        conf, x_full, y_full, cat_ix = self.configs[index]
+        
+        conf, x_full, y_full, cat_ix = self.configs[index][0:4]
+        if len(self.configs[index])==5:
+            renormalized_criterion = self.configs[index][5]
+            
         x_train, x_test, y_train, y_test = self.split_fn(x_full, y_full)
         itr = fit_preprocessing(
             configs=conf,
@@ -737,8 +741,10 @@ class DatasetCollectionWithPreprocessing(Dataset):
         # Convert y_train to tensor, while preserving its float or discrete nature
         # but converting all floats to float32 and discrete to long so they can 
         # be concatenated to tensors.
-        
-        return X_trains, X_tests, y_trains, y_test, cat_ixs, conf
+        if len(self.configs[index]) == 5: # Pass through renorm. criterion for regression.
+            return X_trains, X_tests, y_trains, y_test, cat_ixs, conf, renormalized_criterion
+        else:  
+            return X_trains, X_tests, y_trains, y_test, cat_ixs, conf
             
 
 

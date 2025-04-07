@@ -27,12 +27,10 @@ from tabpfn.constants import (
     REGRESSION_NAN_BORDER_LIMIT_UPPER,
 )
 from tabpfn.misc._sklearn_compat import check_array, validate_data
-<<<<<<< HEAD
 from tabpfn.model.bar_distribution import FullSupportBarDistribution
 from tabpfn.model.loading import download_model, load_model
 from tabpfn.model.encoders import MulticlassClassificationTargetEncoder, SequentialEncoder
-=======
->>>>>>> upstream/main
+
 
 if TYPE_CHECKING:
     from sklearn.base import TransformerMixin
@@ -808,7 +806,7 @@ def pad_tensors(tensor_list, padding_val=0, labels=False):
     return ret_list
     
 
-def collate_for_tabpfn_dataset(batch, padding_val):
+def collate_for_tabpfn_dataset(batch, padding_val=0.0):
     """ Inputs are a three-dimesional collections.
         First dim: Batch
         Second dim: Xtrain, ytrain, Xtest, ytest
@@ -818,16 +816,27 @@ def collate_for_tabpfn_dataset(batch, padding_val):
     num_estim = len(batch[0][0])
     items_list = []
     for item_idx in range(len(batch[0])):
-        estim_list = []
-        for estim_no in range(num_estim):
-            if isinstance(batch[0][item_idx][0], torch.Tensor):
-                estim_list.append(torch.stack(
-                    pad_tensors(
-                        [batch[r][item_idx][estim_no] for r in range(batch_sz)],
-                        padding_val=padding_val)))
-            else:
-                estim_list.append(list(batch[r][item_idx][estim_no] for r in range(batch_sz)))
-        items_list.append(estim_list)
+        if isinstance(batch[0][item_idx], list):
+            estim_list = []
+            for estim_no in range(num_estim):
+                if isinstance(batch[0][item_idx][0], torch.Tensor):
+                    labels = batch[0][item_idx][0].ndim == 1
+                    estim_list.append(torch.stack(
+                        pad_tensors(
+                            [batch[r][item_idx][estim_no] for r in range(batch_sz)],
+                            padding_val=padding_val, labels=labels)))
+                else:
+                    estim_list.append(list(batch[r][item_idx][estim_no] for r in range(batch_sz)))
+            items_list.append(estim_list)
+        elif isinstance(batch[0][item_idx], torch.Tensor):
+            labels = batch[0][item_idx].ndim == 1
+            items_list.append(torch.stack(
+                pad_tensors(
+                    [batch[r][item_idx] for r in range(batch_sz)],
+                    padding_val=padding_val, labels=labels)))
+        else:
+            items_list.append(list([batch[r][item_idx] for r in range(batch_sz)]))
+            
     return tuple(items_list)
             
         

@@ -47,7 +47,7 @@ if __name__ == "__main__":
     
     datasets_list = clf.get_preprocessed_datasets(X_data, y_data, splitfn, True, 1000)
     datasets_list_test = clf.get_preprocessed_datasets([res_test], [data_adult_test_labels], splitfn, True, 1000)
-    my_dl_train = DataLoader(datasets_list, batch_size=2, collate_fn=collate_for_tabpfn_dataset)
+    my_dl_train = DataLoader(datasets_list, batch_size=3, collate_fn=collate_for_tabpfn_dataset)
     my_dl_test = DataLoader(datasets_list_test, batch_size=1, collate_fn=collate_for_tabpfn_dataset)
     
     optim_impl = Adam(clf.model_.parameters(), lr=1e-5)
@@ -59,10 +59,9 @@ if __name__ == "__main__":
         for data_batch in tqdm(my_dl_train):
             optim_impl.zero_grad()
             X_trains, X_tests, y_trains, y_tests, cat_ixs, confs = data_batch
-            y_test_padded = torch.stack(pad_tensors(y_tests, labels=True))
             clf.fit_from_preprocessed(X_trains, y_trains, cat_ixs, confs)
             preds = clf.predict_proba_from_preprocessed(X_tests)
-            loss = lossfn(torch.log(preds), y_test_padded.to(device))
+            loss = lossfn(torch.log(preds), y_tests.to(device))
             loss.backward()
             optim_impl.step()
         steps += 1
