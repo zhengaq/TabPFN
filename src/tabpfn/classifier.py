@@ -393,26 +393,26 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
         
     def get_preprocessed_datasets(self, X: XType | List[XType], y: YType | List[YType], 
             split_fn, max_data_size: None | int =10000) -> Dataset:
-        """ Get a torch.utils.data.Dataset which contains the different small datasets or splits of one dataset.
+        """ Get a torch.utils.data.Dataset which contains many datasets or splits of one of more dataset.
 
             Args:
                 X: list of input dataset features
                 y: list of input dataset labels
-                split_fn: A function to dissect a dataset into train and test partition.
-                max_data_size: Number of chunks.
+                split_fn: A function to dissect a dataset into train and test partition.    
+                max_data_size: Maximum allowed number of samples in one dataset. If None, dataset are not splitted.
         """
         if not isinstance(X, list):
             X = [X]
-            
+
         if not isinstance(y, list):
             y = [y]
             assert len(X) == len(y)
-        
+
         if not hasattr(self, "model_") or self.model_ is None:
             byte_size, rng = self._initialize_model_variables()
         else:
             static_seed, rng = infer_random_state(self.random_state)
-            
+
         X_split, y_split = [], []
         for (X_item, y_item) in zip(X, y):
             if max_data_size is not None:
@@ -729,7 +729,13 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
             if config is not None:
                 output_batch = []
                 for i, batch_config in enumerate(config):
-                    output_batch.append(output[:, i, batch_config.class_permutation])  # noqa: PLW2901
+                    # make sure the output num_classes are the same.
+                    if len(batch_config.class_permutation) != self.n_classes_:
+                        use_perm = np.arange(self.n_classes_)
+                        use_perm[:len(batch_config.class_permutation)] = batch_config.class_permutation
+                    else:
+                        use_perm = batch_config.class_permutation
+                    output_batch.append(output[:, i, use_perm])  # noqa: PLW2901
                 output_all = torch.stack(output_batch, dim=1)
             outputs.append(output_all)
         
