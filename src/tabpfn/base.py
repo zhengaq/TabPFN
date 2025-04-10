@@ -23,10 +23,10 @@ from tabpfn.constants import (
 )
 from tabpfn.inference import (
     InferenceEngine,
+    InferenceEngineBatchedNoPreprocessing,
     InferenceEngineCacheKV,
     InferenceEngineCachePreprocessing,
     InferenceEngineOnDemand,
-    InferenceEngineBatchedNoPreprocessing
 )
 from tabpfn.model.loading import load_model_criterion_config
 from tabpfn.utils import infer_device_and_type, infer_fp16_inference_mode
@@ -171,7 +171,6 @@ def create_inference_engine(  # noqa: PLR0913
     memory_saving_mode: bool | Literal["auto"] | float | int,
     use_autocast_: bool,
     inference_mode: bool = True,
-    padding_val_: float = 0.0
 ) -> InferenceEngine:
     """Creates the appropriate TabPFN inference engine based on `fit_mode`.
 
@@ -194,8 +193,8 @@ def create_inference_engine(  # noqa: PLR0913
         forced_inference_dtype_: If not None, the forced dtype for inference.
         memory_saving_mode: GPU/CPU memory saving settings.
         use_autocast_: Whether we use torch.autocast for inference.
-        inference_mode: Whether to use torch.inference_mode (set False if backprop is needed)
-        padding_val_: filling value to use if the engine does padding (batched engine only)
+        inference_mode: Whether to use torch.inference_mode (set False if
+            backprop is needed)
     """
     engine: (
         InferenceEngineOnDemand
@@ -254,7 +253,6 @@ def create_inference_engine(  # noqa: PLR0913
             ensemble_configs=ensemble_configs,
             force_inference_dtype=forced_inference_dtype_,
             inference_mode = inference_mode,
-            padding_val = padding_val_,
             save_peak_mem=memory_saving_mode,
             dtype_byte_size=byte_size
         )

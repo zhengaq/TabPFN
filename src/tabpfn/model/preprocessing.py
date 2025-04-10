@@ -404,7 +404,7 @@ class SequentialFeatureTransformer(UserList):
         self.categorical_features_ = categorical_features
         return _TransformResult(X, categorical_features)
 
-    def fit(self, X: np.ndarray | torch.tensor, categorical_features: list[int]) -> Self:
+    def fit(self, X: np.ndarray | torch.tensor, categorical_features: list[int])-> Self:
         """Fit all the steps in the pipeline.
 
         Args:
@@ -449,7 +449,8 @@ class RemoveConstantFeaturesStep(FeaturePreprocessingTransformerStep):
         self.sel_: list[bool] | None = None
 
     @override
-    def _fit(self, X: np.ndarray | torch.Tensor, categorical_features: list[int]) -> list[int]:
+    def _fit(self, X: np.ndarray | torch.Tensor,
+             categorical_features: list[int]) -> list[int]:
         if isinstance(X, torch.Tensor):
             sel_ = torch.max(X[0:1, :] != X, dim=0)[0].cpu()
         else:
@@ -469,7 +470,8 @@ class RemoveConstantFeaturesStep(FeaturePreprocessingTransformerStep):
         ]
 
     @override
-    def _transform(self, X: np.ndarray | torch.Tensor, *, is_test: bool = False) -> np.ndarray:
+    def _transform(self, X: np.ndarray | torch.Tensor, *, is_test: bool = False) \
+         -> np.ndarray:
         assert self.sel_ is not None, "You must call fit first"
         return X[:, self.sel_]
 
@@ -495,20 +497,19 @@ class AddFingerprintFeaturesStep(FeaturePreprocessingTransformerStep):
         self.random_state = random_state
 
     @override
-    def _fit(self, X: np.ndarray | torch.Tensor, categorical_features: list[int]) -> list[int]:
+    def _fit(self, X: np.ndarray | torch.Tensor, categorical_features: list[int]) \
+        -> list[int]:
         _, rng = infer_random_state(self.random_state)
         self.rnd_salt_ = int(rng.integers(0, 2**16))
         return [*categorical_features]
 
     @override
-    def _transform(self, X: np.ndarray | torch.Tensor, *, is_test: bool = False) -> np.ndarray | torch.Tensor:  
-        if isinstance(X, torch.Tensor):
-            X_det = X.detach().cpu().numpy()
-        else:
-            X_det = X # no detach necessary for numpy
-            
+    def _transform(self, X: np.ndarray | torch.Tensor, *, is_test: bool = False) \
+        -> np.ndarray | torch.Tensor:
+        X_det = X.detach().cpu().numpy() if isinstance(X, torch.Tensor) else X
+
+        # no detach necessary for numpy
         X_h = np.zeros(X.shape[0], dtype=X_det.dtype)
-            
         if is_test:
             # Keep the first hash even if there are collisions
             salted_X = X_det + self.rnd_salt_
@@ -527,10 +528,12 @@ class AddFingerprintFeaturesStep(FeaturePreprocessingTransformerStep):
                     h = float_hash_arr(row + add_to_hash)
                 X_h[i] = h
                 seen_hashes.add(h)
-                
+
         if isinstance(X, torch.Tensor):
-            return torch.cat([X, torch.from_numpy(X_h).float().reshape(-1,1).to(X.device)], dim=1)
-        else:
+            return torch.cat([X,
+                              torch.from_numpy(X_h).float().reshape(-1,1).to(X.device)],
+                              dim=1)
+        else:  # noqa: RET505
             return np.concatenate([X, X_h.reshape(-1, 1)], axis=1)
 
 
@@ -551,8 +554,9 @@ class ShuffleFeaturesStep(FeaturePreprocessingTransformerStep):
         self.index_permutation_: list[int] | None = None
 
     @override
-    def _fit(self, X: np.ndarray | torch.tensor, categorical_features: list[int]) -> list[int]:
-        static_seed, rng = infer_random_state(self.random_state)
+    def _fit(self, X: np.ndarray | torch.tensor, categorical_features: list[int]) \
+        -> list[int]:
+        _, rng = infer_random_state(self.random_state)
         if self.shuffle_method == "rotate":
             index_permutation = np.roll(
                 np.arange(X.shape[1]),
@@ -1289,22 +1293,21 @@ class NanHandlingPolynomialFeaturesStep(FeaturePreprocessingTransformerStep):
         poly_features_xs = X[:, self.poly_factor_1_idx] * X[:, self.poly_factor_2_idx]
 
         return np.hstack((X, poly_features_xs))
-    
-    
+
+
 class DifferentiableZNormStep(FeaturePreprocessingTransformerStep):
     def __init__(self):
         super().__init__()
 
         self.means = torch.tensor([])
         self.stds = torch.tensor([])
-        
+
     def _fit(self, X: torch.Tensor, categorical_features: list[int]) -> list[int]:
         self.means = X.mean(dim=0, keepdim=True)
         self.stds = X.std(dim=0, keepdim=True)
         return categorical_features
-        
-    def _transform(self, X: torch.Tensor, *, is_test = False):
+
+    def _transform(self, X: torch.Tensor, *, is_test = False):  # noqa: ARG002
         assert X.shape[1] == self.means.shape[1]
         assert X.shape[1] == self.stds.shape[1]
         return (X-self.means)/self.stds
-    

@@ -27,10 +27,10 @@ from tabpfn.constants import (
     REGRESSION_NAN_BORDER_LIMIT_UPPER,
 )
 from tabpfn.misc._sklearn_compat import check_array, validate_data
-from tabpfn.model.bar_distribution import FullSupportBarDistribution
-from tabpfn.model.loading import download_model, load_model
-from tabpfn.model.encoders import MulticlassClassificationTargetEncoder, SequentialEncoder
-
+from tabpfn.model.encoders import (
+    MulticlassClassificationTargetEncoder,
+    SequentialEncoder,
+)
 
 if TYPE_CHECKING:
     from sklearn.base import TransformerMixin
@@ -72,7 +72,7 @@ def _get_embeddings(
     embeddings: list[np.ndarray] = []
 
     # Cast executor to Any to bypass the iter_outputs signature check
-    executor = typing.cast(typing.Any, model.executor_)
+    executor = typing.cast("typing.Any", model.executor_)
     for output, config in executor.iter_outputs(
         X,
         device=model.device_,
@@ -80,7 +80,7 @@ def _get_embeddings(
         only_return_standard_out=False,
     ):
         # Cast output to Any to allow dict-like access
-        output_dict = typing.cast(dict[str, torch.Tensor], output)
+        output_dict = typing.cast("dict[str, torch.Tensor]", output)
         embed = output_dict[selected_data].squeeze(1)
         assert isinstance(config, (ClassifierEnsembleConfig, RegressorEnsembleConfig))
         assert embed.ndim == 2
@@ -371,8 +371,8 @@ def validate_Xy_fit(
     else:
         assert isinstance(X, torch.Tensor)
         assert isinstance(y, torch.Tensor)
-        assert(len(X)==len(y))
-        assert(len(X.shape) == 2)
+        assert len(X) == len(y)
+        assert len(X.shape) == 2
         estimator.n_features_in_ = X.shape[1]
 
     if X.shape[1] > max_num_features:
@@ -426,7 +426,7 @@ def validate_Xy_fit(
     # NOTE: Theoretically we don't need to return the feature names and number,
     # but it makes it clearer in the calling code that these variables now exist
     # and can be set on the estimator.
-    
+
     return X, y, getattr(estimator, "feature_names_in_", None), estimator.n_features_in_
 
 
@@ -446,7 +446,7 @@ def validate_X_predict(
         ensure_all_finite="allow-nan",
         estimator=estimator,
     )
-    return typing.cast(np.ndarray, result)
+    return typing.cast("np.ndarray", result)
 
 
 def infer_categorical_features(
@@ -609,6 +609,7 @@ def translate_probs_across_borders(
 
     return (prob_left[..., 1:] - prob_left[..., :-1]).clamp_min(0.0)
 
+
 def update_encoder_outlier_params(
     model: nn.Module,
     remove_outliers_std: float | None,
@@ -616,8 +617,9 @@ def update_encoder_outlier_params(
     *,
     inplace: Literal[True],
 ) -> None:
-    """ Deprecated legacy, remove in next update and repace with function below. """
+    """Deprecated legacy, remove in next update and repace with function below."""
     return update_encoder_params(model, remove_outliers_std, seed, inplace=inplace)
+
 
 def update_encoder_params(
     model: nn.Module,
@@ -625,11 +627,11 @@ def update_encoder_params(
     seed: int | None,
     *,
     inplace: Literal[True],
-    differentiable_input: bool = False
+    differentiable_input: bool = False,
 ) -> None:
-    """Update the loaded encoder elements and setting to be compatible with inference requirements
-       This concerns handling outliers in the model and also removes non-differentiable elements from
-       the label encoder.
+    """Update the loaded encoder elements and setting to be compatible with inference
+    requirements. This concerns handling outliers in the model and also removes
+    non-differentiable steps from the label encoder.
 
     !!! warning
 
@@ -641,7 +643,8 @@ def update_encoder_params(
         seed: The seed to use, if any.
         inplace: Whether to do the operation inplace.
         differentiable_input: Whether the entire model including forward pass should
-            be differentiable with pt autograd. This disables non-differentiable encoder steps.
+            be differentiable with pt autograd. This disables non-differentiable
+            encoder steps.
 
     Raises:
         ValueError: If `inplace` is not `True`.
@@ -667,15 +670,15 @@ def update_encoder_params(
 
     norm_layer.seed = seed
     norm_layer.reset_seed()
-    
+
     if differentiable_input:
-        diffable_steps = [] # only differentiable encoder steps.
+        diffable_steps = []  # only differentiable encoder steps.
         for module in model.y_encoder:
             if isinstance(module, MulticlassClassificationTargetEncoder):
                 pass
             else:
                 diffable_steps.append(module)
-                
+
         model.y_encoder = SequentialEncoder(*diffable_steps)
 
 
@@ -763,54 +766,72 @@ def get_total_memory_windows() -> float:
     mem_status.dwLength = ctypes.sizeof(_MEMORYSTATUSEX)
     try:
         # Use typing.cast to help mypy understand this Windows-only code
-        windll = typing.cast(typing.Any, ctypes).windll
+        windll = typing.cast("typing.Any", ctypes).windll
         k32_lib = windll.LoadLibrary("kernel32.dll")
         k32_lib.GlobalMemoryStatusEx(ctypes.byref(mem_status))
         return float(mem_status.ullTotalPhys) / 1e9  # Convert bytes to GB
     except (AttributeError, OSError):
         # Fall back if not on Windows or if the function fails
         return 0.0
-    
-    
-def split_large_data(largeX: XType, largey: Ytype, max_data_size):
-        tot_size = len(largeX)
-        num_chunks = ((tot_size-1) // max_data_size) + 1
-        basechunk_size = tot_size // num_chunks
-        remainder = tot_size % num_chunks
-        
-        offset = 0
-        xlst, ylst = [], []
-        for b in range(num_chunks):
-            chunk_sz = basechunk_size + (1 if b < remainder else 0)
-            xlst.append(largeX[offset: offset+chunk_sz])
-            ylst.append(largey[offset: offset+chunk_sz])
-            offset += chunk_sz
-        return xlst, ylst
-    
-    
-def pad_tensors(tensor_list, padding_val=0, labels=False):
-    """ Pad tensors to maximum dims at the last dimensions.
-        if labels=False, 2d tensors are expected, if labels=True, one 1d 
-        vectors are expected as inputs.
+
+
+def split_large_data(largeX: XType, largey: YType, max_data_size: int):
+    """Split a large dataset into chunks along the first dimension.
+
+    Args:
+        largeX: features
+        largey: labels
+        max_data_size: int that indicates max size of a chunks.
+            We chose the minimum number of chunks that keeps each chunk under
+            max_data_size.
+    """
+    tot_size = len(largeX)
+    num_chunks = ((tot_size - 1) // max_data_size) + 1
+    basechunk_size = tot_size // num_chunks
+    remainder = tot_size % num_chunks
+
+    offset = 0
+    xlst, ylst = [], []
+    for b in range(num_chunks):
+        chunk_sz = basechunk_size + (1 if b < remainder else 0)
+        xlst.append(largeX[offset : offset + chunk_sz])
+        ylst.append(largey[offset : offset + chunk_sz])
+        offset += chunk_sz
+    return xlst, ylst
+
+
+def pad_tensors(tensor_list, padding_val=0, *, labels=False):
+    """Pad tensors to maximum dims at the last dimensions.
+    if labels=False, 2d tensors are expected, if labels=True, one 1d
+    vectors are expected as inputs.
+
+    Args:
+        tensor_list: List of tensors to be padded.
+        padding_val: what value to use for padding.
+        labels: If true, the tensor list should contain 1D
+            tensors that are padded only along this dimension.
+            If false, rows and feature dimensions are padded.
     """
     max_size_clms = max([item.size(-1) for item in tensor_list])
-    if not labels: 
+    if not labels:
         max_size_rows = max([item.size(-2) for item in tensor_list])
     ret_list = []
     for item in tensor_list:
-        pad_seqence = [0, max_size_clms-item.size(-1)]
+        pad_seqence = [0, max_size_clms - item.size(-1)]
         if not labels:
-            pad_seqence.extend([0, max_size_rows-item.size(-2)])
-        padded_item = torch.nn.functional.pad(item, pad_seqence, mode="constant", value=padding_val)
+            pad_seqence.extend([0, max_size_rows - item.size(-2)])
+        padded_item = torch.nn.functional.pad(
+            item, pad_seqence, mode="constant", value=padding_val
+        )
         ret_list.append(padded_item)
     return ret_list
-    
+
 
 def collate_for_tabpfn_dataset(batch, padding_val=0.0):
-    """ Inputs are a three-dimesional collections.
-        First dim: Batch
-        Second dim: Xtrain, ytrain, Xtest, ytest
-        Third dim: Ensemble estimators.
+    """Collate function dataset items returned from
+    TabPFNClassfier.get_preprocessed_datasets, when
+    creating a torch.utils.data.DataLoader.
+    Inputs are a three-dimesional collections.
     """
     batch_sz = len(batch)
     num_estim = len(batch[0][0])
@@ -821,22 +842,32 @@ def collate_for_tabpfn_dataset(batch, padding_val=0.0):
             for estim_no in range(num_estim):
                 if isinstance(batch[0][item_idx][0], torch.Tensor):
                     labels = batch[0][item_idx][0].ndim == 1
-                    estim_list.append(torch.stack(
-                        pad_tensors(
-                            [batch[r][item_idx][estim_no] for r in range(batch_sz)],
-                            padding_val=padding_val, labels=labels)))
+                    estim_list.append(
+                        torch.stack(
+                            pad_tensors(
+                                [batch[r][item_idx][estim_no] for r in range(batch_sz)],
+                                padding_val=padding_val,
+                                labels=labels,
+                            )
+                        )
+                    )
                 else:
-                    estim_list.append(list(batch[r][item_idx][estim_no] for r in range(batch_sz)))
+                    estim_list.append(
+                        list(batch[r][item_idx][estim_no] for r in range(batch_sz))  # noqa: C400
+                    )
             items_list.append(estim_list)
         elif isinstance(batch[0][item_idx], torch.Tensor):
             labels = batch[0][item_idx].ndim == 1
-            items_list.append(torch.stack(
-                pad_tensors(
-                    [batch[r][item_idx] for r in range(batch_sz)],
-                    padding_val=padding_val, labels=labels)))
+            items_list.append(
+                torch.stack(
+                    pad_tensors(
+                        [batch[r][item_idx] for r in range(batch_sz)],
+                        padding_val=padding_val,
+                        labels=labels,
+                    )
+                )
+            )
         else:
-            items_list.append(list([batch[r][item_idx] for r in range(batch_sz)]))
-            
+            items_list.append([batch[r][item_idx] for r in range(batch_sz)])
+
     return tuple(items_list)
-            
-        

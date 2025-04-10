@@ -9,7 +9,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Iterator, Sequence
 from copy import deepcopy
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal, List
+from typing import TYPE_CHECKING, Literal
 from typing_extensions import override
 
 import numpy as np
@@ -23,7 +23,6 @@ if TYPE_CHECKING:
     from tabpfn.model.transformer import PerFeatureTransformer
     from tabpfn.preprocessing import EnsembleConfig
 
-from tabpfn.utils import pad_tensors
 @dataclass
 class InferenceEngine(ABC):
     """These define how tabpfn inference can be run.
@@ -73,13 +72,15 @@ class InferenceEngine(ABC):
             autocast: Whether to use torch.autocast during inference.
         """
         ...
-    
-    def use_torch_inference_mode(self, use_inference: bool):
-        """ Enable / Disable Torch inference mode for quicker inference. 
-            To allow for backpropagation, this needs to be disabled. Not all inference engines are
-            compatible with backpropagation, which will raise an error when this operation is called.
+
+    def use_torch_inference_mode(self, *, _use_inference: bool):
+        """Enable / Disable Torch inference mode for quicker inference.
+        To allow for backpropagation, this needs to be disabled. Not all inference
+        engines are compatible with backpropagation, which will raise
+        an error when this operation is called.
         """
-        raise NotImplementedError("This inference engine does not support torch.inference_mode changes.")
+        raise NotImplementedError("This inference engine does not support" \
+            " torch.inference_mode changes.")
 
 
 @dataclass
@@ -214,50 +215,50 @@ class InferenceEngineOnDemand(InferenceEngine):
 
 @dataclass
 class InferenceEngineBatchedNoPreprocessing(InferenceEngine):
-    """ Inference engine that uses preprocessed inputs, and allows batched predictions
-        on several datasets at once. 
-        
-        Args:
-            Xtrains: List of preprocessed inputs. One item on the first level corresponds to one dataset,
-                the items on the second level, correspond to the ensemble elements. All second layer lists
-                are required to have the same number of items.
-            padding_val: inputs of datasets with different sizes and feature values are padded with this value.
+    """Inference engine that uses preprocessed inputs, and allows batched predictions
+    on several datasets at once.
+
+    Args:
+            X_trains: The training data.
+            y_trains    : The training target.
+            cat_ix: The categorical indices.
+            model: The model to use.
+            ensemble_configs: The ensemble configurations to use.
+            force_inference_dtype: The dtype to force inference to.
+            save_peak_mem: Whether to save peak memory usage.
+            inference_mode: Whether to enable torch inference mode.
     """
-    X_trains: List[List[torch.Tensor]]
-    y_trains: List[List[torch.Tensor]]
-    cat_ix: List[List[List[int]]]
+    X_trains: list[torch.Tensor]
+    y_trains: list[torch.Tensor]
+    cat_ix: list[list[list[int]]]
     model: PerFeatureTransformer
     ensemble_configs: Sequence[EnsembleConfig]
     force_inference_dtype: torch.dtype | None
-    padding_val: float
     inference_mode: bool
-    
+
     @classmethod
     def prepare(
         cls,
-        X_trains: List[List[torch.Tensor]],
-        y_trains: List[List[torch.Tensor]],
+        X_trains: list[torch.Tensor],
+        y_trains: list[torch.Tensor],
         *,
-        cat_ix: List[List[List[int]]],
+        cat_ix: list[list[list[int]]],
         model: PerFeatureTransformer,
         ensemble_configs: Sequence[EnsembleConfig],
         force_inference_dtype: torch.dtype | None,
-        padding_val: float,
         inference_mode: bool,
         dtype_byte_size: int,
         save_peak_mem: bool | Literal["auto"] | float | int
-        
     ) -> InferenceEngineBatchedNoPreprocessing:
         """Prepare the inference engine.
 
         Args:
-            X_train: The training data.
-            y_train: The training target.
+            X_trains: The training data.
+            y_trains: The training target.
             cat_ix: The categorical indices.
             model: The model to use.
             ensemble_configs: The ensemble configurations to use.
-            rng: The random number generator.
-            n_workers: The number of workers to use.
+            inference_mode: Whether to use torch inference mode.
             dtype_byte_size: The byte size of the dtype.
             force_inference_dtype: The dtype to force inference to.
             save_peak_mem: Whether to save peak memory usage.
@@ -270,49 +271,43 @@ class InferenceEngineBatchedNoPreprocessing(InferenceEngine):
             model=model,
             ensemble_configs=ensemble_configs,
             force_inference_dtype=force_inference_dtype,
-            padding_val=padding_val,
             inference_mode = inference_mode,
             dtype_byte_size=dtype_byte_size,
             save_peak_mem=save_peak_mem
         )
-        
+
     @override
     def iter_outputs(
         self,
-        X: List[torch.Tensor],
+        X: list[torch.Tensor],
         *,
         device: torch.device,
         autocast: bool,
     ) -> Iterator[tuple[torch.Tensor | dict, EnsembleConfig]]:
         self.model = self.model.to(device)
-        
         ensemble_size = len(self.X_trains)
         for i in range(ensemble_size):
-            
             single_eval_pos = self.X_trains[i].size(-2) # End of train data
             train_x_full = torch.cat([self.X_trains[i], X[i]], dim=-2)
             train_y_batch = self.y_trains[i]
-            
             train_x_full = train_x_full.to(device)
             train_y_batch = train_y_batch.to(device)
             if self.force_inference_dtype is not None:
                 train_x_full = train_x_full.type(self.force_inference_dtype)
-                train_y_batch = train_y_batch.type(self.force_inference_dtype)  # type: ignore # noqa: PLW2901
+                train_y_batch = train_y_batch.type(self.force_inference_dtype)  # type: ignore
 
-            
             style = None
             with (
                 torch.autocast(device.type, enabled=autocast),
                 torch.inference_mode(self.inference_mode),
             ):
                 output = self.model(
-                    *(style, train_x_full.transpose(0, 1), train_y_batch.transpose(0, 1)),
+                    *(style, train_x_full.transpose(0, 1),
+                       train_y_batch.transpose(0, 1)),
                     only_return_standard_out=True,
-                    categorical_inds=list([cat_item[i] for cat_item in self.cat_ix]),
+                    categorical_inds=list([cat_item[i] for cat_item in self.cat_ix]),  # noqa: C411
                     single_eval_pos=single_eval_pos,
                 )
-
-            #output = output if isinstance(output, dict) else output.squeeze(1)
 
             yield output, self.ensemble_configs[i]
         if self.inference_mode: ## if inference
@@ -321,7 +316,7 @@ class InferenceEngineBatchedNoPreprocessing(InferenceEngine):
     @override
     def use_torch_inference_mode(self, use_inference: bool):
         self.inference_mode = use_inference
-        
+
 @dataclass
 class InferenceEngineCachePreprocessing(InferenceEngine):
     """Inference engine that caches the preprocessing for feeding as model context on
@@ -334,7 +329,6 @@ class InferenceEngineCachePreprocessing(InferenceEngine):
     of memory in RAM. The main functionality performed at `predict()` time is to
     forward pass through the model which is currently done sequentially.
     """
-
     X_trains: Sequence[np.ndarray | torch.Tensor]
     y_trains: Sequence[np.ndarray | torch.Tensor]
     cat_ixs: Sequence[list[int]]
@@ -346,7 +340,7 @@ class InferenceEngineCachePreprocessing(InferenceEngine):
     no_preprocessing: bool = False
 
     @classmethod
-    def prepare(
+    def prepare(  #noqa: PLR0913
         cls,
         X_train: np.ndarray | torch.Tensor,
         y_train: np.ndarray | torch.Tensor,
@@ -377,6 +371,9 @@ class InferenceEngineCachePreprocessing(InferenceEngine):
             save_peak_mem: Whether to save peak memory usage.
             inference_mode: Whether to use torch.inference mode
                 (this is quicker but disables backpropagation)
+            no_preprocessing: If turned of, the preprocessing on the test
+                tensors is tuned off. Used for differentiablity.
+
         Returns:
             The prepared inference engine.
         """
@@ -425,18 +422,15 @@ class InferenceEngineCachePreprocessing(InferenceEngine):
         ):
             if not isinstance(X_train, torch.Tensor):
                 X_train = torch.as_tensor(X_train, dtype=torch.float32)  # noqa: PLW2901
-            X_train = X_train.to(device)
-            if not self.no_preprocessing: # Switch of preprocessing if already done.
-                X_test = preprocessor.transform(X).X
-            else:
-                X_test = X
-            if not isinstance(X_test, torch.Tensor): 
+            X_train = X_train.to(device)  # noqa: PLW2901
+            X_test = preprocessor.transform(X).X if not self.no_preprocessing else X
+            if not isinstance(X_test, torch.Tensor):
                 X_test = torch.as_tensor(X_test, dtype=torch.float32)
             X_test = X_test.to(device)
             X_full = torch.cat([X_train, X_test], dim=0).unsqueeze(1)
             if not isinstance(y_train, torch.Tensor):
                 y_train = torch.as_tensor(y_train, dtype=torch.float32)  # noqa: PLW2901
-            y_train = y_train.to(device)
+            y_train = y_train.to(device)  # noqa: PLW2901
 
             # Handle type casting
             with contextlib.suppress(Exception):  # Avoid overflow error
@@ -558,9 +552,8 @@ class InferenceEngineCacheKV(InferenceEngine):
             ens_model = deepcopy(model)
             ens_model = ens_model.to(device)
             if not isinstance(X, torch.Tensor):
-                X = torch.as_tensor(X, dtype=torch.float32, device=device)
+                X = torch.as_tensor(X, dtype=torch.float32, device=device)  # noqa: PLW2901
             X = X.unsqueeze(1)  # noqa: PLW2901
-            
             if not isinstance(y, torch.Tensor):
                 y = torch.as_tensor(y, dtype=torch.float32, device=device)  # noqa: PLW2901
 
