@@ -424,7 +424,8 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
         config_collection = []
         for X_item, y_item in zip(X, y):
             configs, X_mod, y_mod = self._initialize_dataset_preprocessing(X_item,
-                                                                            y_item)
+                                                                            y_item,
+                                                                            rng)
             config_collection.append([configs, X_mod, y_mod,
                                       self.inferred_categorical_indices_])
         return DatasetCollectionWithPreprocessing(split_fn,
@@ -469,14 +470,13 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
             )
         return byte_size, rng
 
-    def _initialize_dataset_preprocessing(self, X: XType, y: YType) -> \
+    def _initialize_dataset_preprocessing(self, X: XType, y: YType, rng) -> \
         tuple[list[ClassifierEnsembleConfig], list[int], XType, YType]:
         """Internal preprocessing method for input arguemtns.
         Returns ClassifierEnsembleConfigs, inferred categorical indices,
         and modelfied features X and labels y.
         Sets self.inferred_categorical_indices_.
         """
-        _, rng = infer_random_state(self.random_state)
         X, y, feature_names_in, n_features_in = validate_Xy_fit(
             X,
             y,
@@ -583,7 +583,9 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
         """
         if not hasattr(self, "model_") or not self.differentiable_input:
             byte_size, rng = self._initialize_model_variables()
-            self._ensemble_configs, X, y = self._initialize_dataset_preprocessing(X, y)
+            self._ensemble_configs, X, y = self._initialize_dataset_preprocessing(X,
+                                                                                  y,
+                                                                                  rng)
         else: #already fitted and prompt_tuning mode: no cat. features
             _, rng = infer_random_state(self.random_state)
             _, _, byte_size = determine_precision(self.inference_precision,
