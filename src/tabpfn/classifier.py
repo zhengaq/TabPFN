@@ -583,7 +583,7 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
         """
         if not hasattr(self, "model_") or not self.differentiable_input:
             byte_size, rng = self._initialize_model_variables()
-            self.ensemble_configs, X, y = self._initialize_dataset_preprocessing(X, y)
+            self._ensemble_configs, X, y = self._initialize_dataset_preprocessing(X, y)
         else: #already fitted and prompt_tuning mode: no cat. features
             _, rng = infer_random_state(self.random_state)
             _, _, byte_size = determine_precision(self.inference_precision,
@@ -594,7 +594,7 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
             X_train=X,
             y_train=y,
             model=self.model_,
-            ensemble_configs=self.ensemble_configs,
+            ensemble_configs=self._ensemble_configs,
             cat_ix=self.inferred_categorical_indices_,
             fit_mode=self.fit_mode,
             device_=self.device_,

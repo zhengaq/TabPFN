@@ -10,12 +10,13 @@ from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from functools import partial
 from itertools import chain, product, repeat
-from typing import TYPE_CHECKING, Literal, TypeVar, List
+from typing import TYPE_CHECKING, Literal, TypeVar
 from typing_extensions import override
-import torch
-from torch.utils.data import Dataset
+
 import numpy as np
+import torch
 from sklearn.utils.validation import joblib
+from torch.utils.data import Dataset
 
 from tabpfn.constants import (
     CLASS_SHUFFLE_OVERESTIMATE_FACTOR,
@@ -23,9 +24,9 @@ from tabpfn.constants import (
     PARALLEL_MODE_TO_RETURN_AS,
     SUPPORTS_RETURN_AS,
 )
-
 from tabpfn.model.preprocessing import (
     AddFingerprintFeaturesStep,
+    DifferentiableZNormStep,
     EncodeCategoricalFeaturesStep,
     FeaturePreprocessingTransformerStep,
     NanHandlingPolynomialFeaturesStep,
@@ -33,9 +34,7 @@ from tabpfn.model.preprocessing import (
     ReshapeFeatureDistributionsStep,
     SequentialFeatureTransformer,
     ShuffleFeaturesStep,
-    DifferentiableZNormStep,
 )
-
 from tabpfn.utils import infer_random_state
 
 if TYPE_CHECKING:
@@ -174,7 +173,7 @@ class PreprocessorConfig:
             append_original=config_dict["append_original"],
             subsample_features=config_dict["subsample_features"],
             global_transformer_name=config_dict["global_transformer_name"],
-            differentiable = config_dict["differentiable"]
+            differentiable = config_dict.get("differentiable", False)
         )
 
 
@@ -564,7 +563,7 @@ def fit_preprocessing_one(
         y_train: Training target.
         random_state: Random seed.
         cat_ix: Indices of categorical features.
-        process_idx: Which indices to consider. Only return the values for these indices.
+        process_idx: Which indices to consider. Only return values for these indices.
             if None, all indices are processed, which is the default.
 
     Returns:
@@ -582,7 +581,7 @@ def fit_preprocessing_one(
 
     preprocessor = config.to_pipeline(random_state=static_seed)
     res = preprocessor.fit_transform(X_train, cat_ix)
-        
+
     # TODO(eddiebergman): Not a fan of this, wish it was more transparent, but we want
     # to distuinguish what to do with the `ys` based on the ensemble config type
     y_train = transform_labels_one(config, y_train)
@@ -590,6 +589,14 @@ def fit_preprocessing_one(
     return (config, preprocessor, res.X, y_train, res.categorical_features)
 
 def transform_labels_one(config, y_train):
+    """Transform the labels for one ensembel config.
+
+    Args:
+        config: Ensemble config.
+        y_train: The unprocessed labels.
+
+    Return: The processed labels.
+    """
     if isinstance(config, RegressorEnsembleConfig):
         if config.target_transform is not None:
             # TODO(eddiebergman): Verify this transformer is fitted back in the main
@@ -685,25 +692,33 @@ def fit_preprocessing(
     )
 
 class DatasetCollectionWithPreprocessing(Dataset):
-    def __init__(self, split_fn, rng, config_lists: List[EnsembleConfig], n_workers=1):
+    """A meta dataset.
+    Each item corresponds to a single dataset with
+    a train test split. The dataloader further handels proprocessing and
+    returns one or multiple preprocessed versions of the dataset as a list.
+    An item consists of:
+        X_trains, X_tests, y_trains, y_test, cat_ixs, conf.
+    """
+    def __init__(self, split_fn, rng, config_lists: list[EnsembleConfig], n_workers=1):
         self.configs = config_lists
         self.split_fn = split_fn
         self.rng = rng
         self.n_workers = n_workers
-        
+
     def __len__(self):
         return len(self.configs)
-    
-    def __getitem__(self, index):
-        """ Returns lists of processed training datasets, training labels, test datasets. Test labels are passed through without processing. """
+
+    def __getitem__(self, index):  # noqa: C901
+        """Returns lists of processed training datasets, training labels,
+        test datasets. Test labels are passed through without processing.
+        """
         if index < 0 or index > len(self):
             raise IndexError("Index out of bounds.")
-        
-        
+
         conf, x_full, y_full, cat_ix = self.configs[index][0:4]
         if len(self.configs[index])==5:
             renormalized_criterion = self.configs[index][5]
-            
+
         x_train, x_test, y_train, y_test = self.split_fn(x_full, y_full)
         itr = fit_preprocessing(
             configs=conf,
@@ -719,10 +734,9 @@ class DatasetCollectionWithPreprocessing(Dataset):
 
         ## Process test data for all ensemble estimators.
         X_tests = []
-        for estim_config, estim_preprocessor in zip(configs, preprocessors):
+        for _, estim_preprocessor in zip(configs, preprocessors):
             X_tests.append(estim_preprocessor.transform(x_test).X)
-            #y_tests.append(transform_labels_one(estim_config, y_test))
-            
+
         ## Convert to tensors.
         for i in range(len(X_trains)):
             if not isinstance(X_trains[i], torch.Tensor):
@@ -731,25 +745,19 @@ class DatasetCollectionWithPreprocessing(Dataset):
                 X_tests[i] = torch.as_tensor(X_tests[i], dtype=torch.float32)
             if not isinstance(y_trains[i], torch.Tensor):
                 y_trains[i] = torch.as_tensor(y_trains[i], dtype=torch.float32)
+
         if not isinstance(y_test, torch.Tensor):
             y_test = torch.from_numpy(y_test)
             if torch.is_floating_point(y_test):
                 y_test = y_test.float()
             else:
                 y_test = y_test.long()
-                    
+
         # Convert y_train to tensor, while preserving its float or discrete nature
-        # but converting all floats to float32 and discrete to long so they can 
+        # but converting all floats to float32 and discrete to long so they can
         # be concatenated to tensors.
-        if len(self.configs[index]) == 5: # Pass through renorm. criterion for regression.
-            return X_trains, X_tests, y_trains, y_test, cat_ixs, conf, renormalized_criterion
-        else:  
-            return X_trains, X_tests, y_trains, y_test, cat_ixs, conf
-            
+        if len(self.configs[index]) == 5: # Pass through renorm. for regression.
+            return X_trains, X_tests, y_trains, y_test, cat_ixs, \
+                conf, renormalized_criterion
 
-
-
-        
-        
-        
-    
+        return X_trains, X_tests, y_trains, y_test, cat_ixs, conf

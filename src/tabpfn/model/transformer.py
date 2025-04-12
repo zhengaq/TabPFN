@@ -801,8 +801,9 @@ class PerFeatureTransformer(nn.Module):
         for layer in (self.transformer_decoder or self.transformer_encoder).layers:
             layer.empty_trainset_representation_cache()
 
-    def _transform_categorical_indices_feat_groups(self, categorical_inds: list[int],
-                                                    n_subgroups: int) -> list[list[int]]:
+    def _transform_categorical_indices_feat_groups(self,
+                                                   categorical_inds: list[int],
+                                                   n_subgroups: int) -> list[list[int]]:
         """Transform the categorical indices list(s)
         to align with the feature groups.
 
