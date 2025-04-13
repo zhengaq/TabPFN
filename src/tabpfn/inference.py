@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from tabpfn.model.transformer import PerFeatureTransformer
     from tabpfn.preprocessing import EnsembleConfig
 
+
 @dataclass
 class InferenceEngine(ABC):
     """These define how tabpfn inference can be run.
@@ -79,8 +80,9 @@ class InferenceEngine(ABC):
         engines are compatible with backpropagation, which will raise
         an error when this operation is called.
         """
-        raise NotImplementedError("This inference engine does not support" \
-            " torch.inference_mode changes.")
+        raise NotImplementedError(
+            "This inference engine does not support" " torch.inference_mode changes."
+        )
 
 
 @dataclass
@@ -212,7 +214,6 @@ class InferenceEngineOnDemand(InferenceEngine):
         self.model = self.model.cpu()
 
 
-
 @dataclass
 class InferenceEngineBatchedNoPreprocessing(InferenceEngine):
     """Inference engine that uses preprocessed inputs, and allows batched predictions
@@ -228,6 +229,7 @@ class InferenceEngineBatchedNoPreprocessing(InferenceEngine):
             save_peak_mem: Whether to save peak memory usage.
             inference_mode: Whether to enable torch inference mode.
     """
+
     X_trains: list[torch.Tensor]
     y_trains: list[torch.Tensor]
     cat_ix: list[list[list[int]]]
@@ -248,7 +250,7 @@ class InferenceEngineBatchedNoPreprocessing(InferenceEngine):
         force_inference_dtype: torch.dtype | None,
         inference_mode: bool,
         dtype_byte_size: int,
-        save_peak_mem: bool | Literal["auto"] | float | int
+        save_peak_mem: bool | Literal["auto"] | float | int,
     ) -> InferenceEngineBatchedNoPreprocessing:
         """Prepare the inference engine.
 
@@ -271,9 +273,9 @@ class InferenceEngineBatchedNoPreprocessing(InferenceEngine):
             model=model,
             ensemble_configs=ensemble_configs,
             force_inference_dtype=force_inference_dtype,
-            inference_mode = inference_mode,
+            inference_mode=inference_mode,
             dtype_byte_size=dtype_byte_size,
-            save_peak_mem=save_peak_mem
+            save_peak_mem=save_peak_mem,
         )
 
     @override
@@ -287,7 +289,7 @@ class InferenceEngineBatchedNoPreprocessing(InferenceEngine):
         self.model = self.model.to(device)
         ensemble_size = len(self.X_trains)
         for i in range(ensemble_size):
-            single_eval_pos = self.X_trains[i].size(-2) # End of train data
+            single_eval_pos = self.X_trains[i].size(-2)  # End of train data
             train_x_full = torch.cat([self.X_trains[i], X[i]], dim=-2)
             train_y_batch = self.y_trains[i]
             train_x_full = train_x_full.to(device)
@@ -302,20 +304,24 @@ class InferenceEngineBatchedNoPreprocessing(InferenceEngine):
                 torch.inference_mode(self.inference_mode),
             ):
                 output = self.model(
-                    *(style, train_x_full.transpose(0, 1),
-                       train_y_batch.transpose(0, 1)),
+                    *(
+                        style,
+                        train_x_full.transpose(0, 1),
+                        train_y_batch.transpose(0, 1),
+                    ),
                     only_return_standard_out=True,
                     categorical_inds=list([cat_item[i] for cat_item in self.cat_ix]),  # noqa: C411
                     single_eval_pos=single_eval_pos,
                 )
 
             yield output, self.ensemble_configs[i]
-        if self.inference_mode: ## if inference
+        if self.inference_mode:  ## if inference
             self.model = self.model.cpu()
 
     @override
     def use_torch_inference_mode(self, use_inference: bool):
         self.inference_mode = use_inference
+
 
 @dataclass
 class InferenceEngineCachePreprocessing(InferenceEngine):
@@ -329,6 +335,7 @@ class InferenceEngineCachePreprocessing(InferenceEngine):
     of memory in RAM. The main functionality performed at `predict()` time is to
     forward pass through the model which is currently done sequentially.
     """
+
     X_trains: Sequence[np.ndarray | torch.Tensor]
     y_trains: Sequence[np.ndarray | torch.Tensor]
     cat_ixs: Sequence[list[int]]
@@ -340,7 +347,7 @@ class InferenceEngineCachePreprocessing(InferenceEngine):
     no_preprocessing: bool = False
 
     @classmethod
-    def prepare(  #noqa: PLR0913
+    def prepare(  # noqa: PLR0913
         cls,
         X_train: np.ndarray | torch.Tensor,
         y_train: np.ndarray | torch.Tensor,
@@ -354,7 +361,7 @@ class InferenceEngineCachePreprocessing(InferenceEngine):
         force_inference_dtype: torch.dtype | None,
         save_peak_mem: bool | Literal["auto"] | float | int,
         inference_mode: bool,
-        no_preprocessing: bool = False
+        no_preprocessing: bool = False,
     ) -> InferenceEngineCachePreprocessing:
         """Prepare the inference engine.
 
@@ -397,8 +404,8 @@ class InferenceEngineCachePreprocessing(InferenceEngine):
             dtype_byte_size=dtype_byte_size,
             force_inference_dtype=force_inference_dtype,
             save_peak_mem=save_peak_mem,
-            inference_mode = inference_mode,
-            no_preprocessing = no_preprocessing
+            inference_mode=inference_mode,
+            no_preprocessing=no_preprocessing,
         )
 
     @override
@@ -468,7 +475,7 @@ class InferenceEngineCachePreprocessing(InferenceEngine):
             output = output if isinstance(output, dict) else output.squeeze(1)
 
             yield output, config
-        if self.inference_mode: ## if inference
+        if self.inference_mode:  ## if inference
             self.model = self.model.cpu()
 
     @override

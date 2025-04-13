@@ -354,8 +354,9 @@ def validate_Xy_fit(
 ) -> tuple[np.ndarray, np.ndarray, npt.NDArray[Any] | None, int]:
     """Validate the input data for fitting."""
     # Calls `validate_data()` with specification
-    if not is_classifier(estimator) or \
-        (is_classifier(estimator) and not estimator.differentiable_input):
+    if not is_classifier(estimator) or (
+        is_classifier(estimator) and not estimator.differentiable_input
+    ):
         X, y = validate_data(
             estimator,
             X=X,
@@ -369,7 +370,7 @@ def validate_Xy_fit(
             y_numeric=ensure_y_numeric,
             estimator=estimator,
         )
-    else: # Quick check for tensor input for diffable classifier
+    else:  # Quick check for tensor input for diffable classifier
         assert isinstance(X, torch.Tensor)
         assert isinstance(y, torch.Tensor)
         assert len(X) == len(y)

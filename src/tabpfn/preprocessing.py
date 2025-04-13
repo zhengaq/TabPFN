@@ -154,7 +154,7 @@ class PreprocessorConfig:
             "append_original": self.append_original,
             "subsample_features": self.subsample_features,
             "global_transformer_name": self.global_transformer_name,
-            "differentiable": self.differentiable
+            "differentiable": self.differentiable,
         }
 
     @classmethod
@@ -173,7 +173,7 @@ class PreprocessorConfig:
             append_original=config_dict["append_original"],
             subsample_features=config_dict["subsample_features"],
             global_transformer_name=config_dict["global_transformer_name"],
-            differentiable = config_dict.get("differentiable", False)
+            differentiable=config_dict.get("differentiable", False),
         )
 
 
@@ -490,7 +490,8 @@ class EnsembleConfig:
         if self.preprocess_config.differentiable:
             steps.append(DifferentiableZNormStep())
         else:
-            steps.extend([
+            steps.extend(
+                [
                     ReshapeFeatureDistributionsStep(
                         transform_name=self.preprocess_config.name,
                         append_to_original=self.preprocess_config.append_original,
@@ -547,7 +548,7 @@ def fit_preprocessing_one(
     y_train: np.ndarray | torch.Tensor,
     random_state: int | np.random.Generator | None = None,
     *,
-    cat_ix: list[int]
+    cat_ix: list[int],
 ) -> tuple[
     EnsembleConfig,
     SequentialFeatureTransformer,
@@ -588,6 +589,7 @@ def fit_preprocessing_one(
 
     return (config, preprocessor, res.X, y_train, res.categorical_features)
 
+
 def transform_labels_one(config, y_train):
     """Transform the labels for one ensembel config.
 
@@ -611,6 +613,7 @@ def transform_labels_one(config, y_train):
     else:
         raise ValueError(f"Invalid ensemble config type: {type(config)}")
     return y_train
+
 
 def fit_preprocessing(
     configs: Sequence[EnsembleConfig],
@@ -691,6 +694,7 @@ def fit_preprocessing(
         ],
     )
 
+
 class DatasetCollectionWithPreprocessing(Dataset):
     """A meta dataset.
     Each item corresponds to a single dataset with
@@ -699,6 +703,7 @@ class DatasetCollectionWithPreprocessing(Dataset):
     An item consists of:
         X_trains, X_tests, y_trains, y_test, cat_ixs, conf.
     """
+
     def __init__(self, split_fn, rng, config_lists: list[EnsembleConfig], n_workers=1):
         self.configs = config_lists
         self.split_fn = split_fn
@@ -716,7 +721,7 @@ class DatasetCollectionWithPreprocessing(Dataset):
             raise IndexError("Index out of bounds.")
 
         conf, x_full, y_full, cat_ix = self.configs[index][0:4]
-        if len(self.configs[index])==5:
+        if len(self.configs[index]) == 5:
             renormalized_criterion = self.configs[index][5]
 
         x_train, x_test, y_train, y_test = self.split_fn(x_full, y_full)
@@ -727,7 +732,8 @@ class DatasetCollectionWithPreprocessing(Dataset):
             random_state=self.rng,
             cat_ix=cat_ix,
             n_workers=self.n_workers,
-            parallel_mode="block")
+            parallel_mode="block",
+        )
         configs, preprocessors, X_trains, y_trains, cat_ixs = list(zip(*itr))
         X_trains = list(X_trains)
         y_trains = list(y_trains)
@@ -756,8 +762,15 @@ class DatasetCollectionWithPreprocessing(Dataset):
         # Convert y_train to tensor, while preserving its float or discrete nature
         # but converting all floats to float32 and discrete to long so they can
         # be concatenated to tensors.
-        if len(self.configs[index]) == 5: # Pass through renorm. for regression.
-            return X_trains, X_tests, y_trains, y_test, cat_ixs, \
-                conf, renormalized_criterion
+        if len(self.configs[index]) == 5:  # Pass through renorm. for regression.
+            return (
+                X_trains,
+                X_tests,
+                y_trains,
+                y_test,
+                cat_ixs,
+                conf,
+                renormalized_criterion,
+            )
 
         return X_trains, X_tests, y_trains, y_test, cat_ixs, conf

@@ -513,12 +513,13 @@ class PerFeatureTransformer(nn.Module):
         categorical_inds_to_use: list[list[list[int]]] | None = None
         if categorical_inds is not None:
             n_subgroups = x["main"].shape[2]
-            if len(categorical_inds) == 0 or isinstance(categorical_inds[0], int): # 1d
+            if len(categorical_inds) == 0 or isinstance(categorical_inds[0], int):  # 1d
                 categorical_inds = [categorical_inds]
             categorical_inds_to_use = []
             for item in categorical_inds:
-                categorical_inds_to_use.append( \
-                    self._transform_categorical_indices_feat_groups(item, n_subgroups))
+                categorical_inds_to_use.append(
+                    self._transform_categorical_indices_feat_groups(item, n_subgroups)
+                )
 
         for k in y:
             if y[k].ndim == 1:
@@ -578,8 +579,7 @@ class PerFeatureTransformer(nn.Module):
         ):
             # Transform cat. features accordingly to correspond to following to merge
             # of batch and feature_group dimensions below (i.e., concat lists)
-            extra_encoders_args["categorical_inds"] = \
-                sum(categorical_inds_to_use, [])  # noqa: RUF017
+            extra_encoders_args["categorical_inds"] = sum(categorical_inds_to_use, [])  # noqa: RUF017
 
         for k in x:
             x[k] = einops.rearrange(x[k], "b s f n -> s (b f) n")
@@ -801,9 +801,9 @@ class PerFeatureTransformer(nn.Module):
         for layer in (self.transformer_decoder or self.transformer_encoder).layers:
             layer.empty_trainset_representation_cache()
 
-    def _transform_categorical_indices_feat_groups(self,
-                                                   categorical_inds: list[int],
-                                                   n_subgroups: int) -> list[list[int]]:
+    def _transform_categorical_indices_feat_groups(
+        self, categorical_inds: list[int], n_subgroups: int
+    ) -> list[list[int]]:
         """Transform the categorical indices list(s)
         to align with the feature groups.
 
@@ -822,6 +822,7 @@ class PerFeatureTransformer(nn.Module):
             ]
             new_categorical_inds.append(subgroup_indices)
         return new_categorical_inds
+
 
 def _networkx_add_direct_connections(graph: nx.DiGraph) -> bool:
     added_connection = False

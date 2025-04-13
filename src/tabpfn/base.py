@@ -227,7 +227,7 @@ def create_inference_engine(  # noqa: PLR0913
             dtype_byte_size=byte_size,
             force_inference_dtype=forced_inference_dtype_,
             save_peak_mem=memory_saving_mode,
-            inference_mode = inference_mode
+            inference_mode=inference_mode,
         )
     elif fit_mode == "fit_with_cache":
         engine = InferenceEngineCacheKV.prepare(
@@ -252,9 +252,9 @@ def create_inference_engine(  # noqa: PLR0913
             model=model,
             ensemble_configs=ensemble_configs,
             force_inference_dtype=forced_inference_dtype_,
-            inference_mode = inference_mode,
+            inference_mode=inference_mode,
             save_peak_mem=memory_saving_mode,
-            dtype_byte_size=byte_size
+            dtype_byte_size=byte_size,
         )
     else:
         raise ValueError(f"Invalid fit_mode: {fit_mode}")
