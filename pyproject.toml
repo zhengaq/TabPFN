@@ -16,17 +16,15 @@ dependencies = [
 ]
 requires-python = ">=3.9"
 authors = [
-  { name = "Noah Hollmann", email = "noah.hollmann@charite.de" },
-  { name = "Samuel Müller", email = "muellesa@cs.uni-freiburg.de" },
+  { name = "Noah Hollmann" }
+  { name = "Samuel Müller" },
   { name = "Lennart Purucker" },
   { name = "Arjun Krishnakumar" },
   { name = "Max Körfer" },
   { name = "Shi Bin Hoo" },
   { name = "Robin Tibor Schirrmeister" },
-  { name = "Frank Hutter", email = "fh@cs.uni-freiburg.de" },
-
+  { name = "Frank Hutter" },
   { name = "Eddie Bergman"}, # Huge thanks to code refactoring contributor Eddie
-
   { name = "Leo Grinsztajn"}
 ]
 readme = "README.md"
