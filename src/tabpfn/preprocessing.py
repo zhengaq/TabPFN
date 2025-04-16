@@ -257,7 +257,6 @@ class EnsembleConfig:
         subsample_ix: Indices of samples to use for this ensemble member.
             If `None`, no subsampling is done.
     """
-
     preprocess_config: PreprocessorConfig
     add_fingerprint_feature: bool
     polynomial_features: Literal["no", "all"] | int
@@ -774,3 +773,139 @@ class DatasetCollectionWithPreprocessing(Dataset):
             )
 
         return X_trains, X_tests, y_trains, y_test, cat_ixs, conf
+
+
+# --- New Regressor-Specific Dataset ---
+
+class DatasetCollectionWithPreprocessing_Regressor(Dataset):
+    """A meta dataset specifically for TabPFN Regressor fine-tuning.
+
+    Each item corresponds to a single dataset split (train/test).
+    It preprocesses features, standardizes training targets using global stats,
+    and returns tensors ready for the DataLoader.
+
+    An item consists of:
+        X_trains (list): Preprocessed training features for each ensemble member.
+        X_tests (list): Preprocessed test features for each ensemble member.
+        y_trains_processed (list): *Standardized* & processed training targets for each ensemble member.
+        y_test_original (Tensor): *Original* (unstandardized) test targets.
+        cat_ixs (list): Categorical indices for each ensemble member.
+        configs (list): Ensemble configurations used.
+        y_mean (Tensor): Global mean used for standardization.
+        y_std (Tensor): Global std dev used for standardization.
+    """
+
+    def __init__(self,
+                 split_fn: Callable,
+                 rng: np.random.Generator,
+                 config_lists: list[EnsembleConfig], # Expecting [configs, x_full, y_full_original, cat_ix, y_mean_local, y_std_local]
+                 y_stats: Dict[str, float], # Expecting {'mean': global_mean, 'std': global_std}
+                 n_workers: int = 1):
+        self.configs = config_lists
+        self.split_fn = split_fn
+        self.rng = rng
+        self.y_mean = y_stats['mean']
+        self.y_std = y_stats['std']
+        self.n_workers = n_workers
+        # Ensure std deviation is not zero
+        if self.y_std < 1e-10:
+             print(f"Warning: Low standard deviation ({self.y_std}) detected. Setting to 1e-10 to avoid division by zero.")
+             self.y_std = 1e-10
+
+    def __len__(self):
+        return len(self.configs)
+
+    def __getitem__(self, index: int): #-> Tuple[List[torch.Tensor], List[torch.Tensor], List[torch.Tensor], torch.Tensor, List[List[int]], List[EnsembleConfig], torch.Tensor, torch.Tensor]:
+        """
+        Generates one preprocessed train/test split item for regression fine-tuning.
+        Standardizes y_train before preprocessing. Returns original y_test.
+        """
+        if index < 0 or index >= len(self):
+            raise IndexError("Index out of bounds.")
+
+        # Unpack data for the current dataset/chunk
+        # Note: y_full is the original, unstandardized target data
+        #ensemble_configs, x_full, y_full_original, cat_ix, _, _ = self.configs_data[index] # Ignore local stats for now
+        conf, x_full, y_full_original, cat_ix = self.configs[index][0:4]
+        
+        #if len(self.configs[index]) == 5:
+        #    renormalized_criterion = self.configs[index][5]
+        #print(f"Length of the configs: {self.configs}")
+
+        # Split into train/test using the original y values
+        x_train, x_test, y_train_original, y_test_original = self.split_fn(x_full, y_full_original)
+
+        # --- Standardize y_train using GLOBAL stats ---
+        y_train_standardized = (y_train_original - self.y_mean) / self.y_std
+
+        # --- Preprocess Training Data ---
+        # fit_preprocessing receives the standardized y_train
+        # It handles feature preprocessing and potentially target transforms based on configs
+        itr = fit_preprocessing(
+            configs=conf,
+            X_train=x_train,
+            y_train=y_train_standardized, # Pass standardized y_train
+            random_state=self.rng,
+            cat_ix=cat_ix,
+            n_workers=self.n_workers,
+            parallel_mode="block", # Or your preferred mode
+        )
+        # configs_out might be slightly modified by fit_preprocessing, use the output ones
+        configs_out, preprocessors, X_trains_processed, y_trains_processed, cat_ixs_processed = list(zip(*itr))
+
+        # Convert to lists for consistent handling
+        X_trains_list = list(X_trains_processed)
+        # y_trains_processed already contains the standardized (and potentially further transformed) targets
+        y_trains_list = list(y_trains_processed)
+        #cat_ixs_list = list(cat_ixs_processed)
+        configs_list = list(configs_out)
+
+        # --- Preprocess Test Data ---
+        X_tests_list = []
+        # Ensure preprocessors list matches configs_out list
+        for estim_preprocessor in preprocessors:
+            # Handle case where preprocessor might be None if fit_preprocessing returns it
+            if estim_preprocessor is not None:
+                # Assuming transform method exists and returns an object with .X attribute
+                transformed_x_test = estim_preprocessor.transform(x_test)
+                X_tests_list.append(getattr(transformed_x_test, 'X', transformed_x_test)) # Handle potential wrapper object
+            else:
+                 # If no preprocessor, assume x_test needs no transformation specific to this ensemble
+                 # This might happen if preprocessing is minimal or handled globally before
+                 # Or handle error if preprocessor is expected
+                 X_tests_list.append(x_test)
+
+
+        # --- Convert all components to Tensors ---
+        for i in range(len(X_trains_list)):
+            if not isinstance(X_trains_list[i], torch.Tensor):
+                X_trains_list[i] = torch.as_tensor(X_trains_list[i], dtype=torch.float32)
+            if i < len(X_tests_list) and not isinstance(X_tests_list[i], torch.Tensor): # Check index bounds
+                 X_tests_list[i] = torch.as_tensor(X_tests_list[i], dtype=torch.float32)
+            if not isinstance(y_trains_list[i], torch.Tensor):
+                # y_trains are already standardized (and float)
+                y_trains_list[i] = torch.as_tensor(y_trains_list[i], dtype=torch.float32)
+
+        # Convert original y_test to tensor (float32 for regression)
+        if not isinstance(y_test_original, torch.Tensor):
+            y_test_tensor = torch.from_numpy(y_test_original).float()
+        else:
+            y_test_tensor = y_test_original.float() # Ensure float
+
+        # Prepare global mean/std tensors
+        y_mean_tensor = torch.tensor(self.y_mean, dtype=torch.float32)
+        y_std_tensor = torch.tensor(self.y_std, dtype=torch.float32)
+
+        # Return the structured tuple
+        return (
+            X_trains_list,      # List[Tensor(N_train, F)]
+            X_tests_list,       # List[Tensor(N_test, F)]
+            y_trains_list,      # List[Tensor(N_train,)] - Standardized & Processed
+            y_test_tensor,      # Tensor(N_test,) - Original
+            cat_ixs_processed,  # Tuple[List[int]]
+            configs_list,       # List[EnsembleConfig]
+            y_mean_tensor,      # Tensor() - Global Mean
+            y_std_tensor        # Tensor() - Global Std
+        )
+
+

@@ -286,7 +286,7 @@ class InferenceEngineBatchedNoPreprocessing(InferenceEngine):
         device: torch.device,
         autocast: bool,
     ) -> Iterator[tuple[torch.Tensor | dict, EnsembleConfig]]:
-        self.model = self.model.to(device)
+        self.model = self.model.to(device)        
         ensemble_size = len(self.X_trains)
         for i in range(ensemble_size):
             single_eval_pos = self.X_trains[i].size(-2)  # End of train data

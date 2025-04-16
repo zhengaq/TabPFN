@@ -605,6 +605,7 @@ def translate_probs_across_borders(
     Returns:
         The translated probabilities.
     """
+
     prob_left = _cdf(logits, borders=frm, ys=to)
     prob_left[..., 0] = 0.0
     prob_left[..., -1] = 1.0
@@ -873,3 +874,119 @@ def collate_for_tabpfn_dataset(batch, padding_val=0.0):
             items_list.append([batch[r][item_idx] for r in range(batch_sz)])
 
     return tuple(items_list)
+
+
+# --- New Regressor-Specific Collate Function ---
+
+def collate_for_tabpfn_dataset_regressor(batch: List[Tuple], padding_val: float = 0.0) -> Tuple:
+    """Collate function for datasets from DatasetCollectionWithPreprocessing_Regressor.
+
+    Handles batching of lists of tensors (X_trains, X_tests, y_trains),
+    single tensors (y_test, y_mean, y_std), and lists of non-tensors (cat_ixs, configs).
+
+    Args:
+        batch: A list where each element is a tuple returned by
+               DatasetCollectionWithPreprocessing_Regressor.__getitem__.
+        padding_val: Value used for padding tensors.
+
+    Returns:
+        A tuple containing batched data.
+    """
+    if not batch:
+        return tuple()
+
+    batch_sz = len(batch)
+    # Determine num_estim based on the first element (e.g., X_trains) if lists are present
+    num_estim = 0
+    if isinstance(batch[0][0], list) and batch[0][0]: # Check X_trains is list and not empty
+        num_estim = len(batch[0][0])
+
+    num_items_in_tuple = len(batch[0])
+    batched_items_list = []
+
+    for item_idx in range(num_items_in_tuple):
+        first_item_element = batch[0][item_idx]
+
+        # --- Handle Lists (X_trains, X_tests, y_trains, cat_ixs, configs) ---
+        if isinstance(first_item_element, list):
+            # This list contains elements for each ensemble member
+            batched_ensemble_list = []
+            # Check if the list contains tensors (X_trains, X_tests, y_trains)
+            # Need to handle empty lists potentially returned by preprocessing
+            contains_tensors = num_estim > 0 and isinstance(first_item_element[0], torch.Tensor)
+
+            if contains_tensors:
+                # Determine if these are labels (1D tensors like y_trains) or features (>=2D)
+                # Use the first non-empty tensor in the batch for ndim check
+                first_tensor = None
+                for r in range(batch_sz):
+                     if batch[r][item_idx]: # Check if list for this batch item is non-empty
+                         first_tensor = batch[r][item_idx][0]
+                         break
+                if first_tensor is None:
+                    # Handle case where all items are empty lists for this index (unlikely for X/y)
+                    is_labels = False # Assume features if unsure
+                else:
+                     is_labels = first_tensor.ndim == 1
+
+                # Batch each ensemble member across the batch items
+                for estim_no in range(num_estim):
+                    tensors_to_pad = []
+                    for r in range(batch_sz):
+                         # Handle potential empty lists or missing ensemble members
+                         if estim_no < len(batch[r][item_idx]):
+                             tensors_to_pad.append(batch[r][item_idx][estim_no])
+                         else:
+                            # Need a placeholder tensor of correct type/device? Or error?
+                            # For simplicity, let's assume consistent structure or skip padding empty.
+                            # If skipping, stacking later might fail. Padding requires knowing shape.
+                            # Safest might be error or ensuring consistent structure upstream.
+                            # Let's assume structure is consistent for now.
+                             tensors_to_pad.append(batch[r][item_idx][0]) # Re-use first as placeholder shape? Risky.
+
+                    padded_tensors = pad_tensors(
+                        tensors_to_pad,
+                        padding_val=padding_val,
+                        labels=is_labels
+                    )
+                    batched_ensemble_list.append(torch.stack(padded_tensors))
+            else:
+                # Handle lists of non-tensors (cat_ixs, configs)
+                # Just collect them, structure is [BatchSize][EnsembleSize]...
+                 for estim_no in range(num_estim): # Assuming num_estim is correct even for non-tensors
+                      member_list = [batch[r][item_idx][estim_no] for r in range(batch_sz) if estim_no < len(batch[r][item_idx])]
+                      batched_ensemble_list.append(member_list)
+
+
+            batched_items_list.append(batched_ensemble_list)
+
+        # --- Handle Single Tensors (y_test_original, y_mean, y_std) ---
+        elif isinstance(first_item_element, torch.Tensor):
+            # Determine if it's a label-like tensor (1D like y_test) or scalar (y_mean, y_std)
+            is_labels = first_item_element.ndim == 1
+            is_scalar = first_item_element.ndim == 0
+
+            tensors_to_pad_or_stack = [batch[r][item_idx] for r in range(batch_sz)]
+
+            if is_scalar:
+                # Just stack scalar tensors directly
+                stacked_tensor = torch.stack(tensors_to_pad_or_stack)
+            else:
+                 # Pad and stack 1D tensors (like y_test)
+                 padded_tensors = pad_tensors(
+                     tensors_to_pad_or_stack,
+                     padding_val=padding_val,
+                     labels=True # Treat 1D as labels for padding
+                 )
+                 stacked_tensor = torch.stack(padded_tensors)
+
+            batched_items_list.append(stacked_tensor)
+
+        # --- Handle potential other types (should not occur with expected structure) ---
+        else:
+            print(f"Warning: Unexpected data type in collate function at index {item_idx}: {type(first_item_element)}")
+            # Fallback: collect into a list
+            collected_list = [batch[r][item_idx] for r in range(batch_sz)]
+            batched_items_list.append(collected_list)
+
+    return tuple(batched_items_list)

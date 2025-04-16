@@ -34,7 +34,7 @@ def eval_test(clf, my_dl_test, lossfn):
 if __name__ == "__main__":
     device = "cuda:3"
     n_use = 200_000
-    do_epochs = 3
+    do_epochs = 1
 
     # Load Covertype Dataset (7-way classification)
     data_frame_x, data_frame_y = sklearn.datasets.fetch_covtype(return_X_y=True, shuffle=True)

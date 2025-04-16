@@ -8,17 +8,31 @@ using the diabetes dataset from scikit-learn.
 from sklearn.datasets import load_diabetes
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.model_selection import train_test_split
+import numpy as np
 
 from tabpfn import TabPFNRegressor
 
 # Load data
 X, y = load_diabetes(return_X_y=True)
-X_train, X_test, y_train, y_test = train_test_split(
+"""X_train, X_test, y_train, y_test = train_test_split(
     X,
     y,
     test_size=0.33,
     random_state=42,
+)"""
+
+n_samples = 100  # Reduce the number of samples
+random_indices = np.random.choice(X.shape[0], n_samples, replace=False)
+X_subsampled = X[random_indices]
+y_subsampled = y[random_indices]
+
+X_train, X_test, y_train, y_test = train_test_split(
+    X_subsampled,
+    y_subsampled,
+    test_size=0.33,
+    random_state=42,
 )
+
 
 # Initialize a regressor
 reg = TabPFNRegressor()
