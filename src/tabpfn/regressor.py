@@ -46,7 +46,7 @@ from tabpfn.model.preprocessing import (
     ReshapeFeatureDistributionsStep,
 )
 from tabpfn.preprocessing import ( 
-    DatasetCollectionWithPreprocessing_Regressor, # To be used by get_preprocessed_datasets
+    DatasetCollectionWithPreprocessing, # To be used by get_preprocessed_datasets
     EnsembleConfig,
     PreprocessorConfig,
     RegressorEnsembleConfig,
@@ -63,7 +63,8 @@ from tabpfn.utils import (
     infer_random_state,
     split_large_data, # Used in get_preprocessed_datasets
     translate_probs_across_borders,
-    update_encoder_outlier_params, # Renamed from update_encoder_outlier_params
+    #update_encoder_outlier_params, # Renamed from update_encoder_outlier_params
+    update_encoder_params,
     validate_X_predict,
     validate_Xy_fit,
 )
@@ -154,12 +155,6 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
 
     executor_: InferenceEngine
     """The inference engine used to make predictions."""
-
-    y_train_mean_: float
-    """The mean of the target variable during training."""
-
-    y_train_std: float
-    """The standard deviation of the target variable during training."""
 
     preprocessor_: ColumnTransformer
     """The column transformer used to preprocess the input data to be numeric."""
@@ -428,79 +423,55 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
         split_fn,
         max_data_size: None | int = 10000,
     ) -> Dataset:
-        """Get a torch.utils.data.Dataset for fine-tuning or evaluation.
-        Each item corresponds to a train/test split of a dataset, preprocessed
-        according to TabPFN's ensemble configurations.
+        """Get a torch.utils.data.Dataset which contains many datasets or splits of one
+        or more datasets.
 
         Args:
-            X: Input features (single dataset or list of datasets).
-            y: Input targets (single dataset or list of datasets).
-            split_fn: A function (e.g., from functools.partial(train_test_split))
-                      to dissect a dataset into train and test partitions.
-            max_data_size: Maximum allowed number of samples in one dataset chunk
-                           before splitting. If None, datasets are not chunked.
-
-        Returns:
-            A PyTorch Dataset object yielding preprocessed data tuples.
+            X: list of input dataset features
+            y: list of input dataset labels
+            split_fn: A function to dissect a dataset into train and test partition.
+            max_data_size: Maximum allowed number of samples in one dataset.
+            If None, dataseta are not splitted.
         """
         if not isinstance(X, list):
             X = [X]
+
         if not isinstance(y, list):
             y = [y]
         assert len(X) == len(y), "X and y lists must have the same length."
 
-        # Initialize model variables if not already done
+        
         if not hasattr(self, "model_") or self.model_ is None:
-            # Note: This also sets self.y_train_mean_ and self.y_train_std_ based on the *first*
-            # dataset encountered here if fit() hasn't been called. Be mindful if using multiple
-            # datasets with different scales without calling fit first. Calling fit() first is recommended.
-            byte_size, rng = self._initialize_model_variables(X[0], y[0]) # Initialize based on first dataset if needed
+            byte_size, rng = self._initialize_model_variables() # Initialize based on first dataset if needed
         else:
-            # If fit was called, these are already set
             _, rng = infer_random_state(self.random_state)
-            # Need byte_size if fine-tuning starts without calling .fit()
-            if not hasattr(self, 'forced_inference_dtype_'):
-                 _, _, byte_size = determine_precision(self.inference_precision, self.device_)
-
-
-        # Chunk large datasets
+            
         X_split, y_split = [], []
         for X_item, y_item in zip(X, y):
-            if max_data_size is not None and len(X_item) > max_data_size:
+            if max_data_size is not None:
                 Xparts, yparts = split_large_data(X_item, y_item, max_data_size)
-                X_split.extend(Xparts)
-                y_split.extend(yparts)
             else:
-                X_split.append(X_item)
-                y_split.append(y_item)
-        X_all, y_all = X_split, y_split
-
-        # Prepare configurations for each dataset/chunk
+                Xparts, yparts = [X_item], [y_item]
+            X_split.extend(Xparts)
+            y_split.extend(yparts)
+        X, y = X_split, y_split
         config_collection = []
-        for X_item, y_item in zip(X_all, y_all):
-            # This initializes preprocessing based on THIS specific X_item, y_item
-            # Crucially, it generates the ensemble configs and infers categoricals
-            # Note: y standardization happens *inside* the Dataset __getitem__ using self.y_train_mean/std_
+        for X_item, y_item in zip(X, y):
             configs, X_mod, y_mod_standardized, y_mean, y_std = self._initialize_dataset_preprocessing(
                 X_item, y_item, rng
             )
-            # Store the original X and y along with configs and cat_indices
-            # The actual split, preprocessing, and standardization happens in DatasetCollectionWithPreprocessing_Regressor
             config_collection.append(
-                [configs, X_mod, y_item, self.inferred_categorical_indices_, y_mean, y_std] # Pass original y and stats
+                [configs, X_mod, y_item, self.inferred_categorical_indices_, y_mean, y_std]
             )
+        return DatasetCollectionWithPreprocessing(split_fn, rng, config_collection)
 
-        # Pass mean/std to the dataset so it can standardize y_train within __getitem__
-        # and potentially pass them to the collate function if needed elsewhere (though accessing via self is easier)
-        return DatasetCollectionWithPreprocessing_Regressor(split_fn, rng, config_collection,
-                                                  y_stats={'mean': self.y_train_mean_, 'std': self.y_train_std_})
-
-    def _initialize_model_variables(self, X_init: XType, y_init: YType) -> tuple[int, np.random.Generator]:
-        """Initialize model, device, precision, configs, and y-stats."""
+    def _initialize_model_variables(self) -> tuple[int, np.random.Generator]:
+        """Perform initialization of the model, return determined byte_size
+        and RNG object.
+        """
         static_seed, rng = infer_random_state(self.random_state)
 
         # Load the model and config
-        # Crucially load the 'regressor' model and the bardist
         self.model_, self.config_, self.bardist_ = initialize_tabpfn_model(
             model_path=self.model_path,
             which="regressor",
@@ -519,38 +490,18 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
             inference_config=self.inference_config,
         )
 
-        # Update encoder params (e.g., outlier handling)
         outlier_removal_std = self.interface_config_.OUTLIER_REMOVAL_STD
         if outlier_removal_std == "auto":
             outlier_removal_std = (
                 self.interface_config_._REGRESSION_DEFAULT_OUTLIER_REMOVAL_STD
             )
-        update_encoder_outlier_params( # Use the renamed function if available, or original one
+        update_encoder_params( # Use the renamed function if available, or original one
             model=self.model_,
             remove_outliers_std=outlier_removal_std,
             seed=static_seed,
-            inplace=True,
-            # Pass differentiable_input if the function supports it
-            # differentiable_input=self.differentiable_input
+            inplace=True,            
+            differentiable_input=self.differentiable_input
         )
-
-        
-
-        # Calculate and store y mean/std based on initial data provided
-        # This ensures these values are set even if .fit() isn't called before get_preprocessed_datasets
-        # Use the *raw* y_init for calculating stats
-        temp_y = validate_Xy_fit(X_init, y_init, 
-                                self, ensure_y_numeric=True,
-                                max_num_features=self.interface_config_.MAX_NUMBER_OF_FEATURES,
-                                max_num_samples=self.interface_config_.MAX_NUMBER_OF_SAMPLES,
-                )[1] # Basic validation
-        self.y_train_mean_ = np.mean(temp_y).item()
-        self.y_train_std_ = np.std(temp_y).item() + 1e-20 # Add epsilon
-        self.renormalized_criterion_ = FullSupportBarDistribution(
-            self.bardist_.borders * self.y_train_std_ + self.y_train_mean_,
-        ).float()
-
-
         return byte_size, rng
     
 
@@ -648,44 +599,39 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
         *,
         no_refit=True,
     ) -> TabPFNRegressor:
-        """Fit the model using preprocessed inputs from the fine-tuning Dataset.
-           Sets the model's context for subsequent prediction on the test split.
+        """Fit the model to preprocessed inputs from a Dataset provided by
+        get_preprocessed_datasets.
 
         Args:
-            X_preprocessed: List (batch size) of lists (ensemble size) of preprocessed
-                           training features [EnsembleSize, N_train, Features].
-            y_preprocessed: List (batch size) of lists (ensemble size) of preprocessed
-                           (standardized) training targets [EnsembleSize, N_train].
-            cat_ix: List (batch size) of lists (ensemble size) of categorical feature indices.
-            configs: List (batch size) of lists (ensemble size) of EnsembleConfigs used.
-            no_refit: If True (default), avoids re-initializing model weights if called multiple times.
-
-        Returns:
-            self
+            X_preprocessed: The input features obtained from the preprocessed Dataset
+                The list contains one item for each ensemble predictor.
+                use tabpfn.utils.collate_for_tabpfn_dataset to use this function with
+                batch sizes of more than one dataset (see examples/tabpfn_finetune.py)
+            y_preprocessed: The target variable obtained from the preprocessed Dataset
+            cat_ix: categorical indices obtained from the preprocessed Dataset
+            configs: Ensemble configurations obtained from the preprocessed Dataset
+            no_refit: if True, the classifier will not be reinitialized when calling
+                fit multiple times.
         """
-        # Initialize model if it hasn't been (e.g., if fine-tuning starts without .fit())
-        # This requires some dummy data to infer y stats if not present
+        # If there isa model, and we are lazy, we skip reinitialization        
         if not hasattr(self, "model_") or not no_refit:
-             # If model exists but we want refit, need to re-init y stats
-             # We assume y_train_mean/std are correctly set by now either via fit or get_preprocessed_datasets
-            if not hasattr(self, 'y_train_mean_') or not hasattr(self, 'y_train_std_'):
-                 raise RuntimeError("y_train_mean_ and y_train_std_ must be set before fit_from_preprocessed. Call fit() or get_preprocessed_datasets() first.")
-            byte_size, rng = self._initialize_model_variables(X_preprocessed[0][0][:2,:], y_preprocessed[0][0][:2]) # Use dummy data from batch for shape etc.
+            byte_size, rng = self._initialize_model_variables()
         else:
             # If model exists and no_refit is True, just get byte_size
             _, _, byte_size = determine_precision(
                 self.inference_precision, self.device_
             )
-            rng = None # No need for rng if just setting up executor
+            #TODO: not sure about rng here
+            rng=None
 
-        # Create the specialized inference engine for batched processing
+        # Create the inference engine
         self.executor_ = create_inference_engine(
-            X_train=X_preprocessed, # Pass the batched preprocessed data
-            y_train=y_preprocessed, # Pass the batched preprocessed (standardized) targets
+            X_train=X_preprocessed, 
+            y_train=y_preprocessed, 
             model=self.model_,
-            ensemble_configs=configs, # Pass the configs for the batch
-            cat_ix=cat_ix,           # Pass the cat_ix for the batch
-            fit_mode="batched",      # Crucial: use the new batched mode
+            ensemble_configs=configs, 
+            cat_ix=cat_ix,           
+            fit_mode="batched",      
             device_=self.device_,
             rng=rng, # Pass None if model already initialized
             n_jobs=self.n_jobs,
@@ -693,7 +639,6 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
             forced_inference_dtype_=self.forced_inference_dtype_,
             memory_saving_mode=self.memory_saving_mode,
             use_autocast_=self.use_autocast_,
-            # Ensure gradients are allowed by default when using this path
             inference_mode=not self.differentiable_input, # False if differentiable needed (prompt tune)
         )
 
@@ -712,12 +657,10 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
         """
         if not isinstance(self.executor_, InferenceEngineBatchedNoPreprocessing):
             raise ValueError(
-                "predict_from_preprocessed can only be called after "
-                "fit_from_preprocessed using the batched fit_mode."
+                "Error using batched mode: \
+                predict_from_preprocessed can only be called  \
+                following fit_from_preprocessed "
             )
-        if not hasattr(self, 'y_train_mean_') or not hasattr(self, 'y_train_std_'):
-            raise RuntimeError("y_train_mean_ and y_train_std_ must be set before prediction. Call fit() or get_preprocessed_datasets() first.")
-
 
         # Ensure torch.inference_mode is OFF to allow gradients
         self.executor_.use_torch_inference_mode(use_inference=False)
@@ -844,7 +787,7 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
 
         # --- Crucial: Un-standardize the prediction ---
         predicted_mean_unstandardized = (
-            predicted_mean_standardized * self.y_train_std_ + self.y_train_mean_
+            predicted_mean_standardized
         )
 
         # Ensure output shape is appropriate for loss calculation (e.g., [BatchSize, N_test])

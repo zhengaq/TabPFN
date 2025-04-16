@@ -12,7 +12,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from tabpfn.regressor import TabPFNRegressor
-from tabpfn.utils import collate_for_tabpfn_dataset_regressor
+from tabpfn.utils import collate_for_tabpfn_dataset
 
 
 def eval_test_regression(reg, my_dl_test, lossfn, device):
@@ -23,14 +23,12 @@ def eval_test_regression(reg, my_dl_test, lossfn, device):
     total_items = 0
     with torch.no_grad(): # No gradients needed for evaluation
         for data_batch in my_dl_test:
-            #X_trains, X_tests, y_trains, y_tests, cat_ixs, confs, y_means, y_stds = data_batch # Get stats if provided by dataset/collate
-            # Unpack all 8 items
-            X_trains, X_tests, y_trains, y_tests, cat_ixs, confs, y_means, y_stds = data_batch
+            X_trains, X_tests, y_trains, y_tests, cat_ixs, confs = data_batch
             reg.fit_from_preprocessed(X_trains, y_trains, cat_ixs, confs)
             preds = reg.predict_from_preprocessed(X_tests) # Shape: [Batch, NumTestSamples]
             y_tests_dev = y_tests.to(device).float()
-            print(f"Shape preds: {preds.view(-1).shape}")
-            print(f"Shape y_tests_dev: {y_tests_dev.view(-1).shape}")
+            print(f"Shape preds: {preds.shape}")
+            print(f"Shape y_tests_dev: {y_tests_dev.shape}")
             #loss = lossfn(preds, y_tests_dev)
             loss = lossfn(preds.view(-1), y_tests_dev.view(-1))
             total_loss += loss.item() * y_tests.numel() # Accumulate total loss
@@ -68,8 +66,8 @@ if __name__ == "__main__":
 
     datasets_list = clf.get_preprocessed_datasets(X_train, y_train, splitfn, max_data_size=1000)
     datasets_list_test = clf.get_preprocessed_datasets(X_test, y_test, splitfn, max_data_size=1000)
-    my_dl_train = DataLoader(datasets_list, batch_size=2, collate_fn=collate_for_tabpfn_dataset_regressor)
-    my_dl_test = DataLoader(datasets_list_test, batch_size=1, collate_fn=collate_for_tabpfn_dataset_regressor)
+    my_dl_train = DataLoader(datasets_list, batch_size=2, collate_fn=collate_for_tabpfn_dataset)
+    my_dl_test = DataLoader(datasets_list_test, batch_size=1, collate_fn=collate_for_tabpfn_dataset)
 
     optim_impl = Adam(clf.model_.parameters(), lr=1e-5)
     lossfn = torch.nn.MSELoss()
@@ -81,9 +79,8 @@ if __name__ == "__main__":
     for epoch in range(do_epochs):
         for data_batch in tqdm(my_dl_train):
             optim_impl.zero_grad()
-            #X_trains, X_tests, y_trains, y_tests, cat_ixs, confs = data_batch
-            # Unpack all 8 items
-            X_trains, X_tests, y_trains, y_tests, cat_ixs, confs, y_means, y_stds = data_batch
+            # X_trains, X_tests, y_trains, y_test, cat_ixs, conf, renormalized_criterion, 
+            X_trains, X_tests, y_trains, y_tests, cat_ixs, confs = data_batch
             clf.fit_from_preprocessed(X_trains, y_trains, cat_ixs, confs)
             preds = clf.predict_from_preprocessed(X_tests)
             print(f"Shape preds: {preds.view(-1).shape}")
