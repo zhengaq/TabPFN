@@ -584,13 +584,17 @@ def fit_preprocessing_one(
 
     # TODO(eddiebergman): Not a fan of this, wish it was more transparent, but we want
     # to distuinguish what to do with the `ys` based on the ensemble config type
-    y_train = transform_labels_one(config, y_train)
+    #TODO (Klemens): maybe here differenttiate between regression + classification 
+    #Output both
+    y_train_raw = y_train
+    y_train_processed = transform_labels_one(config, y_train)
 
     return (config, preprocessor, res.X, y_train, res.categorical_features)
 
 
 def transform_labels_one(config, y_train):
     """Transform the labels for one ensembel config.
+        for both regression or classification
 
     Args:
         config: Ensemble config.
@@ -708,6 +712,7 @@ class DatasetCollectionWithPreprocessing(Dataset):
         self.split_fn = split_fn
         self.rng = rng
         self.n_workers = n_workers
+        self.regression_task = None
 
     def __len__(self):
         return len(self.configs)
@@ -719,57 +724,104 @@ class DatasetCollectionWithPreprocessing(Dataset):
         if index < 0 or index > len(self):
             raise IndexError("Index out of bounds.")
 
-        conf, x_full, y_full, cat_ix = self.configs[index][0:4]
-        if len(self.configs[index]) == 5:
-            renormalized_criterion = self.configs[index][5]
+        conf, x_full_raw, y_full_raw, cat_ix = self.configs[index][0:4]
+        
+        y_full_standardised = None  
+        renormalized_criterion=None
 
-        x_train, x_test, y_train, y_test = self.split_fn(x_full, y_full)
+        self.regression_task = (len(self.configs[index]) == 6)
+        
+        #TODO: need to change in a minute
+        if self.regression_task:
+            y_full_standardised = self.configs[index][4]
+            renormalized_criterion = self.configs[index][5]
+            assert y_full_standardised is not None, "y_full_standardised should exist when config length is 6"
+            assert np.isclose(np.mean(y_full_standardised), 0), f"Mean of y_full_standardised is not close to zero: {np.mean(y_full_standardised)}"
+        
+        MAX_SEED = 2**32 - 1
+        split_seed = self.rng.integers(MAX_SEED)
+        
+        test_size = 0.3 # Assuming this matches your partial definition
+        if self.regression_task:
+            x_train, x_test, y_train_standardized, y_test_standardized = self.split_fn(
+                x_full_raw, y_full_standardised, test_size=test_size, random_state=split_seed
+            )
+
+        x_train_raw, x_test_raw, y_train_raw, y_test_raw = self.split_fn(
+            x_full_raw, y_full_raw, test_size=test_size, random_state=split_seed
+        )
+
+        #Sanity checks
+        if self.regression_task:
+            tolerance = 1e-10
+            full_mean = np.mean(y_full_raw)
+            full_std = np.std(y_full_raw)
+            expect_y_raw_standardised = (y_full_raw - full_mean) / full_std
+            assert np.allclose(y_full_standardised, expect_y_raw_standardised, atol=tolerance)
+
+            assert np.allclose(x_train, x_train_raw, atol=tolerance)
+            assert np.allclose(x_test, x_test_raw, atol=tolerance)
+
+        y_train = None
+        if self.regression_task:
+            y_train=y_train_standardized
+        else:     
+            y_train = y_train_raw
+
         itr = fit_preprocessing(
             configs=conf,
-            X_train=x_train,
+            X_train=x_train_raw,
             y_train=y_train,
             random_state=self.rng,
             cat_ix=cat_ix,
             n_workers=self.n_workers,
             parallel_mode="block",
         )
-        configs, preprocessors, X_trains, y_trains, cat_ixs = list(zip(*itr))
-        X_trains = list(X_trains)
-        y_trains = list(y_trains)
+        configs, preprocessors, X_trains_preprocessed, y_trains_preprocessed, cat_ixs = list(zip(*itr))
+        X_trains_preprocessed = list(X_trains_preprocessed)
+        y_trains_preprocessed = list(y_trains_preprocessed)
 
         ## Process test data for all ensemble estimators.
-        X_tests = []
+        X_tests_preprocessed = []
         for _, estim_preprocessor in zip(configs, preprocessors):
-            X_tests.append(estim_preprocessor.transform(x_test).X)
+            X_tests_preprocessed.append(estim_preprocessor.transform(x_test_raw).X)
+
+
 
         ## Convert to tensors.
-        for i in range(len(X_trains)):
-            if not isinstance(X_trains[i], torch.Tensor):
-                X_trains[i] = torch.as_tensor(X_trains[i], dtype=torch.float32)
-            if not isinstance(X_tests[i], torch.Tensor):
-                X_tests[i] = torch.as_tensor(X_tests[i], dtype=torch.float32)
-            if not isinstance(y_trains[i], torch.Tensor):
-                y_trains[i] = torch.as_tensor(y_trains[i], dtype=torch.float32)
+        for i in range(len(X_trains_preprocessed)):
+            if not isinstance(X_trains_preprocessed[i], torch.Tensor):
+                X_trains_preprocessed[i] = torch.as_tensor(X_trains_preprocessed[i], dtype=torch.float32)
+            if not isinstance(X_tests_preprocessed[i], torch.Tensor):
+                X_tests_preprocessed[i] = torch.as_tensor(X_tests_preprocessed[i], dtype=torch.float32)
+            if not isinstance(y_trains_preprocessed[i], torch.Tensor):
+                y_trains_preprocessed[i] = torch.as_tensor(y_trains_preprocessed[i], dtype=torch.float32)
 
-        if not isinstance(y_test, torch.Tensor):
-            y_test = torch.from_numpy(y_test)
-            if torch.is_floating_point(y_test):
-                y_test = y_test.float()
-            else:
-                y_test = y_test.long()
+        if self.regression_task:
+            if not isinstance(y_test_standardized, torch.Tensor):
+                y_test_standardized = torch.from_numpy(y_test_standardized)
+                if torch.is_floating_point(y_test_standardized):
+                    y_test_standardized = y_test_standardized.float()
+                else:
+                    y_test_standardized = y_test_standardized.long()
+ 
 
-        # Convert y_train to tensor, while preserving its float or discrete nature
-        # but converting all floats to float32 and discrete to long so they can
-        # be concatenated to tensors.
-        if len(self.configs[index]) == 5:  # Pass through renorm. for regression.
+        x_train_raw = torch.from_numpy(x_train_raw)
+        x_test_raw = torch.from_numpy(x_test_raw)
+        y_train_raw = torch.from_numpy(y_train_raw)
+        y_test_raw = torch.from_numpy(y_test_raw)
+
+        if self.regression_task:  # Pass through renorm. for regression.
             return (
-                X_trains,
-                X_tests,
-                y_trains,
-                y_test,
+                X_trains_preprocessed,
+                X_tests_preprocessed,
+                y_trains_preprocessed,
+                y_test_standardized,
                 cat_ixs,
                 conf,
                 renormalized_criterion,
+                x_test_raw,
+                y_test_raw,
             )
 
-        return X_trains, X_tests, y_trains, y_test, cat_ixs, conf
+        return X_trains_preprocessed, X_tests_preprocessed, y_trains_preprocessed, y_test_raw, cat_ixs, conf

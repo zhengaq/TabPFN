@@ -63,7 +63,7 @@ from tabpfn.utils import (
     infer_random_state,
     split_large_data, # Used in get_preprocessed_datasets
     translate_probs_across_borders,
-    #update_encoder_outlier_params, # Renamed from update_encoder_outlier_params
+    update_encoder_outlier_params, # Renamed from update_encoder_outlier_params
     update_encoder_params,
     validate_X_predict,
     validate_Xy_fit,
@@ -418,13 +418,13 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
 
     def get_preprocessed_datasets(
         self,
-        X: XType | list[XType],
-        y: YType | list[YType],
+        X_raw: XType | list[XType],
+        y_raw: YType | list[YType],
         split_fn,
         max_data_size: None | int = 10000,
     ) -> Dataset:
-        """Get a torch.utils.data.Dataset which contains many datasets or splits of one
-        or more datasets.
+        """
+        Takes raw data -> outputs class that preprocessed them
 
         Args:
             X: list of input dataset features
@@ -433,21 +433,21 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
             max_data_size: Maximum allowed number of samples in one dataset.
             If None, dataseta are not splitted.
         """
-        if not isinstance(X, list):
-            X = [X]
+        if not isinstance(X_raw, list):
+            X_raw = [X_raw]
 
-        if not isinstance(y, list):
-            y = [y]
-        assert len(X) == len(y), "X and y lists must have the same length."
+        if not isinstance(y_raw, list):
+            y_raw = [y_raw]
+        assert len(X_raw) == len(y_raw), "X and y lists must have the same length."
 
         
         if not hasattr(self, "model_") or self.model_ is None:
-            byte_size, rng = self._initialize_model_variables() # Initialize based on first dataset if needed
+            byte_size, rng = self._initialize_model_variables()
         else:
             _, rng = infer_random_state(self.random_state)
             
         X_split, y_split = [], []
-        for X_item, y_item in zip(X, y):
+        for X_item, y_item in zip(X_raw, y_raw):
             if max_data_size is not None:
                 Xparts, yparts = split_large_data(X_item, y_item, max_data_size)
             else:
@@ -457,11 +457,13 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
         X, y = X_split, y_split
         config_collection = []
         for X_item, y_item in zip(X, y):
-            configs, X_mod, y_mod_standardized, y_mean, y_std = self._initialize_dataset_preprocessing(
-                X_item, y_item, rng
-            )
+            #get configs + statistics for each dataset
+            #Y_stats would be good here I think -> so that Dataset Collection Class can distinguish them
+            configs, X_mod_raw, y_mod_raw, y_mod_standardised, renormalised_criterion  = self._initialize_dataset_preprocessing(
+                        X_item, y_item, rng
+                    )
             config_collection.append(
-                [configs, X_mod, y_item, self.inferred_categorical_indices_, y_mean, y_std]
+                [configs, X_mod_raw, y_mod_raw, self.inferred_categorical_indices_, y_mod_standardised, renormalised_criterion]
             )
         return DatasetCollectionWithPreprocessing(split_fn, rng, config_collection)
 
@@ -507,48 +509,59 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
 
 
     def _initialize_dataset_preprocessing(
-        self, X: XType, y: YType, rng
+        self, X_raw: XType, y_raw: YType, rng
     ) -> tuple[list[RegressorEnsembleConfig], XType, YType, float, float]:
-        """Prepare ensemble configs and validate X, y for one dataset/chunk."""
+        """Prepare ensemble configs and validate X, y for one dataset/chunk.
+        handle the preprocessing of the input (X and y).
+        """
 
         # Validate input data (similar to fit, but no need to set all attributes yet)
-        X_proc, y_proc, feature_names_in, n_features_in = validate_Xy_fit(
-            X,
-            y,
+        
+        ##assume it leaves them unchaged -> I think it does
+        X_raw, y_raw, feature_names_in, n_features_in = validate_Xy_fit(
+            X_raw,
+            y_raw,
             estimator=self,
             ensure_y_numeric=True, # Ensure y is numeric for regression
             max_num_samples=self.interface_config_.MAX_NUMBER_OF_SAMPLES,
             max_num_features=self.interface_config_.MAX_NUMBER_OF_FEATURES,
             ignore_pretraining_limits=self.ignore_pretraining_limits,
         )
-        # We'll use X_proc for categorical inference, but return original X,y
-        # The actual preprocessing happens inside the Dataset __getitem__
 
-        check_cpu_warning(self.device_, X_proc) # Use validated X
+        check_cpu_warning(self.device, X_raw)
+
+        if feature_names_in is not None:
+            self.feature_names_in_ = feature_names_in
+        self.n_features_in_ = n_features_in
+
+        #TODO: check how this interplays with if not self.differentiable_input
+        #TODO: Prompt tuning differentiation
 
         # Handle categorical features (same as in fit)
-        X_cat_infer = _fix_dtypes(X_proc, cat_indices=self.categorical_features_indices)
-        # We only fit the ordinal encoder here if needed, it's applied later
+        X_raw = _fix_dtypes(X_raw, cat_indices=self.categorical_features_indices)
+
+        # The actual preprocessing happens inside the Dataset __getitem__
+
+        # Ensure categories are ordinally encoded
         ord_encoder = _get_ordinal_encoder()
-        X_cat_infer = _process_text_na_dataframe(X_cat_infer, ord_encoder=ord_encoder, fit_encoder=True)
+        X_raw = _process_text_na_dataframe(X_raw, ord_encoder=ord_encoder, fit_encoder=True)  # type: ignore
+        
+        self.preprocessor_ = ord_encoder
+
 
         # Infer categorical features based on the processed data
         # Store on self, as it's assumed consistent across datasets in a fine-tuning run
         self.inferred_categorical_indices_ = infer_categorical_features(
-            X=X_cat_infer,
+            X=X_raw,
             provided=self.categorical_features_indices,
             min_samples_for_inference=self.interface_config_.MIN_NUMBER_SAMPLES_FOR_CATEGORICAL_INFERENCE,
             max_unique_for_category=self.interface_config_.MAX_UNIQUE_FOR_CATEGORICAL_FEATURES,
             min_unique_for_numerical=self.interface_config_.MIN_UNIQUE_FOR_NUMERICAL_FEATURES,
         )
-        # Store the fitted preprocessor (ordinal encoder for text/cats)
-        self.preprocessor_ = ord_encoder
 
-        # --- Generate Regressor Ensemble Configs ---
-        # (Copied and adapted from the `fit` method)
         possible_target_transforms = (
             ReshapeFeatureDistributionsStep.get_all_preprocessors(
-                num_examples=len(y_proc), # Use length of validated y
+                num_examples=len(y_raw), # Use length of validated y
                 random_state=rng, # Use the provided rng
             )
         )
@@ -561,15 +574,15 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
             else:
                 preprocessor = None
             target_preprocessors.append(preprocessor)
-
         preprocess_transforms = self.interface_config_.PREPROCESS_TRANSFORMS
+
         ensemble_configs = EnsembleConfig.generate_for_regression(
             n=self.n_estimators,
             subsample_size=self.interface_config_.SUBSAMPLE_SAMPLES,
             add_fingerprint_feature=self.interface_config_.FINGERPRINT_FEATURE,
             feature_shift_decoder=self.interface_config_.FEATURE_SHIFT_METHOD,
             polynomial_features=self.interface_config_.POLYNOMIAL_FEATURES,
-            max_index=len(X_proc), # Use length of validated X
+            max_index=len(X_raw), # Use length of validated X
             preprocessor_configs=typing.cast(
                 Sequence[PreprocessorConfig],
                 preprocess_transforms
@@ -581,14 +594,21 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
         )
         assert len(ensemble_configs) == self.n_estimators
 
-        # Calculate mean/std for *this specific* chunk (for reference, though we use the global ones from self)
-        y_mean = np.mean(y_proc).item()
-        y_std = np.std(y_proc).item() + 1e-20
-        # Standardize y *here* just to return it, though the Dataset uses the global mean/std
-        y_standardized = (y_proc - y_mean) / y_std
 
-        # Return the ensemble configs, original X, standardized y (for ref), and stats
-        return ensemble_configs, X, y_standardized, y_mean, y_std
+        # Standardize y
+        mean = np.mean(y_raw)
+        std = np.std(y_raw)
+        self.y_train_std_ = std.item() + 1e-20
+        self.y_train_mean_ = mean.item()
+        y_standardised = (y_raw - self.y_train_mean_) / self.y_train_std_
+        #MAybe this does not make sense to do on a indivisual dataset level
+        self.renormalized_criterion_ = FullSupportBarDistribution(
+            self.bardist_.borders * self.y_train_std_ + self.y_train_mean_,
+        ).float()
+
+        renormalised_criterion = self.renormalized_criterion_
+
+        return ensemble_configs, X_raw, y_raw, y_standardised, renormalised_criterion
     
     def fit_from_preprocessed(
         self,
@@ -624,6 +644,7 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
             #TODO: not sure about rng here
             rng=None
 
+
         # Create the inference engine
         self.executor_ = create_inference_engine(
             X_train=X_preprocessed, 
@@ -644,7 +665,12 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
 
         return self 
     
-    def predict_from_preprocessed(self, X_tests: list[torch.Tensor]) -> torch.Tensor:
+    #TODO: clean up a lot!!!
+    
+    def predict_from_preprocessed(self, X_tests: list[torch.Tensor],
+                                  
+                                  quantiles: list[float] | None = None,
+                                  ) -> torch.Tensor:
         """Predict regression target for preprocessed test sets from the fine-tuning Dataset.
            Allows gradients for backpropagation. Returns un-standardized predictions.
 
@@ -661,6 +687,9 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
                 predict_from_preprocessed can only be called  \
                 following fit_from_preprocessed "
             )
+        
+        check_is_fitted(self)
+ 
 
         # Ensure torch.inference_mode is OFF to allow gradients
         self.executor_.use_torch_inference_mode(use_inference=False)
@@ -669,22 +698,27 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
         batched_borders = []        # Store corresponding borders
 
         # executor_.iter_outputs yields per ensemble member across the whole batch
-        # output shape: [BatchSize, N_test, N_classes]
-        # config shape: [BatchSize] containing EnsembleConfig for that member
-        for output_logits, ensemble_configs_for_member in self.executor_.iter_outputs(
-            X_tests, # Pass the list of test tensors for the batch
+        for output, ensemble_configs_for_member in self.executor_.iter_outputs(
+            X_tests, 
             device=self.device_,
             autocast=self.use_autocast_,
         ):
-            batched_outputs_logits.append(output_logits)
+            assert isinstance(ensemble_configs_for_member[0], RegressorEnsembleConfig)
 
-            # Process borders for each item in the batch for this ensemble member
-            member_borders = []
+            if self.softmax_temperature != 1:
+                output = output.float() / self.softmax_temperature  # noqa: PLW2901
+            batched_outputs_logits.append(output)
+
+            #print(f"output_logits shape {output_logits.shape}") #([105, 1, 5000])
+            #print(f"output_logits shape {output_logits.shape}") #([105, 1, 5000])
+
+            #member_borders = []
             std_borders = self.bardist_.borders.cpu().numpy() # Standardized borders
             for batch_idx, config in enumerate(ensemble_configs_for_member):
-                 assert isinstance(config, RegressorEnsembleConfig)
+                 #assert isinstance(config, RegressorEnsembleConfig) FAIL
+                 
                  if config.target_transform is None:
-                     borders_t = std_borders.copy()
+                     #borders_t = std_borders.copy()
                      logit_cancel_mask = None
                  else:
                      # IMPORTANT: _transform_borders_one returns np.ndarray
@@ -695,109 +729,30 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
                              repair_nan_borders_after_transform=self.interface_config_.FIX_NAN_BORDERS_AFTER_TARGET_TRANSFORM,
                          )
                      )
-                     if descending_borders:
-                         borders_t = borders_t.flip(-1)
+                     #if descending_borders:
+                     #    borders_t = borders_t.flip(-1)
                      # Apply logit mask if needed (can modify output_logits directly if careful)
                      if logit_cancel_mask is not None:
                         # Ensure modification happens correctly for the specific batch item
                         #output_logits[batch_idx, :, logit_cancel_mask] = -torch.inf
-                        logit_cancel_mask_t = torch.from_numpy(logit_cancel_mask).to(output_logits.device)
-                        output_logits[batch_idx, :, logit_cancel_mask_t] = -torch.inf # Use tensor mask
-
+                        logit_cancel_mask_t = torch.from_numpy(logit_cancel_mask).to(output.device)
+                        output[batch_idx, :, logit_cancel_mask_t] = -torch.inf # Use tensor mask
                 
-                 member_borders.append(torch.as_tensor(borders_t, device=self.device_))
-            batched_borders.append(torch.stack(member_borders)) # Shape [BatchSize, N_borders]
-
+                 #member_borders.append(torch.as_tensor(borders_t, device=self.device_))
+            #batched_borders.append(torch.stack(member_borders)) # Shape [BatchSize, N_borders]
 
         # Stack results across ensemble members: [EnsembleSize, BatchSize, N_test, N_classes]
         all_logits = torch.stack(batched_outputs_logits, dim=0)
         # Stack borders: [EnsembleSize, BatchSize, N_borders]
-        all_borders = torch.stack(batched_borders, dim=0)
+        #all_borders = torch.stack(batched_borders, dim=0)
 
-        # Apply temperature adjustment (optional, less common for regression loss)
-        if self.softmax_temperature != 1.0:
-             all_logits = all_logits.float() / self.softmax_temperature
+        #print(f"AA all_logits shape {all_logits.shape}") #torch.Size([2, 105, 1, 5000])
+        #print(f"AA all_borders shape {all_borders.shape}") #torch.Size([2, 1, 5001])
 
-        # Translate probabilities across borders for each ensemble member and batch item
-        translated_probs_list = []
-        target_borders = self.bardist_.borders.to(self.device_) # Standardized target borders
-        for ens_idx in range(self.n_estimators):
-            # Get the potentially 2D borders for this ensemble member
-            frm_batched = all_borders[ens_idx] # Shape [BatchSize, NumBorders]
-            
-            # --- START SHAPE CORRECTION & VALIDATION ---
-            frm_1d_to_use = None
-            if frm_batched.ndim == 2:
-                batch_size_frm = frm_batched.shape[0]
-                if batch_size_frm == 1:
-                    # If BatchSize is 1, just take the first (only) row
-                    frm_1d_to_use = frm_batched[0]
-                else:
-                    # If BatchSize > 1, check if all rows are identical.
-                    # This ensures the target_transform was effectively the same for all batch items
-                    # for this specific ensemble member index.
-                    # Note: Using allclose adds a small overhead and assumes gradients are not needed through this check.
-                    if torch.allclose(frm_batched, frm_batched[0].unsqueeze(0), atol=1e-6, rtol=1e-5): # Use allclose for float tensors
-                        frm_1d_to_use = frm_batched[0] # All rows are the same, use the first one
-                    else:
-                        # Borders differ across the batch for this ensemble member.
-                        # The current utils._cdf and utils._map_to_bucket_ix cannot handle this.
-                        raise RuntimeError(
-                            f"predict_from_preprocessed detected varying 'frm' borders (shape {frm_batched.shape}) "
-                            f"within the batch for ensemble member {ens_idx}. This implies differing target_transforms "
-                            f"were used, which is incompatible with the current border translation utility functions. "
-                            f"Ensure consistent target_transform usage per ensemble across batch items or modify utils._cdf."
-                        )
-            elif frm_batched.ndim == 1:
-                # This case might occur if batch size was 1 *and* stacking logic somehow returned 1D
-                frm_1d_to_use = frm_batched
-            else:
-                # Should not happen
-                raise ValueError(f"Unexpected shape for frm_batched: {frm_batched.shape}")
+        averaged_logits_over_ensemble = torch.mean(all_logits, dim=0)
+        final_logits = averaged_logits_over_ensemble.transpose(0, 1)
 
-            # Ensure we have a valid 1D tensor now
-            if frm_1d_to_use is None or frm_1d_to_use.ndim != 1:
-                raise RuntimeError(f"Failed to obtain valid 1D 'frm' borders for ensemble {ens_idx}")
-            # --- END SHAPE CORRECTION & VALIDATION ---
-
-            member_probs = translate_probs_across_borders(
-                 all_logits[ens_idx], # [BatchSize, N_test, N_classes]
-                 #frm=all_borders[ens_idx], # [BatchSize, N_borders] - broadcasting applies
-                 frm=frm_1d_to_use,        # <--- Use the corrected 1D tensor
-                 to=target_borders, # [N_borders_target]
-            )
-            translated_probs_list.append(member_probs)
-
-        # Stack translated probabilities: [EnsembleSize, BatchSize, N_test, N_target_classes]
-        stacked_probs = torch.stack(translated_probs_list, dim=0)
-
-        # Average probabilities (or logits before softmax if average_before_softmax is True)
-        if self.average_before_softmax:
-             # Average log-probs (logits), then apply softmax
-             final_logits = torch.log(stacked_probs + 1e-10).mean(dim=0) # Add epsilon
-             final_probs = torch.softmax(final_logits, dim=-1)
-        else:
-             # Average probabilities directly
-             final_probs = stacked_probs.mean(dim=0) # Shape [BatchSize, N_test, N_target_classes]
-
-
-        # Calculate the mean prediction based on the final probabilities and *standardized* criterion
-        # Use self.bardist_ which corresponds to the standardized y distribution
-        predicted_mean_standardized = self.bardist_.mean(final_probs) # Shape [BatchSize, N_test]
-
-        # --- Crucial: Un-standardize the prediction ---
-        predicted_mean_unstandardized = (
-            predicted_mean_standardized
-        )
-
-        # Ensure output shape is appropriate for loss calculation (e.g., [BatchSize, N_test])
-        # Might need squeezing if N_test is 1, depending on loss function requirements.
-        # Usually, [BatchSize, N_test] or [BatchSize * N_test] is expected.
-        # The current shape should be [BatchSize, N_test].
-
-        return predicted_mean_unstandardized
-
-    # --- NEW: Fine-tuning specific methods END ---
+        return final_logits
 
 
     @config_context(transform_output="default")  # type: ignore
@@ -811,30 +766,126 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
         Returns:
             self
         """
-        
-        byte_size, rng = self._initialize_model_variables(X, y)
+        static_seed, rng = infer_random_state(self.random_state)
 
-        # --- Initialization Phase ---
-        # Use helper to initialize model, device, precision, config, y-stats
-        byte_size, rng = self._initialize_model_variables(X, y)
-
-        # --- Preprocessing Phase (using helper) ---
-        # This validates data, handles categoricals, generates configs
-        ensemble_configs, X_processed, y_standardized, _, _ = self._initialize_dataset_preprocessing(
-            X, y, rng
+        # Load the model and config
+        self.model_, self.config_, self.bardist_ = initialize_tabpfn_model(
+            model_path=self.model_path,
+            which="regressor",
+            fit_mode=self.fit_mode,
+            static_seed=static_seed,
         )
-        self._ensemble_configs = ensemble_configs # Store configs if needed later
 
-        # --- Inference Engine Setup ---
-        # Create the standard inference engine based on self.fit_mode
-        # Note: We pass the *standardized* y here for the standard fit modes
+        # Determine device and precision
+        self.device_ = infer_device_and_type(self.device)
+        (self.use_autocast_, self.forced_inference_dtype_, byte_size) = (
+            determine_precision(self.inference_precision, self.device_)
+        )
+
+        # Build the interface_config
+        self.interface_config_ = ModelInterfaceConfig.from_user_input(
+            inference_config=self.inference_config,
+        )
+
+        outlier_removal_std = self.interface_config_.OUTLIER_REMOVAL_STD
+        if outlier_removal_std == "auto":
+            outlier_removal_std = (
+                self.interface_config_._REGRESSION_DEFAULT_OUTLIER_REMOVAL_STD
+            )
+        update_encoder_outlier_params(
+            model=self.model_,
+            remove_outliers_std=outlier_removal_std,
+            seed=static_seed,
+            inplace=True,
+        )
+
+        X, y, feature_names_in, n_features_in = validate_Xy_fit(
+            X,
+            y,
+            estimator=self,
+            ensure_y_numeric=False,
+            max_num_samples=self.interface_config_.MAX_NUMBER_OF_SAMPLES,
+            max_num_features=self.interface_config_.MAX_NUMBER_OF_FEATURES,
+            ignore_pretraining_limits=self.ignore_pretraining_limits,
+        )
+        assert isinstance(X, np.ndarray)
+        check_cpu_warning(self.device, X)
+
+        if feature_names_in is not None:
+            self.feature_names_in_ = feature_names_in
+        self.n_features_in_ = n_features_in
+
+        # Will convert specified categorical indices to category dtype, as well
+        # as handle `np.object` arrays or otherwise `object` dtype pandas columns.
+        X = _fix_dtypes(X, cat_indices=self.categorical_features_indices)
+
+        # Ensure categories are ordinally encoded
+        ord_encoder = _get_ordinal_encoder()
+        X = _process_text_na_dataframe(X, ord_encoder=ord_encoder, fit_encoder=True)  # type: ignore
+        self.preprocessor_ = ord_encoder
+
+        self.inferred_categorical_indices_ = infer_categorical_features(
+            X=X,
+            provided=self.categorical_features_indices,
+            min_samples_for_inference=self.interface_config_.MIN_NUMBER_SAMPLES_FOR_CATEGORICAL_INFERENCE,
+            max_unique_for_category=self.interface_config_.MAX_UNIQUE_FOR_CATEGORICAL_FEATURES,
+            min_unique_for_numerical=self.interface_config_.MIN_UNIQUE_FOR_NUMERICAL_FEATURES,
+        )
+
+        possible_target_transforms = (
+            ReshapeFeatureDistributionsStep.get_all_preprocessors(
+                num_examples=y.shape[0],
+                random_state=static_seed,
+            )
+        )
+        target_preprocessors: list[TransformerMixin | Pipeline | None] = []
+        for (
+            y_target_preprocessor
+        ) in self.interface_config_.REGRESSION_Y_PREPROCESS_TRANSFORMS:
+            if y_target_preprocessor is not None:
+                preprocessor = possible_target_transforms[y_target_preprocessor]
+            else:
+                preprocessor = None
+
+            target_preprocessors.append(preprocessor)
+        preprocess_transforms = self.interface_config_.PREPROCESS_TRANSFORMS
+
+        ensemble_configs = EnsembleConfig.generate_for_regression(
+            n=self.n_estimators,
+            subsample_size=self.interface_config_.SUBSAMPLE_SAMPLES,
+            add_fingerprint_feature=self.interface_config_.FINGERPRINT_FEATURE,
+            feature_shift_decoder=self.interface_config_.FEATURE_SHIFT_METHOD,
+            polynomial_features=self.interface_config_.POLYNOMIAL_FEATURES,
+            max_index=len(X),
+            preprocessor_configs=typing.cast(
+                Sequence[PreprocessorConfig],
+                preprocess_transforms
+                if preprocess_transforms is not None
+                else default_regressor_preprocessor_configs(),
+            ),
+            target_transforms=target_preprocessors,
+            random_state=rng,
+        )
+        assert len(ensemble_configs) == self.n_estimators
+
+        # Standardize y
+        mean = np.mean(y)
+        std = np.std(y)
+        self.y_train_std_ = std.item() + 1e-20
+        self.y_train_mean_ = mean.item()
+        y = (y - self.y_train_mean_) / self.y_train_std_
+        self.renormalized_criterion_ = FullSupportBarDistribution(
+            self.bardist_.borders * self.y_train_std_ + self.y_train_mean_,
+        ).float()
+
+        # Create the inference engine
         self.executor_ = create_inference_engine(
-            X_train=X_processed, # Use the data after categorical processing
-            y_train=y_standardized, # Use standardized y
+            X_train=X,
+            y_train=y,
             model=self.model_,
             ensemble_configs=ensemble_configs,
             cat_ix=self.inferred_categorical_indices_,
-            fit_mode=self.fit_mode, # Use standard fit modes here
+            fit_mode=self.fit_mode,
             device_=self.device_,
             rng=rng,
             n_jobs=self.n_jobs,
@@ -843,7 +894,7 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
             memory_saving_mode=self.memory_saving_mode,
             use_autocast_=self.use_autocast_,
             # Standard fit usually uses inference_mode=True
-            inference_mode=True,
+            #inference_mode=True,
         )
 
         return self
