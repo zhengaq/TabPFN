@@ -584,12 +584,11 @@ def fit_preprocessing_one(
 
     # TODO(eddiebergman): Not a fan of this, wish it was more transparent, but we want
     # to distuinguish what to do with the `ys` based on the ensemble config type
-    #TODO (Klemens): maybe here differenttiate between regression + classification 
-    #Output both
-    y_train_raw = y_train
+
+    #TODO: (Klemens)
     y_train_processed = transform_labels_one(config, y_train)
 
-    return (config, preprocessor, res.X, y_train, res.categorical_features)
+    return (config, preprocessor, res.X, y_train_processed, res.categorical_features)
 
 
 def transform_labels_one(config, y_train):

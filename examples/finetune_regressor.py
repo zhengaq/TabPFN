@@ -79,7 +79,7 @@ def eval_test_regression_standard(reg: TabPFNRegressor,
 if __name__ == "__main__":
     device = "cpu"
     n_use =1000
-    do_epochs = 2
+    do_epochs = 10
     
     data_frame_x, data_frame_y = sklearn.datasets.fetch_california_housing(return_X_y=True)
     splitfn = partial(train_test_split, test_size=0.3)
@@ -124,7 +124,7 @@ if __name__ == "__main__":
 
     my_dl_train = DataLoader(datasets_collection, batch_size=1, collate_fn=collate_for_tabpfn_dataset)
     my_dl_test = DataLoader(datasets_collection_test, batch_size=1, collate_fn=collate_for_tabpfn_dataset)
-    optim_impl = Adam(reg.model_.parameters(), lr=1)
+    optim_impl = Adam(reg.model_.parameters(), lr=1e-5)
     
     loss_batches = []
     mse_batches = []
