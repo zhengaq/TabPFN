@@ -32,8 +32,17 @@ def eval_test_regression_standard(reg: TabPFNRegressor,
         A tuple containing (MSE, MAE, R2).
     """
     reg_eval = TabPFNRegressor()
-    #reg_eval._initialize_model_variables()
-    #reg_eval.model_ = reg.model_
+    reg_eval._initialize_model_variables()
+
+    if hasattr(reg, 'model_') and reg.model_ is not None:
+        
+        reg_eval.model_ = reg.model_
+        print("reg paramter 0 ", [p for p in reg.model_.parameters()][0][10])
+        print("reg evak paramter 0 ", [p for p in reg_eval.model_.parameters()][0][10])
+    else: 
+        print("Evaluating untrained pre-trainedm model")
+
+    
 
     reg_eval.fit(X_train_raw, y_train_raw)
     #model_exists = hasattr(reg, 'model_') and reg_eval.model_ is not None
@@ -46,10 +55,13 @@ def eval_test_regression_standard(reg: TabPFNRegressor,
         return np.nan, np.nan, np.nan"""
 
     predictions = np.array([]) # Initialize empty array
+    
     try:
         # Perform prediction within no_grad context
         predictions = reg_eval.predict(X_test_raw) # Default output is 'mean'
-        print(predictions.mean(), y_test_raw.mean())
+
+        print("predictions", predictions[0])
+        #print(predictions.mean(), y_test_raw.mean())
 
         # Calculate metrics
         mse = mean_squared_error(y_test_raw, predictions)
@@ -66,7 +78,7 @@ def eval_test_regression_standard(reg: TabPFNRegressor,
 
 if __name__ == "__main__":
     device = "cpu"
-    n_use =500
+    n_use =1000
     do_epochs = 2
     
     data_frame_x, data_frame_y = sklearn.datasets.fetch_california_housing(return_X_y=True)
@@ -97,16 +109,22 @@ if __name__ == "__main__":
         #        reg, X_test_raw, y_test_raw,
         #        X_train_raw, y_train_raw)
         #print(f"Initial Test MSE: {initial_mse:.4f}, MAE: {initial_mae:.4f}, R2: {initial_r2:.4f}")
-
-
+    
+    print("Pretrained Model Performance ")
+    res_mse, res_mae, res_r2 = eval_test_regression_standard(
+                reg, X_train_raw, y_train_raw, X_test_raw, y_test_raw
+            )
+    print(f"Test MSE: {res_mse:.4f}")
+    print(f"Test MAE: {res_mae:.4f}") # Added MAE printout
+    print(f"Test R2: {res_r2:.4f}")   # Added R2 printout
     
 
-    datasets_collection = reg.get_preprocessed_datasets(X_train_raw, y_train_raw, splitfn, max_data_size=50)
-    datasets_collection_test = reg.get_preprocessed_datasets(X_test_raw, y_test_raw, splitfn, max_data_size=50)
+    datasets_collection = reg.get_preprocessed_datasets(X_train_raw, y_train_raw, splitfn, max_data_size=750)
+    datasets_collection_test = reg.get_preprocessed_datasets(X_test_raw, y_test_raw, splitfn, max_data_size=750)
 
     my_dl_train = DataLoader(datasets_collection, batch_size=1, collate_fn=collate_for_tabpfn_dataset)
     my_dl_test = DataLoader(datasets_collection_test, batch_size=1, collate_fn=collate_for_tabpfn_dataset)
-    optim_impl = Adam(reg.model_.parameters(), lr=1e-5)
+    optim_impl = Adam(reg.model_.parameters(), lr=1)
     
     loss_batches = []
     mse_batches = []
@@ -121,6 +139,8 @@ if __name__ == "__main__":
         #reg.memory_saving_mode = False
         for data_batch in tqdm(my_dl_train):       
                  
+            #print("paramter 0 ", [p for p in reg.model_.parameters()][0][10])
+
             optim_impl.zero_grad()
             
             (X_trains_preprocessed, X_tests_preprocessed, y_trains_preprocessed,
@@ -134,7 +154,6 @@ if __name__ == "__main__":
             logits_pred = reg.predict_from_preprocessed(X_tests_preprocessed) # torch.Size([105, 1]) #[BatchSize, N_test, NumBars]
             y_target = batch_y_test_raw.to(device) # Shape: [BatchSize, N_test]
 
-
             #loss = lossfn(logits_pred, y_test_raw.to(device))
             nll_loss_per_sample = lossfn(logits_pred, batch_y_test_raw.to(device))
 
@@ -142,7 +161,7 @@ if __name__ == "__main__":
 
             loss = nll_loss_per_sample.mean()
 
-            print(f" AA {loss.shape}")
+            print(f" AA {loss}")
             loss.backward()
             optim_impl.step()
         

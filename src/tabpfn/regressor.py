@@ -985,8 +985,6 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
         X = _fix_dtypes(X, cat_indices=self.categorical_features_indices)
         X = _process_text_na_dataframe(X, ord_encoder=self.preprocessor_)  # type: ignore
 
-        # --- Standard Prediction Logic ---
-        # (This part is largely the same as the original code)
         if quantiles is None:
             quantiles = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
         else:
@@ -1047,33 +1045,21 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
             outputs.append(output)  # type: ignore
 
         # --- Translate probs, average, get final logits (same as before) ---
-        transformed_probs = [ # Use probs here not logits for translation
+        transformed_logits = [
             translate_probs_across_borders(
-                torch.softmax(logits, dim=-1), # Convert logits to probs first
+                logits,
                 frm=torch.as_tensor(borders_t, device=self.device_),
                 to=self.bardist_.borders.to(self.device_),
             )
             for logits, borders_t in zip(outputs, borders)
         ]
-        stacked_probs = torch.stack(transformed_probs, dim=0) # [Ensemble, N_samples, N_classes]
-
+        stacked_logits = torch.stack(transformed_logits, dim=0)
         if self.average_before_softmax:
-            # Need to average the *original* logits before softmax
-            original_logits = torch.stack(outputs, dim=0) # [Ensemble, N_samples, N_classes]
-            avg_logits = original_logits.mean(dim=0)
-            # Now translate these averaged logits
-            final_probs = translate_probs_across_borders(
-                 torch.softmax(avg_logits, dim=-1), # Probs from averaged logits
-                 frm=torch.as_tensor(np.mean(borders, axis=0), device=self.device_), # Use average border? Or need per-sample? Simpler: Use standardized target borders.
-                 to=self.bardist_.borders.to(self.device_), # Standardized target borders
-             )
+            logits = stacked_logits.log().mean(dim=0).softmax(dim=-1)
         else:
-            # Average probabilities after translation
-            final_probs = stacked_probs.mean(dim=0) # [N_samples, N_classes]
-
-
-        # Use final_probs to calculate outputs
-        logits = torch.log(final_probs + 1e-10) # Convert back to log-probs for criterion functions
+            logits = stacked_logits.mean(dim=0)
+        # Post-process the logits
+        logits = logits.log()
         if logits.dtype == torch.float16:
             logits = logits.float()
         logits = logits.cpu()
@@ -1113,6 +1099,7 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
                 )
 
             return main_outputs
+
         return logit_to_output(output_type=output_type)
 
     def get_embeddings(
