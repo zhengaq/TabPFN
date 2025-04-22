@@ -60,7 +60,7 @@ def eval_test_regression_standard(reg: TabPFNRegressor,
         # Perform prediction within no_grad context
         predictions = reg_eval.predict(X_test_raw) # Default output is 'mean'
 
-        print("predictions", predictions[0])
+        #print("predictions", predictions[0])
         #print(predictions.mean(), y_test_raw.mean())
 
         # Calculate metrics
