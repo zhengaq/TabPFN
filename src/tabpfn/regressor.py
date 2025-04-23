@@ -667,84 +667,123 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
 
         return self 
     
-    #TODO: clean up a lot!!!
-    def predict_from_preprocessed(self, X_tests: list[torch.Tensor],
-                                  
-                                  quantiles: list[float] | None = None,
-                                  ) -> torch.Tensor:
-        """Predict regression target for preprocessed test sets from the fine-tuning Dataset.
-           Allows gradients for backpropagation. Returns un-standardized predictions.
-
-        Args:
-            X_tests: List (batch size) of lists (ensemble size) of preprocessed
-                     test features [EnsembleSize, N_test, Features].
-
-        Returns:
-            A tensor of predicted **un-standardized** target values [BatchSize, N_test].
+    def forward(self, X: list[torch.Tensor] | XType,
+                *,
+                use_inference_mode: bool = False,   
+                ) -> torch.Tensor:
         """
-        if not isinstance(self.executor_, InferenceEngineBatchedNoPreprocessing):
-            raise ValueError(
-                "Error using batched mode: \
-                predict_from_preprocessed can only be called  \
-                following fit_from_preprocessed "
-            )
-        
-        check_is_fitted(self)
- 
-        # Ensure torch.inference_mode is OFF to allow gradients
-        self.executor_.use_torch_inference_mode(use_inference=False)
+        Shared function between forward() pass in fine-tuning as well as forward pass in predict function.
+        Iterates over outputs of InferenceEngine. 
+        Inputs: 
+            - input data X: list[torch.Tensor] in fine-tuning and XType in normal predictions
+            - use_inference_mode: Just another Flag to pass 
 
-        batched_outputs_logits = [] # Store raw logits from each ensemble member across the batch
+        Outputs: 
+            - Averages_logits: needed in fine-tuning forward pass
+            - outputs: 
+            - borders: 
+        """
+        assert (
+            # Condition 1: X is XType and executor is NOT the specific batched one and we are NOT doing inference 
+            use_inference_mode and not isinstance(self.executor_, InferenceEngineBatchedNoPreprocessing) #(isinstance(X, XType) and not 
+            or
+            # Condition 2: X is a list of Tensors and executor IS the specific batched one and we are doing inference 
+            not use_inference_mode and (isinstance(X, list) and isinstance(X[0], torch.Tensor) and isinstance(self.executor_, InferenceEngineBatchedNoPreprocessing))
+        ), "Input type X does not match the executor type" # Optional: Add an error message
+            
+        if not use_inference_mode:
+            # Ensure torch.inference_mode is OFF to allow gradients
+            self.executor_.use_torch_inference_mode(use_inference=False)
+
+        check_is_fitted(self)
+
+        std_borders = self.bardist_.borders.cpu().numpy()
+        outputs: list[torch.Tensor] = []
+        borders: list[np.ndarray] = []
         
-        for output, ensemble_configs_for_member in self.executor_.iter_outputs(
-            X_tests, 
+        for output, config in self.executor_.iter_outputs(
+            X, 
             device=self.device_,
             autocast=self.use_autocast_,
         ):
-            assert isinstance(ensemble_configs_for_member[0], RegressorEnsembleConfig)
-
+            
             if self.softmax_temperature != 1:
                 output = output.float() / self.softmax_temperature  # noqa: PLW2901
-            batched_outputs_logits.append(output)
 
-            std_borders = self.bardist_.borders.cpu().numpy() # Standardized borders
-            for batch_idx, config in enumerate(ensemble_configs_for_member):
-                 #assert isinstance(config, RegressorEnsembleConfig) FAIL
+            #BSz.= 1 Scenario, the same as normal predcit() function
+            #Handled by first if-statement
+            if isinstance(config, list) and len(config)==1:
+                config = config[0]
+
+            if isinstance(config, RegressorEnsembleConfig):
+                borders_t: np.ndarray
+                logit_cancel_mask: np.ndarray | None
+                descending_borders: bool
+
+                # TODO(eddiebergman): Maybe this could be parallelized or done in fit
+                # but I somehow doubt it takes much time to be worth it.
+                # One reason to make it worth it is if you want fast predictions, i.e.
+                # don't re-do this each time.
+                # However it gets a bit more difficult as you need to line up the
+                # outputs from `iter_outputs` above (which may be in arbitrary order),
+                # along with the specific config the output belongs to. This is because
+                # the transformation done to the borders for a given output is dependant
+                # upon the target_transform of the config.
+                if config.target_transform is None:
+                    borders_t = std_borders.copy()
+                    logit_cancel_mask = None
+                    descending_borders = False
+                else:
+                    logit_cancel_mask, descending_borders, borders_t = (
+                        _transform_borders_one(
+                            std_borders,
+                            target_transform=config.target_transform,
+                            repair_nan_borders_after_transform=self.interface_config_.FIX_NAN_BORDERS_AFTER_TARGET_TRANSFORM,
+                        )
+                    )
+                    if descending_borders:
+                        borders_t = borders_t.flip(-1)  # type: ignore
+
+                borders.append(borders_t)
+
+                if logit_cancel_mask is not None:
+                    output = output.clone()  # noqa: PLW2901
+                    output[..., logit_cancel_mask] = float("-inf")
+
+            #TODO (Klemens) Maybe keep, or built codebase on a Bsz=1.
+            #Bsz > 1, Not sure about this part tbh
+            elif isinstance(config, list):                
+                ensemble_configs_for_member = config
+                assert isinstance(ensemble_configs_for_member[0], RegressorEnsembleConfig)
+                for batch_idx, config in enumerate(ensemble_configs_for_member):                 
                  
-                 if config.target_transform is None:
-                     logit_cancel_mask = None
-                 else:
-                     logit_cancel_mask, descending_borders, borders_t = (
-                         _transform_borders_one(
-                             std_borders,
-                             target_transform=config.target_transform,
-                             repair_nan_borders_after_transform=self.interface_config_.FIX_NAN_BORDERS_AFTER_TARGET_TRANSFORM,
-                         )
-                     )
-                     #if descending_borders:
-                     #    borders_t = borders_t.flip(-1)
-                     # Apply logit mask if needed (can modify output_logits directly if careful)
-                     if logit_cancel_mask is not None:
-                        # Ensure modification happens correctly for the specific batch item
-                        #output_logits[batch_idx, :, logit_cancel_mask] = -torch.inf
-                        logit_cancel_mask_t = torch.from_numpy(logit_cancel_mask).to(output.device)
-                        output[batch_idx, :, logit_cancel_mask_t] = -torch.inf # Use tensor mask
-                
-                 #member_borders.append(torch.as_tensor(borders_t, device=self.device_))
-            #batched_borders.append(torch.stack(member_borders)) # Shape [BatchSize, N_borders]
+                    if config.target_transform is None:
+                        logit_cancel_mask = None
+                    else:
+                        logit_cancel_mask, descending_borders, borders_t = (
+                            _transform_borders_one(
+                                std_borders,
+                                target_transform=config.target_transform,
+                                repair_nan_borders_after_transform=self.interface_config_.FIX_NAN_BORDERS_AFTER_TARGET_TRANSFORM,
+                            )
+                        )                        
+                        if logit_cancel_mask is not None:                        
+                            logit_cancel_mask_t = torch.from_numpy(logit_cancel_mask).to(output.device)
+                            output[batch_idx, :, logit_cancel_mask_t] = -torch.inf # Use tensor mask"""                         
+                                  
+            else:
+                raise ValueError("Unexpected config format")
+            
+            outputs.append(output)  # type: ignore
+        
+        averaged_logits = None
+        all_logits = None
+        if outputs:
+            all_logits = torch.stack(outputs, dim=0) # [n_estiamtors, n_samples, n_borders] 10, 350, 5000]
+            averaged_logits_over_ensemble = torch.mean(all_logits, dim=0) #[n_samples, n_borders]
+            averaged_logits = averaged_logits_over_ensemble.transpose(0, 1) #[n_borders, n_samples]
 
-        # Stack results across ensemble members: [EnsembleSize, BatchSize, N_test, N_classes]
-        all_logits = torch.stack(batched_outputs_logits, dim=0)
-        # Stack borders: [EnsembleSize, BatchSize, N_borders]
-        #all_borders = torch.stack(batched_borders, dim=0)
-
-        #print(f"AA all_logits shape {all_logits.shape}") #torch.Size([2, 105, 1, 5000])
-        #print(f"AA all_borders shape {all_borders.shape}") #torch.Size([2, 1, 5001])
-
-        averaged_logits_over_ensemble = torch.mean(all_logits, dim=0)
-        final_logits = averaged_logits_over_ensemble.transpose(0, 1)
-
-        return final_logits
+        return averaged_logits, outputs, borders
 
 
     @config_context(transform_output="default")  # type: ignore
@@ -986,56 +1025,9 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
             ), "All quantiles must be between 0 and 1 and floats."
         if output_type not in self._USABLE_OUTPUT_TYPES:
             raise ValueError(f"Invalid output type: {output_type}")
+        
+        _, outputs, borders, = self.forward(X, use_inference_mode=True)
 
-        std_borders = self.bardist_.borders.cpu().numpy()
-        outputs: list[torch.Tensor] = []
-        borders: list[np.ndarray] = []
-
-        for output, config in self.executor_.iter_outputs(
-            X,
-            device=self.device_,
-            autocast=self.use_autocast_,
-        ):
-            assert isinstance(config, RegressorEnsembleConfig)
-
-            if self.softmax_temperature != 1:
-                output = output.float() / self.softmax_temperature  # noqa: PLW2901
-
-            borders_t: np.ndarray
-            logit_cancel_mask: np.ndarray | None
-            descending_borders: bool
-
-            # TODO(eddiebergman): Maybe this could be parallelized or done in fit
-            # but I somehow doubt it takes much time to be worth it.
-            # One reason to make it worth it is if you want fast predictions, i.e.
-            # don't re-do this each time.
-            # However it gets a bit more difficult as you need to line up the
-            # outputs from `iter_outputs` above (which may be in arbitrary order),
-            # along with the specific config the output belongs to. This is because
-            # the transformation done to the borders for a given output is dependant
-            # upon the target_transform of the config.
-            if config.target_transform is None:
-                borders_t = std_borders.copy()
-                logit_cancel_mask = None
-                descending_borders = False
-            else:
-                logit_cancel_mask, descending_borders, borders_t = (
-                    _transform_borders_one(
-                        std_borders,
-                        target_transform=config.target_transform,
-                        repair_nan_borders_after_transform=self.interface_config_.FIX_NAN_BORDERS_AFTER_TARGET_TRANSFORM,
-                    )
-                )
-                if descending_borders:
-                    borders_t = borders_t.flip(-1)  # type: ignore
-
-            borders.append(borders_t)
-
-            if logit_cancel_mask is not None:
-                output = output.clone()  # noqa: PLW2901
-                output[..., logit_cancel_mask] = float("-inf")
-
-            outputs.append(output)  # type: ignore
 
         # --- Translate probs, average, get final logits (same as before) ---
         transformed_logits = [
