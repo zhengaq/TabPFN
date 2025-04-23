@@ -39,6 +39,8 @@ from tabpfn.base import (
     create_inference_engine,
     determine_precision,
     initialize_tabpfn_model,
+    ModelSpecs,
+    RegressorModelSpecs,
 )
 from tabpfn.config import ModelInterfaceConfig
 from tabpfn.model.bar_distribution import FullSupportBarDistribution
@@ -178,7 +180,7 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
         categorical_features_indices: Sequence[int] | None = None,
         softmax_temperature: float = 0.9,
         average_before_softmax: bool = False,
-        model_path: str | Path | Literal["auto"] = "auto",
+        model_path: str | Path | Literal["auto"] | RegressorModelSpecs = "auto",
         device: str | torch.device | Literal["auto"] = "auto",
         ignore_pretraining_limits: bool = False,
         inference_precision: _dtype | Literal["autocast", "auto"] = "auto",
@@ -473,7 +475,7 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
         """
         static_seed, rng = infer_random_state(self.random_state)
 
-        # Load the model and config
+        # Load the model and config    
         self.model_, self.config_, self.bardist_ = initialize_tabpfn_model(
             model_path=self.model_path,
             which="regressor",
@@ -767,6 +769,7 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
             self
         """
         static_seed, rng = infer_random_state(self.random_state)
+
 
         # Load the model and config
         self.model_, self.config_, self.bardist_ = initialize_tabpfn_model(

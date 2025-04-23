@@ -396,7 +396,8 @@ def resolve_model_path(
 
 
 def load_model_criterion_config(
-    model_path: None | str | Path,
+    #TODO: double check this
+    model_path: None | str | Path | torch.nn.Module,
     *,
     check_bar_distribution_criterion: bool,
     cache_trainset_representation: bool,
@@ -427,6 +428,7 @@ def load_model_criterion_config(
     Returns:
         The model, criterion, and config.
     """
+
     (model_path, model_dir, model_name, which) = resolve_model_path(
         model_path, which, version
     )

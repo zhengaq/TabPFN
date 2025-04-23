@@ -15,6 +15,10 @@ from tqdm import tqdm
 #from tabpfn.regressor import TabPFNRegressor
 from tabpfn import TabPFNRegressor
 from tabpfn.utils import collate_for_tabpfn_dataset
+from tabpfn.base import RegressorModelSpecs
+
+import copy
+
 
 
 def eval_test_regression_standard(reg: TabPFNRegressor, 
@@ -31,39 +35,36 @@ def eval_test_regression_standard(reg: TabPFNRegressor,
     Returns:
         A tuple containing (MSE, MAE, R2).
     """
-    reg_eval = TabPFNRegressor()
-    reg_eval._initialize_model_variables()
+    #TODO: make sure this runs
 
     if hasattr(reg, 'model_') and reg.model_ is not None:
-        
-        reg_eval.model_ = reg.model_
-        print("reg paramter 0 ", [p for p in reg.model_.parameters()][0][10])
-        print("reg evak paramter 0 ", [p for p in reg_eval.model_.parameters()][0][10])
-    else: 
-        print("Evaluating untrained pre-trainedm model")
+        #My eval was manipulating the underlying reg class
+        new_model = copy.deepcopy(reg.model_) # <--- Need!!!
+        new_config = copy.deepcopy(reg.config_) #probs do not need
+        new_bar_dist = copy.deepcopy(reg.bardist_) #probs do not need
+        model_spec_obj = RegressorModelSpecs(
+            model=new_model,
+            config=new_config,
+            norm_criterion=new_bar_dist,
+        )
+        reg_eval = TabPFNRegressor(model_path=model_spec_obj)
 
-    
+        #reg_eval.memory_saving_mode = False
+    else: 
+        reg_eval = TabPFNRegressor()
 
     reg_eval.fit(X_train_raw, y_train_raw)
-    #model_exists = hasattr(reg, 'model_') and reg_eval.model_ is not None
-    """if model_exists:
-        original_mode_is_train = reg_eval.model_.training # Remember original mode
-        reg_eval.model_.eval() # Set to eval mode for prediction
-    else:
-        print("Warning: Model attribute not found in regressor during evaluation setup.")
-        # Cannot proceed without a model if predict needs it internally
-        return np.nan, np.nan, np.nan"""
 
-    predictions = np.array([]) # Initialize empty array
+    
+    #if hasattr(reg, 'model_') and reg.model_ is not None:
+        #print("reg paramters: ", [p for p in reg.model_.parameters()][0][10])
+        #print("reg_eval paramters: ", [p for p in reg_eval.model_.parameters()][0][10])
+    
     
     try:
-        # Perform prediction within no_grad context
         predictions = reg_eval.predict(X_test_raw) # Default output is 'mean'
-
         #print("predictions", predictions[0])
-        #print(predictions.mean(), y_test_raw.mean())
-
-        # Calculate metrics
+        
         mse = mean_squared_error(y_test_raw, predictions)
         mae = mean_absolute_error(y_test_raw, predictions)
         r2 = r2_score(y_test_raw, predictions)
@@ -94,37 +95,30 @@ if __name__ == "__main__":
         device=device,
         n_estimators=2,
         random_state=2, # For reproducibility of internal sampling/preprocessing
-        inference_precision=torch.float32 # Keep precision consistent
-        # fit_mode default is 'fit_preprocessors', which is fine for initial eval
+        inference_precision=torch.float32, # Keep precision consistent
         # memory_saving_mode default is 'auto'
     )
 
     reg = TabPFNRegressor(**regressor_args, differentiable_input=False)
-
-    #initial_eval = True
-    #if initial_eval:
-        
-        
-        #initial_mse, initial_mae, initial_r2 = eval_test_regression_standard(
-        #        reg, X_test_raw, y_test_raw,
-        #        X_train_raw, y_train_raw)
-        #print(f"Initial Test MSE: {initial_mse:.4f}, MAE: {initial_mae:.4f}, R2: {initial_r2:.4f}")
     
     print("Pretrained Model Performance ")
+    
     res_mse, res_mae, res_r2 = eval_test_regression_standard(
                 reg, X_train_raw, y_train_raw, X_test_raw, y_test_raw
             )
+    
     print(f"Test MSE: {res_mse:.4f}")
     print(f"Test MAE: {res_mae:.4f}") # Added MAE printout
     print(f"Test R2: {res_r2:.4f}")   # Added R2 printout
+
     
 
-    datasets_collection = reg.get_preprocessed_datasets(X_train_raw, y_train_raw, splitfn, max_data_size=750)
-    datasets_collection_test = reg.get_preprocessed_datasets(X_test_raw, y_test_raw, splitfn, max_data_size=750)
+    datasets_collection = reg.get_preprocessed_datasets(X_train_raw, y_train_raw, splitfn, max_data_size=1000)
+    datasets_collection_test = reg.get_preprocessed_datasets(X_test_raw, y_test_raw, splitfn, max_data_size=1000)
 
     my_dl_train = DataLoader(datasets_collection, batch_size=1, collate_fn=collate_for_tabpfn_dataset)
     my_dl_test = DataLoader(datasets_collection_test, batch_size=1, collate_fn=collate_for_tabpfn_dataset)
-    optim_impl = Adam(reg.model_.parameters(), lr=1e-5)
+    optim_impl = Adam(reg.model_.parameters(), lr=1e-3)
     
     loss_batches = []
     mse_batches = []
@@ -161,25 +155,23 @@ if __name__ == "__main__":
 
             loss = nll_loss_per_sample.mean()
 
-            print(f" AA {loss}")
+            print(f" Loss in EPOCH {epoch+1}: {loss}")
             loss.backward()
             optim_impl.step()
         
         
-        #Torch Module
-        res_mse, res_mae, res_r2 = None, None, None
+        res_mse, res_mae, res_r2 = np.nan, np.nan, np.nan        
         res_mse, res_mae, res_r2 = eval_test_regression_standard(
                 reg, X_train_raw, y_train_raw, X_test_raw, y_test_raw
             )
         
+        
 
         print(f"---- EPOCH {epoch+1} Evaluation Results (Standard Predict): ----")
-        if np.isnan(res_mse):
-             print("Evaluation failed or produced no results.")
-        else:
-            print(f"Test MSE: {res_mse:.4f}")
-            print(f"Test MAE: {res_mae:.4f}") # Added MAE printout
-            print(f"Test R2: {res_r2:.4f}")   # Added R2 printout
+        
+        print(f"Test MSE: {res_mse:.4f}")
+        print(f"Test MAE: {res_mae:.4f}") # Added MAE printout
+        print(f"Test R2: {res_r2:.4f}")   # Added R2 printout
 
         
 

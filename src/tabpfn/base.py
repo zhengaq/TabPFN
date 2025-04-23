@@ -12,6 +12,7 @@ from typing import (
     Any,
     Literal,
     overload,
+    TypeAlias
 )
 
 import torch
@@ -39,31 +40,50 @@ if TYPE_CHECKING:
     from tabpfn.model.config import InferenceConfig
     from tabpfn.model.transformer import PerFeatureTransformer
 
+    ModelSpecs = RegressorModelSpecs | ClassifierModelSpecs
+    #ModelSpecs: TypeAlias = tuple[PerFeatureTransformer, InferenceConfig, FullSupportBarDistribution | None]
+
+from dataclasses import dataclass
+
+@dataclass
+class BaseModelSpecs:
+    model: PerFeatureTransformer
+    config: InferenceConfig
+
+@dataclass
+class ClassifierModelSpecs(BaseModelSpecs):
+    pass
+
+@dataclass
+class RegressorModelSpecs(BaseModelSpecs):
+    norm_criterion: FullSupportBarDistribution
+
+ModelSpecs = RegressorModelSpecs | ClassifierModelSpecs # Python 3.10+ style
 
 @overload
 def initialize_tabpfn_model(
-    model_path: str | Path | Literal["auto"],
+    model_path: str | Path | Literal["auto"] | RegressorModelSpecs,
     which: Literal["regressor"],
     fit_mode: Literal["low_memory", "fit_preprocessors", "fit_with_cache"],
     static_seed: int,
-) -> tuple[PerFeatureTransformer, InferenceConfig, FullSupportBarDistribution]: ...
+) -> RegressorModelSpecs: ...
 
 
 @overload
 def initialize_tabpfn_model(
-    model_path: str | Path | Literal["auto"],
+    model_path: str | Path | Literal["auto"] | ClassifierModelSpecs,
     which: Literal["classifier"],
     fit_mode: Literal["low_memory", "fit_preprocessors", "fit_with_cache"],
     static_seed: int,
-) -> tuple[PerFeatureTransformer, InferenceConfig, None]: ...
+) -> ClassifierModelSpecs: ...
 
 
 def initialize_tabpfn_model(
-    model_path: str | Path | Literal["auto"],
+    model_path: str | Path | Literal["auto"] | RegressorModelSpecs | ClassifierModelSpecs,
     which: Literal["classifier", "regressor"],
     fit_mode: Literal["low_memory", "fit_preprocessors", "fit_with_cache"],
     static_seed: int,
-) -> tuple[PerFeatureTransformer, InferenceConfig, FullSupportBarDistribution | None]:
+) -> ModelSpecs:
     """Common logic to load the TabPFN model, set up the random state,
     and optionally download the model.
 
@@ -78,10 +98,33 @@ def initialize_tabpfn_model(
         config: The configuration object associated with the loaded model.
         bar_distribution: The BarDistribution for regression (`None` if classifier).
     """
-    # Handle auto model_path
+
+    # --- 1. Handle Pre-loaded ModelSpecs ---
+    if isinstance(model_path, RegressorModelSpecs):
+        if which == "regressor":
+            print("Using pre-loaded RegressorModelSpecs.") # Optional debug/info message
+            # Potentially ensure model is on correct device/dtype here if needed,
+            # although the caller (`fit` or `_initialize_model_variables`) also does this.            
+            return model_path.model, model_path.config, model_path.norm_criterion
+        else: # which == "classifier"
+            raise TypeError(
+                "Received RegressorModelSpecs via 'model_path', but 'which' parameter "
+                f"is set to '{which}'. Expected 'regressor'."
+            )
+    elif isinstance(model_path, ClassifierModelSpecs):
+        if which == "classifier":
+            print("Using pre-loaded ClassifierModelSpecs.") # Optional debug/info message
+            return model_path.model, model_path.config, None
+        else: # which == "regressor"
+            raise TypeError(
+                "Received ClassifierModelSpecs via 'model_path', but 'which' parameter "
+                f"is set to '{which}'. Expected 'classifier'."
+            )
+    # --- If not ModelSpecs, it must be a path, 'auto', or None (after processing 'auto') ---
     download = True
     if isinstance(model_path, str) and model_path == "auto":
         model_path = None  # type: ignore
+
 
     # Load model with potential caching
     if which == "classifier":
@@ -109,6 +152,7 @@ def initialize_tabpfn_model(
             model_seed=static_seed,
         )
         bar_distribution = bardist
+
 
     return model, config_, bar_distribution
 
