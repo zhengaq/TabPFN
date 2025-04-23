@@ -668,7 +668,6 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
         return self 
     
     #TODO: clean up a lot!!!
-    
     def predict_from_preprocessed(self, X_tests: list[torch.Tensor],
                                   
                                   quantiles: list[float] | None = None,
@@ -692,14 +691,11 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
         
         check_is_fitted(self)
  
-
         # Ensure torch.inference_mode is OFF to allow gradients
         self.executor_.use_torch_inference_mode(use_inference=False)
 
         batched_outputs_logits = [] # Store raw logits from each ensemble member across the batch
-        batched_borders = []        # Store corresponding borders
-
-        # executor_.iter_outputs yields per ensemble member across the whole batch
+        
         for output, ensemble_configs_for_member in self.executor_.iter_outputs(
             X_tests, 
             device=self.device_,
@@ -711,19 +707,13 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
                 output = output.float() / self.softmax_temperature  # noqa: PLW2901
             batched_outputs_logits.append(output)
 
-            #print(f"output_logits shape {output_logits.shape}") #([105, 1, 5000])
-            #print(f"output_logits shape {output_logits.shape}") #([105, 1, 5000])
-
-            #member_borders = []
             std_borders = self.bardist_.borders.cpu().numpy() # Standardized borders
             for batch_idx, config in enumerate(ensemble_configs_for_member):
                  #assert isinstance(config, RegressorEnsembleConfig) FAIL
                  
                  if config.target_transform is None:
-                     #borders_t = std_borders.copy()
                      logit_cancel_mask = None
                  else:
-                     # IMPORTANT: _transform_borders_one returns np.ndarray
                      logit_cancel_mask, descending_borders, borders_t = (
                          _transform_borders_one(
                              std_borders,

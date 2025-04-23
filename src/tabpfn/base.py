@@ -52,7 +52,7 @@ class BaseModelSpecs:
 
 @dataclass
 class ClassifierModelSpecs(BaseModelSpecs):
-    pass
+    norm_criterion = None
 
 @dataclass
 class RegressorModelSpecs(BaseModelSpecs):
