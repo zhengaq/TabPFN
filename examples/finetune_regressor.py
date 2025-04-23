@@ -38,16 +38,15 @@ def eval_test_regression_standard(reg: TabPFNRegressor,
         )
         reg_eval = TabPFNRegressor(model_path=model_spec_obj, **eval_init_args)
 
-        #reg_eval.memory_saving_mode = False
     else: 
         print("Pretrained Model Performance ")
         reg_eval = TabPFNRegressor(**eval_init_args)
 
     reg_eval.fit(X_train_raw, y_train_raw)
     predictions = reg_eval.predict(X_train_raw)
-    print(f"Train MSE: {mean_squared_error(y_train_raw, predictions)}")
-    print(f"Train MAE: {mean_absolute_error(y_train_raw, predictions)}")
-    print(f"Train R2: {r2_score(y_train_raw, predictions)}")
+    print(f"DEBUG Train MSE: {mean_squared_error(y_train_raw, predictions)}")
+    print(f"DEBUG Train MAE: {mean_absolute_error(y_train_raw, predictions)}")
+    print(f"DEBUG Train R2: {r2_score(y_train_raw, predictions)}")
     try:
         predictions = reg_eval.predict(X_test_raw) 
         mse = mean_squared_error(y_test_raw, predictions)
@@ -102,12 +101,12 @@ if __name__ == "__main__":
         "optimization_space": "raw_label_space" # "raw_label_space",  "preprocessed"
     }
 
-    datasets_collection = reg.get_preprocessed_datasets(X_train_raw, y_train_raw, splitfn, max_data_size=1000)
-    datasets_collection_test = reg.get_preprocessed_datasets(X_test_raw, y_test_raw, splitfn, max_data_size=1000)
+    datasets_collection = reg.get_preprocessed_datasets(X_train_raw, y_train_raw, splitfn, max_data_size=150)
+    datasets_collection_test = reg.get_preprocessed_datasets(X_test_raw, y_test_raw, splitfn, max_data_size=150)
 
     my_dl_train = DataLoader(datasets_collection, batch_size=1, collate_fn=collate_for_tabpfn_dataset)
     my_dl_test = DataLoader(datasets_collection_test, batch_size=1, collate_fn=collate_for_tabpfn_dataset)
-    optim_impl = Adam(reg.model_.parameters(), lr=5e-4)
+    optim_impl = Adam(reg.model_.parameters(), lr=1e-5)
     
     loss_batches = []
     mse_batches = []
@@ -157,8 +156,6 @@ if __name__ == "__main__":
         print(f"Test MSE: {res_mse:.4f}")
         print(f"Test MAE: {res_mae:.4f}") # Added MAE printout
         print(f"Test R2: {res_r2:.4f}")   # Added R2 printout
-
-        
 
         #loss_batches.append(loss_test)
         #mse_batches.append(res_mse)

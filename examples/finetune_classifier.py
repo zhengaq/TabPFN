@@ -20,23 +20,9 @@ from tabpfn.base import ClassifierModelSpecs
 import time
 
 
-def eval_test_old(clf, my_dl_test, lossfn):
-    with torch.no_grad():
-        loss_sum = 0.0
-        acc_sum = 0.0
-        acc_items = 0
-        for data_batch in my_dl_test:
-            X_trains, X_tests, y_trains, y_tests, cat_ixs, confs = data_batch
-            clf.fit_from_preprocessed(X_trains, y_trains, cat_ixs, confs)
-            preds = clf.predict_proba_from_preprocessed(X_tests)
-            loss_sum += lossfn(torch.log(preds), y_tests.to(device)).item()
-            acc_sum += accuracy_score(y_tests.flatten().cpu(), preds[:,1,:].flatten().cpu()>0.5)*y_tests.numel()
-            acc_items += y_tests.numel()
-
-        res_accuracy = acc_sum/acc_items
-        return loss_sum, res_accuracy
-    
 def eval_test(clf: TabPFNClassifier, 
+              classifier_args: dict, 
+              *,
             X_train_raw: np.ndarray, y_train_raw: np.ndarray,
             X_test_raw: np.ndarray, y_test_raw: np.ndarray
         ):
@@ -46,11 +32,10 @@ def eval_test(clf: TabPFNClassifier,
         model_spec_obj = ClassifierModelSpecs(
             model=new_model,
             config=new_config,
-            #norm_criterion=None,
         )
-        clf_eval = TabPFNClassifier(model_path=model_spec_obj)
+        clf_eval = TabPFNClassifier(model_path=model_spec_obj, **classifier_args)
     else: 
-        clf_eval = TabPFNClassifier()
+        clf_eval = TabPFNClassifier(**classifier_args)
 
     clf_eval.fit(X_train_raw, y_train_raw)
     
@@ -59,14 +44,14 @@ def eval_test(clf: TabPFNClassifier,
         predictions_proba = clf_eval.predict_proba(X_test_raw) # Needed for log_loss
 
         accuracy = accuracy_score(y_test_raw, predictions_labels)
-        nll = log_loss(y_test_raw, predictions_proba)
+        ll = log_loss(y_test_raw, predictions_proba)
 
     except Exception as e:
         print(f"Error during evaluation prediction/metric calculation: {e}")
-        accuracy, nll= np.nan, np.nan
+        accuracy, ll= np.nan, np.nan
         
 
-    return accuracy, nll
+    return accuracy, ll
 
 if __name__ == "__main__":
     device = "cpu"
@@ -91,8 +76,15 @@ if __name__ == "__main__":
                                             random_state=random_seed,
                                                )
 
-    clf = TabPFNClassifier(ignore_pretraining_limits=True, device=device, n_estimators=2,
-                           random_state=2, inference_precision=torch.float32)
+    
+    classifier_args = dict(
+        ignore_pretraining_limits=True,
+        device=device,
+        n_estimators=2,
+        random_state=2,
+        inference_precision=torch.float32, 
+    )
+    clf = TabPFNClassifier(**classifier_args)
 
     datasets_list = clf.get_preprocessed_datasets(X_train, y_train, splitfn, 1000)
     datasets_list_test = clf.get_preprocessed_datasets(X_test, y_test, splitfn, 1000)
@@ -104,10 +96,15 @@ if __name__ == "__main__":
     loss_batches = []
     acc_batches = []
 
-    #loss_test, res_acc = eval_test(clf, my_dl_test, lossfn)
-    res_acc, loss_test = eval_test(clf, X_train, y_train, X_test, y_test)
+    res_acc, ll = eval_test(clf, 
+                                classifier_args,
+                                X_train_raw=X_train,
+                                y_train_raw=y_train,
+                                X_test_raw=X_test,
+                                y_test_raw=y_test
+                                )
     print("Initial accuracy:", res_acc)
-    print("Initial Test Loss:", loss_test)
+    print("Initial Test Log Loss:", ll)
     for epoch in range(do_epochs):
         for data_batch in tqdm(my_dl_train):
             optim_impl.zero_grad()
@@ -118,14 +115,19 @@ if __name__ == "__main__":
             loss.backward()
             optim_impl.step()
 
-        #loss_test, res_acc = eval_test(clf, my_dl_test, lossfn)
-        res_acc, loss_test = eval_test(clf, X_train, y_train, X_test, y_test)
+        res_acc, ll = eval_test(clf, 
+                                classifier_args,
+                                X_train_raw=X_train,
+                                y_train_raw=y_train,
+                                X_test_raw=X_test,
+                                y_test_raw=y_test
+                                )
         print(f"---- EPOCH {epoch}: ----")
         print("Test Acc:", res_acc)
-        print("Test Loss:", loss_test)
+        print("Test Log Loss:", ll)
 
-        loss_batches.append(loss_test)
-        acc_batches.append(res_acc)
-        with Path("finetune.json").open(mode="w") as file:
-            json.dump({"loss": loss_batches, "acc": acc_batches}, file)
+        #loss_batches.append(ll)
+        #acc_batches.append(res_acc)
+        #with Path("finetune.json").open(mode="w") as file:
+        #    json.dump({"loss": loss_batches, "acc": acc_batches}, file)
 
