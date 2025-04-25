@@ -34,35 +34,40 @@ if TYPE_CHECKING:
     from tabpfn.model.config import InferenceConfig
     from tabpfn.model.transformer import PerFeatureTransformer
 
+
 class BaseModelSpecs:
     """Base class for model specifications."""
+
     def __init__(self, model: PerFeatureTransformer, config: InferenceConfig):
         self.model = model
         self.config = config
 
+
 class ClassifierModelSpecs(BaseModelSpecs):
     """Model specs for classifiers."""
+
     norm_criterion = None
+
 
 class RegressorModelSpecs(BaseModelSpecs):
     """Model specs for regressors."""
+
     def __init__(
-        self, model: PerFeatureTransformer, config: InferenceConfig,
-        norm_criterion: FullSupportBarDistribution
+        self,
+        model: PerFeatureTransformer,
+        config: InferenceConfig,
+        norm_criterion: FullSupportBarDistribution,
     ):
         super().__init__(model, config)
         self.norm_criterion = norm_criterion
 
+
 ModelSpecs = Union[RegressorModelSpecs, ClassifierModelSpecs]
+
 
 @overload
 def initialize_tabpfn_model(
-    model_path: (
-        str
-        | Path
-        | Literal["auto"]
-        | RegressorModelSpecs
-    ),
+    model_path: (str | Path | Literal["auto"] | RegressorModelSpecs),
     which: Literal["regressor"],
     fit_mode: Literal["low_memory", "fit_preprocessors", "fit_with_cache"],
     static_seed: int,
@@ -71,12 +76,7 @@ def initialize_tabpfn_model(
 
 @overload
 def initialize_tabpfn_model(
-    model_path: (
-        str
-        | Path
-        | Literal["auto"]
-        | ClassifierModelSpecs
-    ),
+    model_path: (str | Path | Literal["auto"] | ClassifierModelSpecs),
     which: Literal["classifier"],
     fit_mode: Literal["low_memory", "fit_preprocessors", "fit_with_cache"],
     static_seed: int,
@@ -84,12 +84,13 @@ def initialize_tabpfn_model(
 
 
 def initialize_tabpfn_model(
-    model_path: str | Path | Literal["auto"] |
-    RegressorModelSpecs | ClassifierModelSpecs,
+    model_path: str
+    | Path
+    | Literal["auto"]
+    | RegressorModelSpecs
+    | ClassifierModelSpecs,
     which: Literal["classifier", "regressor"],
-    fit_mode: Literal[
-        "low_memory", "fit_preprocessors", "fit_with_cache"
-    ],
+    fit_mode: Literal["low_memory", "fit_preprocessors", "fit_with_cache"],
     static_seed: int,
 ) -> ModelSpecs:
     """Initializes a TabPFN model based on the provided configuration.
@@ -113,8 +114,8 @@ def initialize_tabpfn_model(
             return model_path.model, model_path.config, None
         raise TypeError(
             "Received ModelSpecs via 'model_path', but 'which' parameter is set to '"
-            + which +
-            "'. Expected 'classifier' or 'regressor'."
+            + which
+            + "'. Expected 'classifier' or 'regressor'."
         )
     # --- If not ModelSpecs, it must be a path, 'auto', or None
     # (after processing 'auto')
@@ -148,7 +149,6 @@ def initialize_tabpfn_model(
             model_seed=static_seed,
         )
         bar_distribution = bardist
-
 
     return model, config_, bar_distribution
 

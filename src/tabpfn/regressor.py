@@ -423,7 +423,6 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
         tags.estimator_type = "regressor"
         return tags
 
-
     def get_preprocessed_datasets(
         self,
         X_raw: XType | list[XType],
@@ -448,7 +447,6 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
             y_raw = [y_raw]
         assert len(X_raw) == len(y_raw), "X and y lists must have the same length."
 
-
         if not hasattr(self, "model_") or self.model_ is None:
             byte_size, rng = self._initialize_model_variables()
         else:
@@ -471,11 +469,7 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
                 y_mod_raw,
                 y_mod_standardised,
                 renormalised_criterion,
-            ) = (
-                self._initialize_dataset_preprocessing(
-                    X_item, y_item, rng
-                )
-            )
+            ) = self._initialize_dataset_preprocessing(X_item, y_item, rng)
             dataset_config_collection.append(
                 RegressorDatasetConfig(
                     config=configs,
@@ -487,9 +481,7 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
                 )
             )
         return DatasetCollectionWithPreprocessing(
-            split_fn,
-            rng,
-            dataset_config_collection
+            split_fn, rng, dataset_config_collection
         )
 
     def _initialize_model_variables(self) -> tuple[int, np.random.Generator]:
@@ -502,7 +494,7 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
         self.model_, self.config_, self.bardist_ = initialize_tabpfn_model(
             model_path=self.model_path,
             which="regressor",
-            fit_mode=self.fit_mode, # Use the instance's fit_mode
+            fit_mode=self.fit_mode,  # Use the instance's fit_mode
             static_seed=static_seed,
         )
 
@@ -522,16 +514,14 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
             outlier_removal_std = (
                 self.interface_config_._REGRESSION_DEFAULT_OUTLIER_REMOVAL_STD
             )
-        update_encoder_params( # Use the renamed function if available, or original one
+        update_encoder_params(  # Use the renamed function if available, or original one
             model=self.model_,
             remove_outliers_std=outlier_removal_std,
             seed=static_seed,
             inplace=True,
-            differentiable_input=self.differentiable_input
+            differentiable_input=self.differentiable_input,
         )
         return byte_size, rng
-
-
 
     def _initialize_dataset_preprocessing(
         self, X_raw: XType, y_raw: YType, rng
@@ -546,7 +536,7 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
             X_raw,
             y_raw,
             estimator=self,
-            ensure_y_numeric=True, # Ensure y is numeric for regression
+            ensure_y_numeric=True,  # Ensure y is numeric for regression
             max_num_samples=self.interface_config_.MAX_NUMBER_OF_SAMPLES,
             max_num_features=self.interface_config_.MAX_NUMBER_OF_FEATURES,
             ignore_pretraining_limits=self.ignore_pretraining_limits,
@@ -558,8 +548,8 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
             self.feature_names_in_ = feature_names_in
         self.n_features_in_ = n_features_in
 
-        #TODO: check how this interplays with if not self.differentiable_input
-        #TODO: Prompt tuning differentiation
+        # TODO: check how this interplays with if not self.differentiable_input
+        # TODO: Prompt tuning differentiation
 
         # Handle categorical features (same as in fit)
         X_raw = _fix_dtypes(X_raw, cat_indices=self.categorical_features_indices)
@@ -575,7 +565,6 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
         )
         self.preprocessor_ = ord_encoder
 
-
         # Infer categorical features based on the processed data
         # Store on self, as it's assumed consistent across datasets in a fine-tuning run
         self.inferred_categorical_indices_ = infer_categorical_features(
@@ -588,8 +577,8 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
 
         possible_target_transforms = (
             ReshapeFeatureDistributionsStep.get_all_preprocessors(
-                num_examples=len(y_raw), # Use length of validated y
-                random_state=rng, # Use the provided rng
+                num_examples=len(y_raw),  # Use length of validated y
+                random_state=rng,  # Use the provided rng
             )
         )
         target_preprocessors: list[TransformerMixin | Pipeline | None] = []
@@ -609,7 +598,7 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
             add_fingerprint_feature=self.interface_config_.FINGERPRINT_FEATURE,
             feature_shift_decoder=self.interface_config_.FEATURE_SHIFT_METHOD,
             polynomial_features=self.interface_config_.POLYNOMIAL_FEATURES,
-            max_index=len(X_raw), # Use length of validated X
+            max_index=len(X_raw),  # Use length of validated X
             preprocessor_configs=typing.cast(
                 Sequence[PreprocessorConfig],
                 preprocess_transforms
@@ -621,14 +610,13 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
         )
         assert len(ensemble_configs) == self.n_estimators
 
-
         # Standardize y
         mean = np.mean(y_raw)
         std = np.std(y_raw)
         self.y_train_std_ = std.item() + 1e-20
         self.y_train_mean_ = mean.item()
         y_standardised = (y_raw - self.y_train_mean_) / self.y_train_std_
-        #MAybe this does not make sense to do on a indivisual dataset level
+        # MAybe this does not make sense to do on a indivisual dataset level
         self.renormalized_criterion_ = FullSupportBarDistribution(
             self.bardist_.borders * self.y_train_std_ + self.y_train_mean_,
         ).float()
@@ -640,9 +628,9 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
     def fit_from_preprocessed(
         self,
         X_preprocessed: list[torch.Tensor],
-        y_preprocessed: list[torch.Tensor], # These y are standardized
+        y_preprocessed: list[torch.Tensor],  # These y are standardized
         cat_ix: list[list[int]],
-        configs: list[list[EnsembleConfig]], # Should be RegressorEnsembleConfig
+        configs: list[list[EnsembleConfig]],  # Should be RegressorEnsembleConfig
         *,
         no_refit=True,
     ) -> TabPFNRegressor:
@@ -668,9 +656,8 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
             _, _, byte_size = determine_precision(
                 self.inference_precision, self.device_
             )
-            #TODO: not sure about rng here
-            rng=None
-
+            # TODO: not sure about rng here
+            rng = None
 
         # Create the inference engine
         self.executor_ = create_inference_engine(
@@ -681,13 +668,13 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
             cat_ix=cat_ix,
             fit_mode="batched",
             device_=self.device_,
-            rng=rng, # Pass None if model already initialized
+            rng=rng,  # Pass None if model already initialized
             n_jobs=self.n_jobs,
             byte_size=byte_size,
             forced_inference_dtype_=self.forced_inference_dtype_,
             memory_saving_mode=self.memory_saving_mode,
             use_autocast_=self.use_autocast_,
-            inference_mode=not self.differentiable_input, # False if differentiable
+            inference_mode=not self.differentiable_input,  # False if differentiable
             # needed (prompt tune)
         )
 
@@ -729,12 +716,10 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
                 and isinstance(X[0], torch.Tensor)
                 and isinstance(self.executor_, InferenceEngineBatchedNoPreprocessing)
             )
-        ), (
-            "Input type X does not match the executor type"
-        )
+        ), "Input type X does not match the executor type"
 
         # Ensure torch.inference_mode is OFF to allow gradients
-        self.executor_.use_torch_inference_mode(_use_inference=use_inference_mode)
+        self.executor_.use_torch_inference_mode(use_inference=use_inference_mode)
 
         check_is_fitted(self)
 
@@ -748,7 +733,6 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
             device=self.device_,
             autocast=self.use_autocast_,
         ):
-
             if self.softmax_temperature != 1:
                 output = output.float() / self.softmax_temperature  # noqa: PLW2901
 
@@ -812,12 +796,11 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
         averaged_logits = None
         all_logits = None
         if outputs:
-            all_logits = torch.stack(outputs, dim=0) #[N_est, N_sampls, N_bord]
+            all_logits = torch.stack(outputs, dim=0)  # [N_est, N_sampls, N_bord]
             averaged_logits_over_ensemble = torch.mean(all_logits, dim=0)
             averaged_logits = averaged_logits_over_ensemble.transpose(0, 1)
 
         return averaged_logits, outputs, borders
-
 
     @config_context(transform_output="default")  # type: ignore
     def fit(self, X: XType, y: YType) -> Self:
@@ -831,7 +814,6 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
             self
         """
         static_seed, rng = infer_random_state(self.random_state)
-
 
         # Load the model and config
         self.model_, self.config_, self.bardist_ = initialize_tabpfn_model(
@@ -1058,8 +1040,11 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
         if output_type not in self._USABLE_OUTPUT_TYPES:
             raise ValueError(f"Invalid output type: {output_type}")
 
-        _, outputs, borders, = self.forward(X, use_inference_mode=True)
-
+        (
+            _,
+            outputs,
+            borders,
+        ) = self.forward(X, use_inference_mode=True)
 
         # --- Translate probs, average, get final logits (same as before) ---
         transformed_logits = [

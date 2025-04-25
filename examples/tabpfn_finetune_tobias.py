@@ -1,4 +1,5 @@
 """An example for finetuning TabPFN on the Covertype dataset."""
+
 import json
 from functools import partial
 from pathlib import Path
@@ -25,11 +26,17 @@ def eval_test(clf, my_dl_test, lossfn):
             clf.fit_from_preprocessed(X_trains, y_trains, cat_ixs, confs)
             preds = clf.predict_proba_from_preprocessed(X_tests)
             loss_sum += lossfn(torch.log(preds), y_tests.to(device)).item()
-            acc_sum += accuracy_score(y_tests.flatten().cpu(), preds[:,1,:].flatten().cpu()>0.5)*y_tests.numel()
+            acc_sum += (
+                accuracy_score(
+                    y_tests.flatten().cpu(), preds[:, 1, :].flatten().cpu() > 0.5
+                )
+                * y_tests.numel()
+            )
             acc_items += y_tests.numel()
 
-        res_accuracy = acc_sum/acc_items
+        res_accuracy = acc_sum / acc_items
         return loss_sum, res_accuracy
+
 
 if __name__ == "__main__":
     device = "cuda:3"
@@ -37,17 +44,30 @@ if __name__ == "__main__":
     do_epochs = 1
 
     # Load Covertype Dataset (7-way classification)
-    data_frame_x, data_frame_y = sklearn.datasets.fetch_covtype(return_X_y=True, shuffle=True)
+    data_frame_x, data_frame_y = sklearn.datasets.fetch_covtype(
+        return_X_y=True, shuffle=True
+    )
     splitfn = partial(train_test_split, test_size=0.3)
-    X_train, X_test, y_train, y_test = splitfn(data_frame_x[:n_use], data_frame_y[:n_use])
+    X_train, X_test, y_train, y_test = splitfn(
+        data_frame_x[:n_use], data_frame_y[:n_use]
+    )
 
-    clf = TabPFNClassifier(ignore_pretraining_limits=True, device=device, n_estimators=2,
-                           random_state=2, inference_precision=torch.float32)
+    clf = TabPFNClassifier(
+        ignore_pretraining_limits=True,
+        device=device,
+        n_estimators=2,
+        random_state=2,
+        inference_precision=torch.float32,
+    )
 
     datasets_list = clf.get_preprocessed_datasets(X_train, y_train, splitfn, 1000)
     datasets_list_test = clf.get_preprocessed_datasets(X_test, y_test, splitfn, 1000)
-    my_dl_train = DataLoader(datasets_list, batch_size=2, collate_fn=collate_for_tabpfn_dataset)
-    my_dl_test = DataLoader(datasets_list_test, batch_size=1, collate_fn=collate_for_tabpfn_dataset)
+    my_dl_train = DataLoader(
+        datasets_list, batch_size=2, collate_fn=collate_for_tabpfn_dataset
+    )
+    my_dl_test = DataLoader(
+        datasets_list_test, batch_size=1, collate_fn=collate_for_tabpfn_dataset
+    )
 
     optim_impl = Adam(clf.model_.parameters(), lr=1e-5)
     lossfn = torch.nn.NLLLoss()
@@ -75,4 +95,3 @@ if __name__ == "__main__":
         acc_batches.append(res_acc)
         with Path("finetune.json").open(mode="w") as file:
             json.dump({"loss": loss_batches, "acc": acc_batches}, file)
-

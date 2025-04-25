@@ -10,7 +10,7 @@ from sklearn.datasets import load_diabetes
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.model_selection import train_test_split
 
-#from src.tabpfn.regressor import TabPFNRegressor
+# from src.tabpfn.regressor import TabPFNRegressor
 from tabpfn import TabPFNRegressor
 
 # Load data

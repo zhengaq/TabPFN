@@ -55,6 +55,7 @@ def balance(x: Iterable[T], n: int) -> list[T]:
 @dataclass
 class BaseDatasetConfig:
     """Base configuration class for holding dataset specifics."""
+
     config: EnsembleConfig
     X_raw: np.ndarray | torch.Tensor
     y_raw: np.ndarray | torch.Tensor
@@ -63,11 +64,13 @@ class BaseDatasetConfig:
 
 @dataclass
 class ClassifierDatasetConfig(BaseDatasetConfig):
-    """Configuration class for holding classifier dataset specifics."""
+    """Classification Dataset + Model Configuration class."""
+
 
 @dataclass
 class RegressorDatasetConfig(BaseDatasetConfig):
-    """Configuration class for holding regressor dataset specifics."""
+    """Regression Dataset + Model Configuration class."""
+
     y_full_standardised: np.ndarray | torch.Tensor
     renormalized_criterion: FullSupportBarDistribution
 
@@ -267,7 +270,8 @@ def generate_index_permutations(
 
     raise ValueError(f"{subsample=} must be int or float.")
 
-#TODO: (Klemens)
+
+# TODO: (Klemens)
 # Make this frozen (frozen=True)
 @dataclass
 class EnsembleConfig:
@@ -280,6 +284,7 @@ class EnsembleConfig:
         subsample_ix: Indices of samples to use for this ensemble member.
             If `None`, no subsampling is done.
     """
+
     preprocess_config: PreprocessorConfig
     add_fingerprint_feature: bool
     polynomial_features: Literal["no", "all"] | int
@@ -608,7 +613,7 @@ def fit_preprocessing_one(
     # TODO(eddiebergman): Not a fan of this, wish it was more transparent, but we want
     # to distuinguish what to do with the `ys` based on the ensemble config type
 
-    #TODO: (Klemens)
+    # TODO: (Klemens)
     y_train_processed = transform_labels_one(config, y_train)
 
     return (config, preprocessor, res.X, y_train_processed, res.categorical_features)
@@ -747,7 +752,6 @@ class DatasetCollectionWithPreprocessing(Dataset):
         if index < 0 or index >= len(self):
             raise IndexError("Index out of bounds.")
 
-
         config = self.configs[index]
 
         if isinstance(config, RegressorDatasetConfig):
@@ -765,18 +769,14 @@ class DatasetCollectionWithPreprocessing(Dataset):
         else:
             raise ValueError(f"Invalid ensemble config type: {type(config)}")
 
-
         regression_task = isinstance(config, RegressorDatasetConfig)
-
 
         # Sanity Check
         if regression_task:
             assert (
                 y_full_standardised is not None
             ), "y_full_standardised should exist when in Regression Task"
-            assert np.isclose(
-                np.mean(y_full_standardised), 0, atol=10e-8
-            ), (
+            assert np.isclose(np.mean(y_full_standardised), 0, atol=10e-8), (
                 f"Mean of y_full_standardised is not close to zero: "
                 f"{np.mean(y_full_standardised)}"
             )
@@ -784,7 +784,6 @@ class DatasetCollectionWithPreprocessing(Dataset):
         MAX_SEED = 2**32 - 1
         split_seed = self.rng.integers(MAX_SEED)
 
-        test_size = 0.3 # Assuming this matches your partial definition
         if regression_task:
             (
                 x_train,
@@ -794,15 +793,14 @@ class DatasetCollectionWithPreprocessing(Dataset):
             ) = self.split_fn(
                 x_full_raw,
                 y_full_standardised,
-                test_size=test_size,
                 random_state=split_seed,
             )
 
         x_train_raw, x_test_raw, y_train_raw, y_test_raw = self.split_fn(
-            x_full_raw, y_full_raw, test_size=test_size, random_state=split_seed
+            x_full_raw, y_full_raw, random_state=split_seed
         )
 
-        #Sanity checks
+        # Sanity checks
         if regression_task:
             tolerance = 1e-10
             full_mean = np.mean(y_full_raw)
@@ -841,8 +839,6 @@ class DatasetCollectionWithPreprocessing(Dataset):
         X_tests_preprocessed = []
         for _, estim_preprocessor in zip(configs, preprocessors):
             X_tests_preprocessed.append(estim_preprocessor.transform(x_test_raw).X)
-
-
 
         ## Convert to tensors.
         for i in range(len(X_trains_preprocessed)):

@@ -403,7 +403,7 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
             y: list of input dataset labels
             split_fn: A function to dissect a dataset into train and test partition.
             max_data_size: Maximum allowed number of samples in one dataset.
-            If None, dataseta are not splitted.
+            If None, datasets are not splitted.
         """
         if not isinstance(X, list):
             X = [X]
@@ -440,10 +440,8 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
                 )
             )
         return DatasetCollectionWithPreprocessing(
-                    split_fn,
-                    rng,
-                    dataset_config_collection
-                    )
+            split_fn, rng, dataset_config_collection
+        )
 
     def _initialize_model_variables(self) -> tuple[int, np.random.Generator]:
         """Perform initialization of the model, return determined byte_size

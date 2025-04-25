@@ -1,4 +1,5 @@
 """An example for finetuning TabPFN on the Covertype dataset."""
+
 import copy
 from functools import partial
 
@@ -16,15 +17,23 @@ from tabpfn.base import ClassifierModelSpecs
 from tabpfn.utils import collate_for_tabpfn_dataset
 
 
-def eval_test(clf: TabPFNClassifier,
-              classifier_args: dict,
-              *,
-            X_train_raw: np.ndarray, y_train_raw: np.ndarray,
-            X_test_raw: np.ndarray, y_test_raw: np.ndarray
-        ):
+def eval_test(
+    clf: TabPFNClassifier,
+    classifier_args: dict,
+    *,
+    X_train_raw: np.ndarray,
+    y_train_raw: np.ndarray,
+    X_test_raw: np.ndarray,
+    y_test_raw: np.ndarray,
+) -> tuple[float, float]:
     if hasattr(clf, "model_") and clf.model_ is not None:
-        new_model = copy.deepcopy(clf.model_) # <--- Need!!!
-        new_config = copy.deepcopy(clf.config_) #probs do not need
+        """
+        Need deepcopy here to make sure that
+        the eval function is not modifying the
+        original model to be evaluated.
+        """
+        new_model = copy.deepcopy(clf.model_)
+        new_config = copy.deepcopy(clf.config_)
         model_spec_obj = ClassifierModelSpecs(
             model=new_model,
             config=new_config,
@@ -37,42 +46,44 @@ def eval_test(clf: TabPFNClassifier,
 
     try:
         predictions_labels = clf_eval.predict(X_test_raw)
-        predictions_proba = clf_eval.predict_proba(X_test_raw) # Needed for log_loss
-
+        predictions_proba = clf_eval.predict_proba(X_test_raw)
         accuracy = accuracy_score(y_test_raw, predictions_labels)
         ll = log_loss(y_test_raw, predictions_proba)
 
     except Exception as e:  # noqa: BLE001  # TODO: Narrow exception type if possible
         print(f"Error during evaluation prediction/metric calculation: {e}")
-        accuracy, ll= np.nan, np.nan
-
+        accuracy, ll = np.nan, np.nan
 
     return accuracy, ll
 
+
 if __name__ == "__main__":
     device = "cpu"
-    #n_use = 200_000
-    n_use =1000
+    # n_use = 200_000
+    n_use = 1000
     do_epochs = 3
     random_seed = 42
-    test_set_size=0.3
+    test_set_size = 0.3
 
     # Load Covertype Dataset (7-way classification)
-    data_frame_x, data_frame_y = sklearn.datasets.fetch_covtype(return_X_y=True, shuffle=True)
+    data_frame_x, data_frame_y = sklearn.datasets.fetch_covtype(
+        return_X_y=True, shuffle=True
+    )
     # Use numpy Generator for reproducibility
     rng = np.random.default_rng(random_seed)
-    splitfn = partial(train_test_split, test_size=0.3)
+    splitfn = partial(train_test_split, test_size=test_set_size)
     indices = np.arange(len(data_frame_y))
     subset_indices = rng.choice(indices, size=n_use, replace=False)
     X_subset = data_frame_x[subset_indices]
     y_subset = data_frame_y[subset_indices]
 
-    X_train, X_test, y_train, y_test = splitfn(data_frame_x[:n_use], data_frame_y[:n_use],
-                                               test_size=test_set_size,
-                                            stratify=y_subset,
-                                            random_state=random_seed,
-                                               )
-
+    X_train, X_test, y_train, y_test = splitfn(
+        data_frame_x[:n_use],
+        data_frame_y[:n_use],
+        test_size=test_set_size,
+        stratify=y_subset,
+        random_state=random_seed,
+    )
 
     classifier_args = {
         "ignore_pretraining_limits": True,
@@ -85,20 +96,23 @@ if __name__ == "__main__":
 
     datasets_list = clf.get_preprocessed_datasets(X_train, y_train, splitfn, 1000)
     datasets_list_test = clf.get_preprocessed_datasets(X_test, y_test, splitfn, 1000)
-    my_dl_train = DataLoader(datasets_list, batch_size=1, collate_fn=collate_for_tabpfn_dataset)
+    my_dl_train = DataLoader(
+        datasets_list, batch_size=1, collate_fn=collate_for_tabpfn_dataset
+    )
 
     optim_impl = Adam(clf.model_.parameters(), lr=1e-5)
     lossfn = torch.nn.NLLLoss()
-    loss_batches = []
-    acc_batches = []
+    loss_batches: list[float] = []
+    acc_batches: list[float] = []
 
-    res_acc, ll = eval_test(clf,
-                                classifier_args,
-                                X_train_raw=X_train,
-                                y_train_raw=y_train,
-                                X_test_raw=X_test,
-                                y_test_raw=y_test
-                                )
+    res_acc, ll = eval_test(
+        clf,
+        classifier_args,
+        X_train_raw=X_train,
+        y_train_raw=y_train,
+        X_test_raw=X_test,
+        y_test_raw=y_test,
+    )
     print("Initial accuracy:", res_acc)
     print("Initial Test Log Loss:", ll)
     for epoch in range(do_epochs):
@@ -111,18 +125,19 @@ if __name__ == "__main__":
             loss.backward()
             optim_impl.step()
 
-        res_acc, ll = eval_test(clf,
-                                classifier_args,
-                                X_train_raw=X_train,
-                                y_train_raw=y_train,
-                                X_test_raw=X_test,
-                                y_test_raw=y_test
-                                )
+        res_acc, ll = eval_test(
+            clf,
+            classifier_args,
+            X_train_raw=X_train,
+            y_train_raw=y_train,
+            X_test_raw=X_test,
+            y_test_raw=y_test,
+        )
         print(f"---- EPOCH {epoch}: ----")
         print("Test Acc:", res_acc)
         print("Test Log Loss:", ll)
 
-        #loss_batches.append(ll)
-        #acc_batches.append(res_acc)
-        #with Path("finetune.json").open(mode="w") as file:
+        # loss_batches.append(ll)
+        # acc_batches.append(res_acc)
+        # with Path("finetune.json").open(mode="w") as file:
         #    json.dump({"loss": loss_batches, "acc": acc_batches}, file)

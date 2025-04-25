@@ -14,12 +14,14 @@ from tabpfn.utils import collate_for_tabpfn_dataset, pad_tensors
 # Use a single random generator for all synthetic data
 rng = np.random.default_rng(42)
 
+
 # Minimal synthetic data for fast tests
 @pytest.fixture
 def synthetic_data():
     X = rng.normal(size=(100, 4)).astype(np.float32)
     y = rng.integers(0, 3, size=100)
     return X, y
+
 
 # Fixture: synthetic collection of datasets (list of (X, y) tuples)
 @pytest.fixture
@@ -30,6 +32,7 @@ def uniform_synthetic_dataset_collection():
         y = rng.integers(0, 3, size=50)
         datasets.append((X, y))
     return datasets
+
 
 # Fixture: synthetic collection of datasets (list of (X, y) tuples)
 # where dataset size and number of classes vary.
@@ -49,10 +52,12 @@ def variable_synthetic_dataset_collection():
         datasets.append((X, y))
     return datasets
 
+
 def test_tabpfn_finetune_basic_runs(synthetic_data) -> None:
     X, y = synthetic_data
     X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.3, random_state=42)
+        X, y, test_size=0.3, random_state=42
+    )
     classifier_args = {
         "ignore_pretraining_limits": True,
         "device": "cpu",
@@ -70,9 +75,11 @@ def test_tabpfn_finetune_basic_runs(synthetic_data) -> None:
 
 def test_eval_test_function(synthetic_data) -> None:
     from examples.finetune_classifier import eval_test
+
     X, y = synthetic_data
     X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.3, random_state=42)
+        X, y, test_size=0.3, random_state=42
+    )
     classifier_args = {
         "ignore_pretraining_limits": True,
         "device": "cpu",
@@ -87,13 +94,14 @@ def test_eval_test_function(synthetic_data) -> None:
         X_train_raw=X_train,
         y_train_raw=y_train,
         X_test_raw=X_test,
-        y_test_raw=y_test
+        y_test_raw=y_test,
     )
     assert acc is not None
     assert ll is not None
 
 
 # ----------- Test DatasetCollectionWithPreprocessing Class ---
+
 
 @pytest.fixture
 def classifier_instance() -> TabPFNClassifier:
@@ -102,14 +110,13 @@ def classifier_instance() -> TabPFNClassifier:
         device="cpu",
         random_state=42,
         inference_precision=torch.float32,
-        fit_mode="fit_preprocessors"
+        fit_mode="fit_preprocessors",
     )
 
-def test_datasetcollectionwithpreprocessing_classification_single_dataset(
-    synthetic_data,
-    classifier_instance: TabPFNClassifier
-) -> None:
 
+def test_datasetcollectionwithpreprocessing_classification_single_dataset(
+    synthetic_data, classifier_instance: TabPFNClassifier
+) -> None:
     import numpy as np
     from sklearn.model_selection import train_test_split
 
@@ -126,20 +133,24 @@ def test_datasetcollectionwithpreprocessing_classification_single_dataset(
     )
 
     assert isinstance(dataset_collection, DatasetCollectionWithPreprocessing)
-    assert len(dataset_collection) == 1, (
-        "Collection should contain one dataset config"
-    )
+    assert len(dataset_collection) == 1, "Collection should contain one dataset config"
 
     item_index = 0
     processed_dataset_item = dataset_collection[item_index]
 
     assert isinstance(processed_dataset_item, tuple)
-    assert len(processed_dataset_item) == 6, (
-        "Item tuple should have 4 elements for classification"
-    )
+    assert (
+        len(processed_dataset_item) == 6
+    ), "Item tuple should have 4 elements for classification"
 
-    ( X_trains_preprocessed, X_tests_preprocessed, y_trains_preprocessed,
-      y_test_raw_tensor, cat_ixs, returned_ensemble_configs ) = processed_dataset_item
+    (
+        X_trains_preprocessed,
+        X_tests_preprocessed,
+        y_trains_preprocessed,
+        y_test_raw_tensor,
+        cat_ixs,
+        returned_ensemble_configs,
+    ) = processed_dataset_item
 
     assert isinstance(X_trains_preprocessed, list)
     assert len(X_trains_preprocessed) == n_estimators
@@ -151,8 +162,7 @@ def test_datasetcollectionwithpreprocessing_classification_single_dataset(
 
 
 def test_datasetcollectionwithpreprocessing_classification_multiple_datasets(
-    uniform_synthetic_dataset_collection,
-    classifier_instance: TabPFNClassifier
+    uniform_synthetic_dataset_collection, classifier_instance: TabPFNClassifier
 ) -> None:
     """Test DatasetCollectionWithPreprocessing
     using a collection of multiple synthetic datasets.
@@ -176,19 +186,23 @@ def test_datasetcollectionwithpreprocessing_classification_multiple_datasets(
     )
 
     assert isinstance(dataset_collection, DatasetCollectionWithPreprocessing)
-    assert len(dataset_collection) == len(datasets), (
-        "Collection should contain one item per dataset"
-    )
+    assert len(dataset_collection) == len(
+        datasets
+    ), "Collection should contain one item per dataset"
 
     for item_index in range(len(datasets)):
         processed_dataset_item = dataset_collection[item_index]
         assert isinstance(processed_dataset_item, tuple)
-        assert len(processed_dataset_item) == 6, (
-            "Item tuple should have 6 elements for classification"
-        )
+        assert (
+            len(processed_dataset_item) == 6
+        ), "Item tuple should have 6 elements for classification"
         (
-            X_trains_preprocessed, X_tests_preprocessed, y_trains_preprocessed,
-            y_test_raw_tensor, cat_ixs, returned_ensemble_configs,
+            X_trains_preprocessed,
+            X_tests_preprocessed,
+            y_trains_preprocessed,
+            y_test_raw_tensor,
+            cat_ixs,
+            returned_ensemble_configs,
         ) = processed_dataset_item
         assert isinstance(X_trains_preprocessed, list)
         assert len(X_trains_preprocessed) == n_estimators
@@ -226,89 +240,81 @@ def test_pad_tensors_2d_and_1d():
     # 2D tensors (features)
     tensors_2d = [torch.ones((2, 3)), torch.ones((3, 2)), torch.ones((1, 4))]
     padded = pad_tensors(tensors_2d, padding_val=-1, labels=False)
-    assert all(t.shape == (3, 4) for t in padded), (
-        f"Expected shape (3, 4), got {[t.shape for t in padded]}"
-    )
-    assert (padded[0][2, 3] == -1), (
-        "Padding value not set correctly for 2D case."
-    )
+    assert all(
+        t.shape == (3, 4) for t in padded
+    ), f"Expected shape (3, 4), got {[t.shape for t in padded]}"
+    assert padded[0][2, 3] == -1, "Padding value not set correctly for 2D case."
 
     # 1D tensors (labels)
     tensors_1d = [torch.arange(3), torch.arange(5), torch.arange(2)]
     padded_1d = pad_tensors(tensors_1d, padding_val=99, labels=True)
-    assert all(t.shape == (5,) for t in padded_1d), (
-        f"Expected shape (5,), got {[t.shape for t in padded_1d]}"
-    )
-    assert (padded_1d[0][3] == 99), (
-        "Padding value not set correctly for 1D case."
-    )
+    assert all(
+        t.shape == (5,) for t in padded_1d
+    ), f"Expected shape (5,), got {[t.shape for t in padded_1d]}"
+    assert padded_1d[0][3] == 99, "Padding value not set correctly for 1D case."
 
 
 def test_collate_for_tabpfn_dataset_uniform_collection(
-    uniform_synthetic_dataset_collection, classifier_instance):
+    uniform_synthetic_dataset_collection, classifier_instance
+):
     import torch
 
     from tabpfn.utils import collate_for_tabpfn_dataset
+
     X_list = [X for X, _ in uniform_synthetic_dataset_collection]
     y_list = [y for _, y in uniform_synthetic_dataset_collection]
     preprocessed_collection = classifier_instance.get_preprocessed_datasets(
-        X_list, y_list, train_test_split, 100)
+        X_list, y_list, train_test_split, 100
+    )
     batch = [preprocessed_collection[0], preprocessed_collection[1]]
     collated = collate_for_tabpfn_dataset(batch)
-    assert isinstance(collated, tuple), (
-        "Collator output should be a tuple."
-    )
+    assert isinstance(collated, tuple), "Collator output should be a tuple."
     X_trains = collated[0]
-    assert isinstance(X_trains, list), (
-        "First element should be a list (per estimator)."
-    )
+    assert isinstance(X_trains, list), "First element should be a list (per estimator)."
     for est_tensor in X_trains:
-        assert isinstance(est_tensor, torch.Tensor), (
-            "Each estimator's batch should be a tensor."
-        )
-        assert est_tensor.shape[0] == len(batch), (
-            "Batch size should match input batch (batch_size=1)."
-        )
+        assert isinstance(
+            est_tensor, torch.Tensor
+        ), "Each estimator's batch should be a tensor."
+        assert est_tensor.shape[0] == len(
+            batch
+        ), "Batch size should match input batch (batch_size=1)."
     y_trains = collated[2]
     for est_tensor in y_trains:
-        assert isinstance(est_tensor, torch.Tensor), (
-            "Each estimator's batch should be a tensor for labels."
-        )
+        assert isinstance(
+            est_tensor, torch.Tensor
+        ), "Each estimator's batch should be a tensor for labels."
         assert est_tensor.shape[0] == len(batch)
 
 
 def test_collate_for_tabpfn_dataset_variable_collection(
-    variable_synthetic_dataset_collection,
-    classifier_instance
+    variable_synthetic_dataset_collection, classifier_instance
 ) -> None:
     import torch
 
     from tabpfn.utils import collate_for_tabpfn_dataset
+
     X_list = [X for X, _ in variable_synthetic_dataset_collection]
     y_list = [y for _, y in variable_synthetic_dataset_collection]
     preprocessed_collection = classifier_instance.get_preprocessed_datasets(
-        X_list, y_list, train_test_split, 100)
+        X_list, y_list, train_test_split, 100
+    )
     batch = [preprocessed_collection[0], preprocessed_collection[1]]
     collated = collate_for_tabpfn_dataset(batch)
-    assert isinstance(collated, tuple), (
-        "Collator output should be a tuple."
-    )
+    assert isinstance(collated, tuple), "Collator output should be a tuple."
     X_trains = collated[0]
-    assert isinstance(X_trains, list), (
-        "First element should be a list (per estimator)."
-    )
+    assert isinstance(X_trains, list), "First element should be a list (per estimator)."
     for est_tensor in X_trains:
-        assert isinstance(est_tensor, torch.Tensor), (
-            "Each estimator's batch should be a tensor."
-        )
-        assert est_tensor.shape[0] == len(batch), (
-            "Batch size should match input batch (batch_size=1)."
-        )
+        assert isinstance(
+            est_tensor, torch.Tensor
+        ), "Each estimator's batch should be a tensor."
+        assert est_tensor.shape[0] == len(
+            batch
+        ), "Batch size should match input batch (batch_size=1)."
     y_trains = collated[2]
     for est_tensor in y_trains:
-        assert isinstance(est_tensor, torch.Tensor), (
-            "Each estimator's batch should be a tensor for labels."
-        )
+        assert isinstance(
+            est_tensor, torch.Tensor
+        ), "Each estimator's batch should be a tensor for labels."
         assert est_tensor.shape[0] == len(batch)
 
 
@@ -319,6 +325,7 @@ def test_dataset_and_collator_with_dataloader_uniform(
     from torch.utils.data import DataLoader
 
     from tabpfn.utils import collate_for_tabpfn_dataset
+
     # Prepare dataset collection
     X_list = [X for X, _ in uniform_synthetic_dataset_collection]
     y_list = [y for _, y in uniform_synthetic_dataset_collection]
@@ -336,14 +343,14 @@ def test_dataset_and_collator_with_dataloader_uniform(
         assert isinstance(batch, tuple)
         X_trains, X_tests, y_trains, y_tests, cat_ixs, confs = batch
         for est_tensor in X_trains:
-            assert isinstance(est_tensor, torch.Tensor), (
-                "Each estimator's batch should be a tensor."
-            )
+            assert isinstance(
+                est_tensor, torch.Tensor
+            ), "Each estimator's batch should be a tensor."
             assert est_tensor.shape[0] == batch_size
         for est_tensor in y_trains:
-            assert isinstance(est_tensor, torch.Tensor), (
-                "Each estimator's batch should be a tensor for labels."
-            )
+            assert isinstance(
+                est_tensor, torch.Tensor
+            ), "Each estimator's batch should be a tensor for labels."
             assert est_tensor.shape[0] == batch_size
         break  # Only check one batch
 
@@ -355,6 +362,7 @@ def test_dataset_and_collator_with_dataloader_variable(
     from torch.utils.data import DataLoader
 
     from tabpfn.utils import collate_for_tabpfn_dataset
+
     X_list = [X for X, _ in variable_synthetic_dataset_collection]
     y_list = [y for _, y in variable_synthetic_dataset_collection]
     dataset_collection = classifier_instance.get_preprocessed_datasets(
