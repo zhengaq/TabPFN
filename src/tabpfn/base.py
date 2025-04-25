@@ -7,7 +7,7 @@ from __future__ import annotations
 import os
 import warnings
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, overload
+from typing import TYPE_CHECKING, Any, Literal, Union, overload
 
 import torch
 
@@ -53,7 +53,7 @@ class RegressorModelSpecs(BaseModelSpecs):
         super().__init__(model, config)
         self.norm_criterion = norm_criterion
 
-ModelSpecs = RegressorModelSpecs | ClassifierModelSpecs
+ModelSpecs = Union[RegressorModelSpecs, ClassifierModelSpecs]
 
 @overload
 def initialize_tabpfn_model(
