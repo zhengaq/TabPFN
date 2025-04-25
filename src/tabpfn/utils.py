@@ -605,7 +605,6 @@ def translate_probs_across_borders(
     Returns:
         The translated probabilities.
     """
-
     prob_left = _cdf(logits, borders=frm, ys=to)
     prob_left[..., 0] = 0.0
     prob_left[..., -1] = 1.0
@@ -831,9 +830,9 @@ def pad_tensors(tensor_list, padding_val=0, *, labels=False):
 
 
 def collate_for_tabpfn_dataset(batch, padding_val=0.0):
-    """Collate function dataset items returned from
-    TabPFNClassfier.get_preprocessed_datasets, when
-    creating a torch.utils.data.DataLoader.
+    """Collate function for the
+    DatasetCollectionWithPreprocessing class,
+    when creating a torch.utils.data.DataLoader.
     Inputs are a three-dimesional collections.
     """
     batch_sz = len(batch)
@@ -874,4 +873,3 @@ def collate_for_tabpfn_dataset(batch, padding_val=0.0):
             items_list.append([batch[r][item_idx] for r in range(batch_sz)])
 
     return tuple(items_list)
-

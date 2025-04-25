@@ -428,7 +428,6 @@ def load_model_criterion_config(
     Returns:
         The model, criterion, and config.
     """
-
     (model_path, model_dir, model_name, which) = resolve_model_path(
         model_path, which, version
     )

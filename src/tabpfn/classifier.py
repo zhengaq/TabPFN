@@ -45,6 +45,7 @@ from tabpfn.constants import (
 )
 from tabpfn.inference import InferenceEngineBatchedNoPreprocessing
 from tabpfn.preprocessing import (
+    ClassifierDatasetConfig,
     ClassifierEnsembleConfig,
     DatasetCollectionWithPreprocessing,
     EnsembleConfig,
@@ -69,7 +70,6 @@ if TYPE_CHECKING:
     import numpy.typing as npt
     from sklearn.compose import ColumnTransformer
     from torch.types import _dtype
-    from torch.utils.data import Dataset
 
     from tabpfn.inference import InferenceEngine
     from tabpfn.model.config import InferenceConfig
@@ -394,7 +394,7 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
         y: YType | list[YType],
         split_fn,
         max_data_size: None | int = 10000,
-    ) -> Dataset:
+    ) -> DatasetCollectionWithPreprocessing:
         """Get a torch.utils.data.Dataset which contains many datasets or splits of one
         or more datasets.
 
@@ -426,15 +426,24 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
             X_split.extend(Xparts)
             y_split.extend(yparts)
         X, y = X_split, y_split
-        config_collection = []
+        dataset_config_collection = []
         for X_item, y_item in zip(X, y):
             configs, X_mod, y_mod = self._initialize_dataset_preprocessing(
                 X_item, y_item, rng
             )
-            config_collection.append(
-                [configs, X_mod, y_mod, self.inferred_categorical_indices_]
+            dataset_config_collection.append(
+                ClassifierDatasetConfig(
+                    config=configs,
+                    X_raw=X_mod,
+                    y_raw=y_mod,
+                    cat_ix=self.inferred_categorical_indices_,
+                )
             )
-        return DatasetCollectionWithPreprocessing(split_fn, rng, config_collection)
+        return DatasetCollectionWithPreprocessing(
+                    split_fn,
+                    rng,
+                    dataset_config_collection
+                    )
 
     def _initialize_model_variables(self) -> tuple[int, np.random.Generator]:
         """Perform initialization of the model, return determined byte_size
