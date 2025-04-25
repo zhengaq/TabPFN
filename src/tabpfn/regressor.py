@@ -734,7 +734,7 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
         )
 
         # Ensure torch.inference_mode is OFF to allow gradients
-        self.executor_.use_torch_inference_mode(use_inference=use_inference_mode)
+        self.executor_.use_torch_inference_mode(_use_inference=use_inference_mode)
 
         check_is_fitted(self)
 
