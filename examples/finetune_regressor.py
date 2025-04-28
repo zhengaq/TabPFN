@@ -1,6 +1,5 @@
 """An example for finetuning TabPFN on the California Housing Regression dataset."""
 
-import copy
 from functools import partial
 
 import numpy as np
@@ -12,9 +11,8 @@ from torch.optim import Adam
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-# from tabpfn.regressor import TabPFNRegressor
 from tabpfn import TabPFNRegressor
-from tabpfn.base import RegressorModelSpecs
+from tabpfn.finetune_utils import _prepare_eval_model
 from tabpfn.utils import collate_for_tabpfn_dataset
 
 
@@ -27,25 +25,7 @@ def eval_test_regression_standard(
     X_test_raw: np.ndarray,
     y_test_raw: np.ndarray,
 ):
-    if hasattr(reg, "model_") and reg.model_ is not None:
-        """
-        Need deepcopy here to make sure that
-        the eval function is not modifying the
-        original model to be evaluated.
-        """
-        new_model = copy.deepcopy(reg.model_)
-        new_config = copy.deepcopy(reg.config_)
-        new_bar_dist = copy.deepcopy(reg.bardist_)
-        model_spec_obj = RegressorModelSpecs(
-            model=new_model,
-            config=new_config,
-            norm_criterion=new_bar_dist,
-        )
-        reg_eval = TabPFNRegressor(model_path=model_spec_obj, **eval_init_args)
-
-    else:
-        print("Pretrained Model Performance ")
-        reg_eval = TabPFNRegressor(**eval_init_args)
+    reg_eval = _prepare_eval_model(reg, eval_init_args, TabPFNRegressor)
 
     reg_eval.fit(X_train_raw, y_train_raw)
     predictions = reg_eval.predict(X_train_raw)
@@ -145,11 +125,11 @@ if __name__ == "__main__":
             )  # [BatchSize, N_test, NumBars]
 
             # TabPFN Regressor standardises the label
-            # distribution with a Z-Transform. When 
+            # distribution with a Z-Transform. When
             # optimizing for FineTuning we can choose
             # to optomizer the difference in Binning
             # distributions in this standardised (prepreocessed)
-            # space or the raw label space. 
+            # space or the raw label space.
 
             loss_fn = None
             if hyperparams["optimization_space"] == "raw_label_space":
@@ -184,4 +164,4 @@ if __name__ == "__main__":
         print(f"Test MAE: {res_mae:.4f}")
         print(f"Test R2: {res_r2:.4f}")
 
-        # TODO: implement experiment tracking 
+        # TODO: implement experiment tracking

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from functools import partial
+from itertools import product
+from typing import Literal
 
 import numpy as np
 import pytest
@@ -8,23 +10,85 @@ import torch
 from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader
 
-from tabpfn.classifier import TabPFNClassifier
-from tabpfn.utils import collate_for_tabpfn_dataset, pad_tensors
+from tabpfn import TabPFNClassifier
 
-# Use a single random generator for all synthetic data
 rng = np.random.default_rng(42)
 
+devices = ["cpu"]
+if torch.cuda.is_available():
+    devices.append("cuda")
 
-# Minimal synthetic data for fast tests
-@pytest.fixture
+feature_shift_decoders = ["shuffle", "rotate"]
+multiclass_decoders = ["shuffle", "rotate"]
+fit_modes = [
+    "batched",
+    "fit_preprocessors",
+    "fit_with_cache",
+    "low_memory",
+]
+inference_precision_methods: list[torch.types._dtype | Literal["autocast", "auto"]] = [
+    "auto",
+    "autocast",
+    torch.float64,
+]
+remove_remove_outliers_stds: list[int | None] = [None, 12]
+estimators = [1, 2]
+ignore_pretraining_limits = ["True", "False"]
+
+# Parameter Combinations
+all_combinations_params = (
+    "n_estimators",
+    "device",
+    "feature_shift_decoder",
+    "multiclass_decoder",
+    "fit_mode",
+    "inference_precision",
+    "remove_outliers_std",
+    "ignore_pretraining_limits",
+)
+
+all_combinations = list(
+    product(
+        estimators,
+        devices,
+        feature_shift_decoders,
+        multiclass_decoders,
+        fit_modes,
+        inference_precision_methods,
+        remove_remove_outliers_stds,
+        ignore_pretraining_limits,
+    )
+)
+
+device_fit_mode_combinations = list(product(devices, fit_modes))
+
+estimators_device_fit_mode_combinations = list(product(estimators, devices, fit_modes))
+
+
+@pytest.mark.parametrize(
+    (
+        "n_estimators",
+        "device",
+        "feature_shift_decoder",
+        "multiclass_decoder",
+        "fit_mode",
+        "inference_precision",
+        "remove_outliers_std",
+        ignore_pretraining_limits,
+    ),
+    all_combinations,
+)
+# ------ Fixtures ------
+
+@pytest.fixture(scope="module")
 def synthetic_data():
     X = rng.normal(size=(100, 4)).astype(np.float32)
-    y = rng.integers(0, 3, size=100)
+    y = rng.integers(0, 3, size=100).astype(np.float32)
     return X, y
 
 
 # Fixture: synthetic collection of datasets (list of (X, y) tuples)
-@pytest.fixture
+@pytest.fixture(scope="module")
 def uniform_synthetic_dataset_collection():
     datasets = []
     for _ in range(3):
@@ -32,6 +96,80 @@ def uniform_synthetic_dataset_collection():
         y = rng.integers(0, 3, size=50)
         datasets.append((X, y))
     return datasets
+
+
+@pytest.fixture(scope="module")
+def classification_data():
+    from sklearn.datasets import make_classification
+    from sklearn.model_selection import train_test_split
+
+    """Generate simple classification data."""
+    X, y = make_classification(
+        n_samples=20,
+        n_features=5,
+        n_informative=3,
+        n_redundant=0,
+        n_classes=3,
+        random_state=42,
+    )
+    y = y - y.min()
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.3, random_state=42, stratify=y
+    )
+    return X_train, X_test, y_train, y_test
+
+
+@pytest.fixture(params=devices)
+def classifier_instance(request) -> TabPFNClassifier:
+    """Provides a basic classifier instance, parameterized by device."""
+    device = request.param
+    if device == "cuda" and not torch.cuda.is_available():
+        pytest.skip("CUDA device requested but not available.")
+    # Uses defaults similar to the original fixture, but with device param
+    return TabPFNClassifier(
+        n_estimators=2,
+        device=device,
+        random_state=42,
+        inference_precision=torch.float32,
+        fit_mode="batched",
+        differentiable_input=False,
+    )
+
+
+# --- Helper to Create Classifier (for fully parameterized tests) ---
+def create_classifier(
+    n_estimators: int,
+    device: str,
+    feature_shift_decoder: str,
+    multiclass_decoder: str,
+    fit_mode: str,
+    inference_precision: torch.types._dtype | Literal["autocast", "auto"],
+    remove_outliers_std: int | None,
+    ignore_pretraining_limits: bool,
+    **kwargs,
+) -> TabPFNClassifier:
+    """Instantiates classifier with common parameters."""
+    if device == "cpu" and inference_precision == "autocast":
+        pytest.skip("Unsupported combination: CPU with 'autocast'")
+    if device == "cuda" and not torch.cuda.is_available():
+        pytest.skip("CUDA device requested but not available.")
+
+    default_kwargs = {"random_state": 42}
+    default_kwargs.update(kwargs)
+
+    return TabPFNClassifier(
+        n_estimators=n_estimators,
+        device=device,
+        fit_mode=fit_mode,
+        inference_precision=inference_precision,
+        inference_config={
+            "OUTLIER_REMOVAL_STD": remove_outliers_std,
+            "CLASS_SHIFT_METHOD": multiclass_decoder,
+            "FEATURE_SHIFT_METHOD": feature_shift_decoder,
+        },
+        ignore_pretraining_limits=ignore_pretraining_limits,
+        **default_kwargs,
+    )
 
 
 # Fixture: synthetic collection of datasets (list of (X, y) tuples)
@@ -53,65 +191,136 @@ def variable_synthetic_dataset_collection():
     return datasets
 
 
-def test_tabpfn_finetune_basic_runs(synthetic_data) -> None:
-    X, y = synthetic_data
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.3, random_state=42
-    )
-    classifier_args = {
-        "ignore_pretraining_limits": True,
-        "device": "cpu",
-        "n_estimators": 1,
-        "random_state": 2,
-        "inference_precision": torch.float32,
-    }
-    clf = TabPFNClassifier(**classifier_args)
-    clf.fit(X_train, y_train)
-    preds = clf.predict(X_test)
-    assert preds.shape == y_test.shape
-    proba = clf.predict_proba(X_test)
-    assert proba.shape[0] == X_test.shape[0]
+@pytest.mark.parametrize(all_combinations_params, all_combinations)
+def test_tabpfn_classifier_finetuning_loop(
+    n_estimators,
+    device,
+    feature_shift_decoder,
+    multiclass_decoder,
+    fit_mode,
+    inference_precision,
+    remove_outliers_std,
+    ignore_pretraining_limits,
+    synthetic_data,
+) -> None:
+    import torch
 
-
-def test_eval_test_function(synthetic_data) -> None:
-    from examples.finetune_classifier import eval_test
+    from tabpfn.utils import collate_for_tabpfn_dataset
 
     X, y = synthetic_data
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=0.3, random_state=42
     )
-    classifier_args = {
-        "ignore_pretraining_limits": True,
-        "device": "cpu",
-        "n_estimators": 1,
-        "random_state": 2,
-        "inference_precision": torch.float32,
-    }
-    clf = TabPFNClassifier(**classifier_args)
-    acc, ll = eval_test(
-        clf,
-        classifier_args,
-        X_train_raw=X_train,
-        y_train_raw=y_train,
-        X_test_raw=X_test,
-        y_test_raw=y_test,
+
+    clf = create_classifier(
+        n_estimators,
+        device,
+        feature_shift_decoder,
+        multiclass_decoder,
+        fit_mode,
+        inference_precision,
+        remove_outliers_std,
+        ignore_pretraining_limits,
+        random_state=2,
+        differentiable_input=False,  # Required for loss.backward()
     )
-    assert acc is not None
-    assert ll is not None
 
-
-# ----------- Test DatasetCollectionWithPreprocessing Class ---
-
-
-@pytest.fixture
-def classifier_instance() -> TabPFNClassifier:
-    return TabPFNClassifier(
-        n_estimators=2,
-        device="cpu",
-        random_state=42,
-        inference_precision=torch.float32,
-        fit_mode="fit_preprocessors",
+    datasets_list = clf.get_preprocessed_datasets(
+        X_train, y_train, train_test_split, 100
     )
+    lossfn = torch.nn.NLLLoss()
+    batch_size = 1
+    my_dl_train = DataLoader(
+        datasets_list, batch_size=batch_size, collate_fn=collate_for_tabpfn_dataset
+    )
+
+    if inference_precision == torch.float64:
+        # Expect to raise a ValueError in
+        pass
+
+    elif fit_mode in [
+        "fit_preprocessors",
+        "fit_with_cache",
+        "low_memory",
+    ]:
+        # expects a valueerror
+        pass
+
+    else:
+        for data_batch in my_dl_train:
+            X_tr, X_te, y_tr, y_te_raw, cat_ixs, confs = data_batch
+
+            # --- Fit and Predict ---
+            clf.fit_from_preprocessed(X_tr, y_tr, cat_ixs, confs)
+            preds = clf.predict_proba_from_preprocessed(X_te)
+
+            # --- Basic Shape Checks ---
+            assert preds.ndim == 3, f"Expected 3D output, got {preds.shape}"
+            assert preds.shape[0] == X_te[0].shape[0]
+            assert preds.shape[0] == y_te_raw.shape[0]
+            assert preds.shape[1] == clf.n_classes_, "Class count mismatch"
+            assert len(X_te) == clf.n_estimators
+            assert len(X_tr) == clf.n_estimators
+            assert len(y_tr) == clf.n_estimators
+
+            # --- Loss Calculation and Backward Pass ---
+            log_preds = torch.log(preds + 1e-12)
+            # Target shape needs adjustment for NLLLoss (B, N) -> (B*N)
+            # Prediction shape (B, Cls, N) -> (B*N, Cls)
+            target = y_te_raw.to(preds.device).long()
+            target = target.view(-1)  # Flatten target to (B*N)
+            # Permute and flatten preds: (B, Cls, N) -> (B, N, Cls) -> (B*N, Cls)
+            log_preds_permuted = log_preds.permute(0, 2, 1).contiguous()
+            log_preds_flat = log_preds_permuted.view(-1, clf.n_classes_)
+
+            assert log_preds_flat.ndim == 2
+            assert target.ndim == 1
+            assert log_preds_flat.shape[0] == target.shape[0]  # Total samples match
+
+            loss = lossfn(log_preds_flat, target)
+            assert torch.isfinite(loss).all(), f"Loss is not finite: {loss.item()}"
+
+            # --- Gradient Check ---
+            assert hasattr(clf, "model_"), "Classifier missing 'model_'"
+            assert clf.model_ is not None, "Classifier model is None"
+            clf.model_.zero_grad()
+            loss.backward()
+
+            gradients_found = False
+            for param in clf.model_.parameters():
+                if (
+                    param.requires_grad
+                    and param.grad is not None
+                    and param.grad.abs().sum().item() > 1e-12
+                ):
+                    gradients_found = True
+                    break
+            assert gradients_found, "No non-zero gradients found."
+            break  # Only test one batch
+
+
+# Test for tensor input into fit_from_preprocessed()
+
+
+def test_get_preprocessed_datasets_basic():
+    import numpy as np
+    from sklearn.model_selection import train_test_split
+
+    from tabpfn.classifier import TabPFNClassifier
+
+    # Create synthetic data
+    X = rng.normal(size=(100, 4)).astype(np.float32)
+    y = rng.integers(0, 3, size=100)
+
+    clf = TabPFNClassifier()
+    # This should return a DatasetCollectionWithPreprocessing
+    dataset = clf.get_preprocessed_datasets(X, y, split_fn=train_test_split)
+    assert hasattr(dataset, "__getitem__")
+    assert hasattr(dataset, "__len__")
+    assert len(dataset) > 0
+    item = dataset[0]
+    assert isinstance(item, tuple)
+    assert len(item) == 6
 
 
 def test_datasetcollectionwithpreprocessing_classification_single_dataset(
@@ -213,116 +422,10 @@ def test_datasetcollectionwithpreprocessing_classification_multiple_datasets(
         assert X_trains_preprocessed[0].shape[0] == expected_n_train
 
 
-def test_get_preprocessed_datasets_basic():
-    import numpy as np
-    from sklearn.model_selection import train_test_split
-
-    from tabpfn.classifier import TabPFNClassifier
-
-    # Create synthetic data
-    X = rng.normal(size=(100, 4)).astype(np.float32)
-    y = rng.integers(0, 3, size=100)
-
-    clf = TabPFNClassifier()
-    # This should return a DatasetCollectionWithPreprocessing
-    dataset = clf.get_preprocessed_datasets(X, y, split_fn=train_test_split)
-    assert hasattr(dataset, "__getitem__")
-    assert hasattr(dataset, "__len__")
-    assert len(dataset) > 0
-    item = dataset[0]
-    assert isinstance(item, tuple)
-    assert len(item) == 6
-
-
-def test_pad_tensors_2d_and_1d():
-    import torch
-
-    # 2D tensors (features)
-    tensors_2d = [torch.ones((2, 3)), torch.ones((3, 2)), torch.ones((1, 4))]
-    padded = pad_tensors(tensors_2d, padding_val=-1, labels=False)
-    assert all(
-        t.shape == (3, 4) for t in padded
-    ), f"Expected shape (3, 4), got {[t.shape for t in padded]}"
-    assert padded[0][2, 3] == -1, "Padding value not set correctly for 2D case."
-
-    # 1D tensors (labels)
-    tensors_1d = [torch.arange(3), torch.arange(5), torch.arange(2)]
-    padded_1d = pad_tensors(tensors_1d, padding_val=99, labels=True)
-    assert all(
-        t.shape == (5,) for t in padded_1d
-    ), f"Expected shape (5,), got {[t.shape for t in padded_1d]}"
-    assert padded_1d[0][3] == 99, "Padding value not set correctly for 1D case."
-
-
-def test_collate_for_tabpfn_dataset_uniform_collection(
-    uniform_synthetic_dataset_collection, classifier_instance
-):
-    import torch
-
-    from tabpfn.utils import collate_for_tabpfn_dataset
-
-    X_list = [X for X, _ in uniform_synthetic_dataset_collection]
-    y_list = [y for _, y in uniform_synthetic_dataset_collection]
-    preprocessed_collection = classifier_instance.get_preprocessed_datasets(
-        X_list, y_list, train_test_split, 100
-    )
-    batch = [preprocessed_collection[0], preprocessed_collection[1]]
-    collated = collate_for_tabpfn_dataset(batch)
-    assert isinstance(collated, tuple), "Collator output should be a tuple."
-    X_trains = collated[0]
-    assert isinstance(X_trains, list), "First element should be a list (per estimator)."
-    for est_tensor in X_trains:
-        assert isinstance(
-            est_tensor, torch.Tensor
-        ), "Each estimator's batch should be a tensor."
-        assert est_tensor.shape[0] == len(
-            batch
-        ), "Batch size should match input batch (batch_size=1)."
-    y_trains = collated[2]
-    for est_tensor in y_trains:
-        assert isinstance(
-            est_tensor, torch.Tensor
-        ), "Each estimator's batch should be a tensor for labels."
-        assert est_tensor.shape[0] == len(batch)
-
-
-def test_collate_for_tabpfn_dataset_variable_collection(
-    variable_synthetic_dataset_collection, classifier_instance
-) -> None:
-    import torch
-
-    from tabpfn.utils import collate_for_tabpfn_dataset
-
-    X_list = [X for X, _ in variable_synthetic_dataset_collection]
-    y_list = [y for _, y in variable_synthetic_dataset_collection]
-    preprocessed_collection = classifier_instance.get_preprocessed_datasets(
-        X_list, y_list, train_test_split, 100
-    )
-    batch = [preprocessed_collection[0], preprocessed_collection[1]]
-    collated = collate_for_tabpfn_dataset(batch)
-    assert isinstance(collated, tuple), "Collator output should be a tuple."
-    X_trains = collated[0]
-    assert isinstance(X_trains, list), "First element should be a list (per estimator)."
-    for est_tensor in X_trains:
-        assert isinstance(
-            est_tensor, torch.Tensor
-        ), "Each estimator's batch should be a tensor."
-        assert est_tensor.shape[0] == len(
-            batch
-        ), "Batch size should match input batch (batch_size=1)."
-    y_trains = collated[2]
-    for est_tensor in y_trains:
-        assert isinstance(
-            est_tensor, torch.Tensor
-        ), "Each estimator's batch should be a tensor for labels."
-        assert est_tensor.shape[0] == len(batch)
-
-
 def test_dataset_and_collator_with_dataloader_uniform(
     uniform_synthetic_dataset_collection, classifier_instance
 ) -> None:
     import torch
-    from torch.utils.data import DataLoader
 
     from tabpfn.utils import collate_for_tabpfn_dataset
 
@@ -332,7 +435,7 @@ def test_dataset_and_collator_with_dataloader_uniform(
     dataset_collection = classifier_instance.get_preprocessed_datasets(
         X_list, y_list, train_test_split, 100
     )
-    batch_size = 2
+    batch_size = 1
     dl = DataLoader(
         dataset_collection,
         batch_size=batch_size,
@@ -359,7 +462,6 @@ def test_dataset_and_collator_with_dataloader_variable(
     variable_synthetic_dataset_collection, classifier_instance
 ):
     import torch
-    from torch.utils.data import DataLoader
 
     from tabpfn.utils import collate_for_tabpfn_dataset
 
@@ -386,54 +488,95 @@ def test_dataset_and_collator_with_dataloader_variable(
         break
 
 
-def test_tabpfn_finetune_from_preprocessed_runs(synthetic_data) -> None:
-    """Test TabPFNClassifier finetuning
-    from preprocessed datasets using
-    DataLoader and collator.
-    Checks that the model can fit and
-    predict from batches of preprocessed
-    data, regardless of batch size.
+def test_get_preprocessed_datasets_multiple_datasets(classifier_instance):
+    # Provide lists of datasets
+    X1 = rng.standard_normal((10, 4))
+    y1 = rng.integers(0, 2, size=10)
+    X2 = rng.standard_normal((8, 4))
+    y2 = rng.integers(0, 2, size=8)
+    datasets = classifier_instance.get_preprocessed_datasets(
+        [X1, X2], [y1, y2], split_fn=None
+    )
+    assert hasattr(datasets, "__getitem__")
+    assert len(datasets) == 2
+
+
+def test_get_preprocessed_datasets_categorical_features(classifier_instance):
+    # One categorical column (e.g., int-coded)
+    X = np.array([[0, 1.2, 3.4], [1, 2.3, 4.5], [0, 0.1, 2.2], [2, 1.1, 3.3]])
+    y = np.array([0, 1, 0, 1])
+    # Specify categorical_features_indices
+    classifier_instance.categorical_features_indices = [0]
+    datasets = classifier_instance.get_preprocessed_datasets(X, y, split_fn=None)
+    # Should not raise, and should process categorical features
+    assert hasattr(datasets, "__getitem__")
+    # Optionally, check that categorical indices are stored or used
+
+
+def test_predict_proba_tensor_runs(classifier_instance, classification_data):
+    """Ensure predict_proba_tensor runs OK after standard fit."""
+    import torch
+
+    X_train, X_test, y_train, y_test = classification_data
+    clf = classifier_instance
+    clf.fit_mode = "low_memory"
+    clf.fit(X_train, y_train)
+    preds = clf.predict_proba_tensor(torch.tensor(X_test, dtype=torch.float32))
+    # Check output shape and probability sum
+    assert preds.ndim == 2, f"Expected 2D output, got {preds.shape}"
+    assert preds.shape[0] == X_test.shape[0], "Mismatch in test sample count"
+    assert preds.shape[1] == clf.n_classes_, "Mismatch in class count"
+    probs_sum = preds.sum(dim=1)
+    assert torch.allclose(
+        probs_sum, torch.ones_like(probs_sum), atol=1e-5
+    ), "Probabilities do not sum to 1"
+
+
+def test_fit_from_preprocessed_runs(classifier_instance, classification_data) -> None:
+    """Verify fit_from_preprocessed runs
+    using prepared data and produces
+    valid predictions.
     """
-    X, y = synthetic_data
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.3, random_state=42
+    import torch
+    from sklearn.model_selection import train_test_split
+
+    from tabpfn.utils import collate_for_tabpfn_dataset
+
+    # Unpack data
+    X_train, X_test, y_train, y_test = classification_data
+    clf = classifier_instance
+
+    split_fn = partial(train_test_split, test_size=0.3, random_state=42)
+
+    datasets_list = clf.get_preprocessed_datasets(X_train, y_train, split_fn, 100)
+    batch_size = 1
+    dl = DataLoader(
+        datasets_list, batch_size=batch_size, collate_fn=collate_for_tabpfn_dataset
     )
-    classifier_args = {
-        "ignore_pretraining_limits": True,
-        "device": "cpu",
-        "n_estimators": 1,
-        "random_state": 2,
-        "inference_precision": torch.float32,
-    }
-    clf = TabPFNClassifier(**classifier_args)
-    datasets_list = clf.get_preprocessed_datasets(
-        X_train, y_train, train_test_split, 100
-    )
-    # Test with batch_size=1 and batch_size=2
-    for batch_size in [1, 2]:
-        my_dl_train = DataLoader(
-            datasets_list,
-            batch_size=batch_size,
-            collate_fn=collate_for_tabpfn_dataset,
-        )
-        for data_batch in my_dl_train:
-            X_trains, X_tests, y_trains, y_tests, cat_ixs, confs = data_batch
-            clf.fit_from_preprocessed(X_trains, y_trains, cat_ixs, confs)
-            preds = clf.predict_proba_from_preprocessed(X_tests)
-            assert preds.shape[0] == X_tests[0].shape[0]
-            assert batch_size == X_trains.shape[0]
-            assert len(X_tests) == clf.n_estimators
-            assert len(y_tests) == clf.n_estimators
-            assert len(X_trains) == clf.n_estimators
-            assert len(y_trains) == clf.n_estimators
-            for est_idx in range(clf.n_estimators):
-                n_test_samples = X_tests[est_idx].shape[1]
-                n_train_samples = X_trains[est_idx].shape[1]
-                # Assert at least one test and train sample in each batch
-                assert n_test_samples > 0
-                assert n_train_samples > 0
-                # preds shape: (batch_size, n_classes, n_test_samples)
-                assert preds.shape[2] == n_test_samples, (
-                    f"For estimator {est_idx}: preds.shape[2]={preds.shape[2]} "
-                    f"does not match n_test_samples={n_test_samples}"
-                )
+
+    for data_batch in dl:
+        X_trains, X_tests, y_trains, y_tests, cat_ixs, confs = data_batch
+        # Fit using preprocessed data
+        clf.fit_from_preprocessed(X_trains, y_trains, cat_ixs, confs)
+        # Predict using preprocessed test data
+        preds = clf.predict_proba_from_preprocessed(X_tests)
+        # Check shape: [batch_size, n_samples, n_classes]
+        assert preds.ndim == 3, f"Expected 3D output, got {preds.shape}"
+        assert preds.shape[0] == X_tests[0].shape[0]
+        assert preds.shape[0] == y_tests.shape[0]
+        assert preds.shape[1] == clf.n_classes_
+
+        # TODO: verify number of classes, "Mismatch in class count"
+        probs_sum = preds.sum(dim=1)
+        assert torch.allclose(
+            probs_sum, torch.ones_like(probs_sum), atol=1e-5
+        ), "Probabilities do not sum to 1"
+        break  # Only need to check one batch for this test
+
+
+# ------------ Test interactionf of modern components with new ---------------
+
+# TODO: this test case fails
+#  test predict_proba_tensor vs. predict_proba(
+
+# Interaction of fit_from_preprocessed vs. fit

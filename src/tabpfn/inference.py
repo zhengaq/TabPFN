@@ -50,6 +50,11 @@ class InferenceEngine(ABC):
         As we have trivially parallel parts for inference, we can parallelize them.
         However as the GPU is typically a bottle-neck in most systems, we can define,
         where and how we would like to parallelize the inference.
+
+    The InferenceEngineBatchedNoPreprocessing
+    InferenceEngineCachePreprocessing engines also support toggling
+    `torch.use_torch_inference_mode` via `use_torch_inference_mode`
+    to enable/disable gradient tracking during prediction.
     """
 
     save_peak_mem: bool | Literal["auto"] | float | int
@@ -75,10 +80,21 @@ class InferenceEngine(ABC):
         ...
 
     def use_torch_inference_mode(self, *, use_inference: bool):
-        """Enable / Disable Torch inference mode for quicker inference.
-        To allow for backpropagation, this needs to be disabled. Not all inference
-        engines are compatible with backpropagation, which will raise
-        an error when this operation is called.
+        """Enable/Disable `torch.inference_mode`.
+
+        Disabling allows backpropagation (gradients) but is slower and uses more
+        memory during prediction. Enabling is faster for pure inference.
+
+        Only `InferenceEngineBatchedNoPreprocessing` and
+        `InferenceEngineCachePreprocessing` currently support this method. Other
+        engines will raise `NotImplementedError`.
+
+        Called internally by methods like
+        `TabPFNClassifier.predict_proba_from_preprocessed` (for batched engine) and
+        `TabPFNRegressor.forward` (for batched & fit_preprocessors engines)
+        when gradients might be needed (e.g., for fine-tuning) or when pure
+        inference speed is desired.
+
         """
         raise NotImplementedError(
             "This inference engine does not support" " torch.inference_mode changes."

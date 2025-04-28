@@ -502,6 +502,10 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
             determine_precision(self.inference_precision, self.device_)
         )
 
+        # TODO: double check this
+        self.model_.to(self.device_)
+        self.bardist_.to(self.device_)
+
         # Build the interface_config
         self.interface_config_ = ModelInterfaceConfig.from_user_input(
             inference_config=self.inference_config,

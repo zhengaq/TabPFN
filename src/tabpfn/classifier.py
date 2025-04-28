@@ -350,7 +350,8 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
             differentiable_input:
                 If true, the preprocessing will be adapted to be end-to-end
                 differentiable with PyTorch.
-                This is useful for explainability and prompt-tuning.
+                This is useful for explainability and prompt-tuning, essential
+                in the prompttuning code.
         """
         super().__init__()
         self.n_estimators = n_estimators
@@ -395,7 +396,8 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
         split_fn,
         max_data_size: None | int = 10000,
     ) -> DatasetCollectionWithPreprocessing:
-        """Get a torch.utils.data.Dataset which contains many datasets or splits of one
+        """Get the torch.utils.data.Dataset DatasetCollectionWithPreprocessing
+        class which contains many datasets or splits of one
         or more datasets.
 
         Args:
@@ -462,6 +464,9 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
         (self.use_autocast_, self.forced_inference_dtype_, byte_size) = (
             determine_precision(self.inference_precision, self.device_)
         )
+
+        # TODO: double check this
+        self.model_.to(self.device_)
 
         # Build the interface_config
         self.interface_config_ = ModelInterfaceConfig.from_user_input(
@@ -630,7 +635,8 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
         *,
         no_refit=True,
     ) -> TabPFNClassifier:
-        """Fit the model to preprocessed inputs from a Dataset provided by
+        """Fit the model to preprocessed inputs from torch dataloader
+        inside a training loop a Dataset provided by
         get_preprocessed_datasets.
 
         Args:
@@ -650,6 +656,12 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
         else:
             _, _, byte_size = determine_precision(
                 self.inference_precision, self.device_
+            )
+
+        if not self.fit_mode == "batched":
+            raise ValueError(
+                "The fit_from_preprocessed function"
+                " is only supported in the batched fit_mode."
             )
 
         # Create the inference engine
@@ -735,6 +747,16 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
                 following fit_from_preprocessed."
             )
 
+        if self.forced_inference_dtype_ == torch.float64:
+            raise ValueError(
+                "inference_precision=torch.float64 is not currently supported "
+                "for the predict_proba_from_preprocessed (fine-tuning) workflow. "
+                "This workflow typically requires float32 for compatibility with "
+                "default model parameter dtypes during backpropagation."
+            )
+
+        # TODO: InferenceEngineCachePreprocessing could
+        # also support this, currently never accessed
         self.executor_.use_torch_inference_mode(use_inference=False)
         outputs = []
         for output, config in self.executor_.iter_outputs(
@@ -782,7 +804,7 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
 
     def predict_proba_tensor(self, X: torch.Tensor) -> torch.Tensor:
         """Same as predict_proba, but without preprocessing and with
-        Tensor inputs and outputs. Use, e.g., for prompt-tuning o
+        Tensor inputs and outputs. Use, e.g., for prompt-tuning
         or when the outputs need to be differentiable.
         """
         outputs: list[torch.Tensor] = []

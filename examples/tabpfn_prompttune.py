@@ -42,7 +42,7 @@ if __name__ == "__main__":
     n_prompt_samples = 200  # samples used for prompt_tuning
     n_total_samples = 100_000  # prompt+train+test
     do_epochs = 3
-    device = "cuda:1"
+    device = "cuda"
 
     # Load Covertype Dataset (7-way classification)
     data_frame_x, data_frame_y = sklearn.datasets.fetch_covtype(

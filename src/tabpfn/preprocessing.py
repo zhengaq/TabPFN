@@ -726,14 +726,57 @@ def fit_preprocessing(
 
 
 class DatasetCollectionWithPreprocessing(Dataset):
-    """A meta dataset.
-    Each item corresponds to a single dataset with
-    a train test split. The dataloader further handels proprocessing and
-    returns one or multiple preprocessed versions of the dataset as a list.
-    An item consists of:
-        X_trains, X_tests, y_trains, y_test, cat_ixs, conf. (classification)
-        X_trains, X_tests, y_trains, y_test, cat_ixs, conf,
-        y_full_standardised, renormalized_criterion. (regression).
+    """Manages a collection of dataset configurations for lazy processing.
+
+    This class acts as a meta-dataset where each item corresponds to a
+    single, complete dataset configuration (e.g., raw features, raw labels,
+    preprocessing details defined in `RegressorDatasetConfig` or
+    `ClassifierDatasetConfig`). When an item is accessed via `__getitem__`,
+    it performs the following steps on the fly:
+
+    1.  Retrieves the specified dataset configuration.
+    2.  Splits the raw data into training and testing sets using the provided
+        `split_fn` and a random seed derived from `rng`. For regression,
+        both raw and pre-standardized targets might be split.
+    3.  Fits preprocessors (defined in the dataset configuration's `config`
+        attribute) on the *training* data using the `fit_preprocessing`
+        utility. This may result in multiple preprocessed versions
+        if the configuration specifies an ensemble of preprocessing pipelines.
+    4.  Applies the fitted preprocessors to the *testing* features (`x_test_raw`).
+    5.  Converts relevant outputs to `torch.Tensor` objects.
+    6.  Returns the preprocessed data splits along with other relevant
+        information (like raw test data, configs) as a tuple.
+
+    This approach is memory-efficient, especially when dealing with many
+    datasets or configurations, as it avoids loading and preprocessing
+    everything simultaneously.
+
+    Args:
+        split_fn (Callable): A function compatible with scikit-learn's
+            `train_test_split` signature (e.g.,
+            `sklearn.model_selection.train_test_split`). It's used to split
+            the raw data (X, y) into train and test sets. It will receive
+            `X`, `y`, and `random_state` as arguments.
+        rng (np.random.Generator): A NumPy random number generator instance
+            used for generating the split seed and potentially within the
+            preprocessing steps defined in the configs.
+        dataset_config_collection (
+            Sequence[Union[RegressorDatasetConfig, ClassifierDatasetConfig]]
+        ): A sequence containing dataset configuration objects. Each object
+            must hold the raw data (`X_raw`, `y_raw`), categorical feature
+            indices (`cat_ix`), and the specific preprocessing configurations
+            (`config`) for that dataset. Regression configs require additional
+            fields (`y_full_standardised`, `renormalized_criterion`).
+        n_workers (int, optional): The number of workers to use for potentially
+            parallelized preprocessing steps (passed to `fit_preprocessing`).
+            Defaults to 1.
+
+    Attributes:
+        configs (Sequence[Union[RegressorDatasetConfig, ClassifierDatasetConfig]]):
+            Stores the input dataset configuration collection.
+        split_fn (Callable): Stores the splitting function.
+        rng (np.random.Generator): Stores the random number generator.
+        n_workers (int): Stores the number of workers for preprocessing.
     """
 
     def __init__(self, split_fn, rng, dataset_config_collection, n_workers=1):
@@ -746,14 +789,68 @@ class DatasetCollectionWithPreprocessing(Dataset):
         return len(self.configs)
 
     def __getitem__(self, index):  # noqa: C901, PLR0912
-        """Returns lists of processed training datasets, training labels,
-        test datasets. Test labels are passed through without processing.
+        """Retrieves, splits, and preprocesses the dataset config at the index.
+
+        Performs train/test splitting and applies potentially multiple
+        preprocessing pipelines defined in the dataset's configuration.
+
+        Args:
+            index (int): The index of the dataset configuration in the
+                `dataset_config_collection` to process.
+
+        Returns:
+            Tuple: A tuple containing the processed data and metadata.
+                The structure depends on the task type derived from the dataset
+                configuration object (`RegressorDatasetConfig` or
+                `ClassifierDatasetConfig`):
+
+                For **Classification** tasks (`ClassifierDatasetConfig`):
+                * `X_trains_preprocessed` (List[torch.Tensor]): List of preprocessed
+                  training feature tensors (one per preprocessing pipeline).
+                * `X_tests_preprocessed` (List[torch.Tensor]): List of preprocessed
+                  test feature tensors (one per preprocessing pipeline).
+                * `y_trains_preprocessed` (List[torch.Tensor]): List of preprocessed
+                  training target tensors (one per preprocessing pipeline).
+                * `y_test_raw` (torch.Tensor): Original, unprocessed test target
+                  tensor.
+                * `cat_ixs` (List[Optional[List[int]]]): List of categorical feature
+                  indices corresponding to each preprocessed X_train/X_test.
+                * `conf` (List): The list of preprocessing configurations used for
+                  this dataset (usually reflects ensemble settings).
+
+                For **Regression** tasks (`RegressorDatasetConfig`):
+                * `X_trains_preprocessed` (List[torch.Tensor]): List of preprocessed
+                  training feature tensors.
+                * `X_tests_preprocessed` (List[torch.Tensor]): List of preprocessed
+                  test feature tensors.
+                * `y_trains_preprocessed` (List[torch.Tensor]): List of preprocessed
+                  *standardized* training target tensors.
+                * `y_test_standardized` (torch.Tensor): *Standardized* test target
+                  tensor (derived from `y_full_standardised`).
+                * `cat_ixs` (List[Optional[List[int]]]): List of categorical feature
+                  indices corresponding to each preprocessed X_train/X_test.
+                * `conf` (List): The list of preprocessing configurations used.
+                * `renormalized_criterion` (Any): Criterion object for
+                  renormalization (specific to the regression config).
+                * `x_test_raw` (torch.Tensor): Original, unprocessed test feature
+                  tensor.
+                * `y_test_raw` (torch.Tensor): Original, unprocessed test target
+                  tensor.
+
+        Raises:
+            IndexError: If the index is out of the bounds of the dataset collection.
+            ValueError: If the dataset configuration type at the index is not
+                        recognized (neither `RegressorDatasetConfig` nor
+                        `ClassifierDatasetConfig`).
+            AssertionError: If sanity checks during processing fail (e.g.,
+                            standardized mean not close to zero in regression).
         """
         if index < 0 or index >= len(self):
             raise IndexError("Index out of bounds.")
 
         config = self.configs[index]
 
+        # Check type of Dataset Config
         if isinstance(config, RegressorDatasetConfig):
             conf = config.config
             x_full_raw = config.X_raw
@@ -767,19 +864,9 @@ class DatasetCollectionWithPreprocessing(Dataset):
             y_full_raw = config.y_raw
             cat_ix = config.cat_ix
         else:
-            raise ValueError(f"Invalid ensemble config type: {type(config)}")
+            raise ValueError(f"Invalid dataset config type: {type(config)}")
 
         regression_task = isinstance(config, RegressorDatasetConfig)
-
-        # Sanity Check
-        if regression_task:
-            assert (
-                y_full_standardised is not None
-            ), "y_full_standardised should exist when in Regression Task"
-            assert np.isclose(np.mean(y_full_standardised), 0, atol=10e-8), (
-                f"Mean of y_full_standardised is not close to zero: "
-                f"{np.mean(y_full_standardised)}"
-            )
 
         MAX_SEED = 2**32 - 1
         split_seed = self.rng.integers(MAX_SEED)
@@ -806,6 +893,13 @@ class DatasetCollectionWithPreprocessing(Dataset):
             full_mean = np.mean(y_full_raw)
             full_std = np.std(y_full_raw)
             expect_y_raw_standardised = (y_full_raw - full_mean) / full_std
+            assert (
+                y_full_standardised is not None
+            ), "y_full_standardised should exist when in Regression Task"
+            assert np.isclose(np.mean(y_full_standardised), 0, atol=10e-8), (
+                f"Mean of y_full_standardised is not close to zero: "
+                f"{np.mean(y_full_standardised)}"
+            )
             assert np.allclose(
                 y_full_standardised, expect_y_raw_standardised, atol=tolerance
             )

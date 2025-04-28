@@ -1,6 +1,5 @@
 """An example for finetuning TabPFN on the Covertype dataset."""
 
-import copy
 from functools import partial
 
 import numpy as np
@@ -13,7 +12,9 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from tabpfn import TabPFNClassifier
-from tabpfn.base import ClassifierModelSpecs
+
+#TODO: fix this import for tests
+from tabpfn.finetune_utils import _prepare_eval_model
 from tabpfn.utils import collate_for_tabpfn_dataset
 
 
@@ -26,22 +27,9 @@ def eval_test(
     X_test_raw: np.ndarray,
     y_test_raw: np.ndarray,
 ) -> tuple[float, float]:
-    if hasattr(clf, "model_") and clf.model_ is not None:
-        """
-        Need deepcopy here to make sure that
-        the eval function is not modifying the
-        original model to be evaluated.
-        """
-        new_model = copy.deepcopy(clf.model_)
-        new_config = copy.deepcopy(clf.config_)
-        model_spec_obj = ClassifierModelSpecs(
-            model=new_model,
-            config=new_config,
-        )
-        clf_eval = TabPFNClassifier(model_path=model_spec_obj, **classifier_args)
-    else:
-        clf_eval = TabPFNClassifier(**classifier_args)
 
+
+    clf_eval = _prepare_eval_model(clf, classifier_args, TabPFNClassifier)
     clf_eval.fit(X_train_raw, y_train_raw)
 
     try:
@@ -58,9 +46,9 @@ def eval_test(
 
 
 if __name__ == "__main__":
-    device = "cpu"
+    device = "cuda" if torch.cuda.is_available() else "cpu"
     # n_use = 200_000
-    n_use = 750
+    n_use = 5000
     do_epochs = 3
     random_seed = 42
     test_set_size = 0.3
@@ -100,7 +88,7 @@ if __name__ == "__main__":
         datasets_list, batch_size=1, collate_fn=collate_for_tabpfn_dataset
     )
 
-    optim_impl = Adam(clf.model_.parameters(), lr=1e-5)
+    optim_impl = Adam(clf.model_.parameters(), lr=1e-4)
     lossfn = torch.nn.NLLLoss()
     loss_batches: list[float] = []
     acc_batches: list[float] = []
@@ -119,8 +107,6 @@ if __name__ == "__main__":
         for data_batch in tqdm(my_dl_train):
             optim_impl.zero_grad()
             X_trains, X_tests, y_trains, y_tests, cat_ixs, confs = data_batch
-            print("AA", X_tests.shape)
-
             clf.fit_from_preprocessed(X_trains, y_trains, cat_ixs, confs)
             preds = clf.predict_proba_from_preprocessed(X_tests)
             loss = lossfn(torch.log(preds), y_tests.to(device))
@@ -139,4 +125,4 @@ if __name__ == "__main__":
         print("Test Acc:", res_acc)
         print("Test Log Loss:", ll)
 
-        # TODO: implement experiment tracking 
+        # TODO: implement experiment tracking

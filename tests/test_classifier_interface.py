@@ -26,6 +26,9 @@ devices = ["cpu"]
 if torch.cuda.is_available():
     devices.append("cuda")
 
+
+# TODO: test "batched" mode
+
 feature_shift_decoders = ["shuffle", "rotate"]
 multiclass_decoders = ["shuffle", "rotate"]
 fit_modes = [

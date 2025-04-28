@@ -661,6 +661,8 @@ def update_encoder_params(
         return
 
     encoder = model.encoder
+
+    # TODO: maybe check that norm_layer even exists
     norm_layer = next(
         e for e in encoder if "InputNormalizationEncoderStep" in str(e.__class__)
     )
@@ -788,6 +790,10 @@ def split_large_data(largeX: XType, largey: YType, max_data_size: int):
             max_data_size.
     """
     tot_size = len(largeX)
+    if max_data_size <= 0:
+        raise ValueError("max_data_size must be positive")
+    if tot_size == 0:
+        return [], []
     num_chunks = ((tot_size - 1) // max_data_size) + 1
     basechunk_size = tot_size // num_chunks
     remainder = tot_size % num_chunks
@@ -830,12 +836,36 @@ def pad_tensors(tensor_list, padding_val=0, *, labels=False):
 
 
 def collate_for_tabpfn_dataset(batch, padding_val=0.0):
-    """Collate function for the
-    DatasetCollectionWithPreprocessing class,
-    when creating a torch.utils.data.DataLoader.
-    Inputs are a three-dimesional collections.
+    """Collate function for torch.utils.data.DataLoader.
+
+    Designed for batches from DatasetCollectionWithPreprocessing.
+    Takes a list of dataset samples (the batch) and structures them
+    into a single tuple suitable for model input, often for fine-tuning
+    using `fit_from_preprocessed`.
+
+    Handles samples containing nested lists (e.g., for ensemble members)
+    and tensors. Pads tensors to consistent shapes using `pad_tensors`
+    before stacking. Non-tensor items are grouped into lists.
+
+    Args:
+        batch (list): A list where each element is one sample from the
+            Dataset. Samples often contain multiple components like
+            features, labels, configs, etc., potentially nested in lists.
+        padding_val (float): Value used for padding tensors to allow
+            stacking across the batch dimension.
+
+    Returns:
+        tuple: A tuple where each element is a collated component from the
+            input batch (e.g., stacked tensors, lists of configs).
+            The structure matches the input required by methods like
+            `fit_from_preprocessed`.
+
+    Note:
+        Currently only implemented and tested for `batch_size = 1`,
+        as enforced by an internal assertion.
     """
     batch_sz = len(batch)
+    assert batch_sz == 1, "Only Implemented and tested for batch size of 1"
     num_estim = len(batch[0][0])
     items_list = []
     for item_idx in range(len(batch[0])):
