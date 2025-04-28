@@ -144,6 +144,13 @@ if __name__ == "__main__":
                 X_tests_preprocessed
             )  # [BatchSize, N_test, NumBars]
 
+            # TabPFN Regressor standardises the label
+            # distribution with a Z-Transform. When 
+            # optimizing for FineTuning we can choose
+            # to optomizer the difference in Binning
+            # distributions in this standardised (prepreocessed)
+            # space or the raw label space. 
+
             loss_fn = None
             if hyperparams["optimization_space"] == "raw_label_space":
                 lossfn = reg.bardist_
@@ -177,7 +184,4 @@ if __name__ == "__main__":
         print(f"Test MAE: {res_mae:.4f}")
         print(f"Test R2: {res_r2:.4f}")
 
-        # loss_batches.append(loss_test)
-        # mse_batches.append(res_mse)
-        # with Path("finetune_regression.json").open(mode="w") as file:
-        #    json.dump({"loss": loss_batches, "acc": mse_batches}, file)
+        # TODO: implement experiment tracking 

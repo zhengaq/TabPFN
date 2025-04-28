@@ -107,17 +107,25 @@ def initialize_tabpfn_model(
         bar_distribution: The BarDistribution for regression (`None` if classifier).
     """
     # --- 1. Handle Pre-loaded ModelSpecs ---
-    if isinstance(model_path, ModelSpecs):
-        if which == "regressor":
-            return model_path.model, model_path.config, model_path.norm_criterion
-        if which == "classifier":
-            return model_path.model, model_path.config, None
+    if isinstance(model_path, RegressorModelSpecs) and which == "regressor":
+        return model_path.model, model_path.config, model_path.norm_criterion
+    if isinstance(model_path, ClassifierModelSpecs) and which == "classifier":
+        return model_path.model, model_path.config, None
+    if model_path is None or isinstance(model_path, (str, Path)):
+        # This 'elif' block is intentionally left empty (or could have a 'pass').
+        # Its purpose is to identify the valid path types and allow execution
+        # to continue to the loading logic below, preventing these types
+        # from falling into the final 'else' block.
+        pass
+    else:
         raise TypeError(
             "Received ModelSpecs via 'model_path', but 'which' parameter is set to '"
             + which
-            + "'. Expected 'classifier' or 'regressor'."
+            + "'. Expected 'classifier' or 'regressor'. and model_path"
+            + "is of of type"
+            + str(type(model_path))
         )
-    # --- If not ModelSpecs, it must be a path, 'auto', or None
+
     # (after processing 'auto')
     download = True
     if isinstance(model_path, str) and model_path == "auto":

@@ -400,9 +400,7 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
         self.inference_precision: torch.dtype | Literal["autocast", "auto"] = (
             inference_precision
         )
-        self.fit_mode: Literal["low_memory", "fit_preprocessors", "fit_with_cache"] = (
-            fit_mode
-        )
+        self.fit_mode: Literal["low_memory", "fit_preprocessors", "batched"] = fit_mode
         self.memory_saving_mode: bool | Literal["auto"] | float | int = (
             memory_saving_mode
         )
@@ -719,7 +717,8 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
         ), "Input type X does not match the executor type"
 
         # Ensure torch.inference_mode is OFF to allow gradients
-        self.executor_.use_torch_inference_mode(use_inference=use_inference_mode)
+        if self.fit_mode in ["fit_preprocessors", "batched"]:
+            self.executor_.use_torch_inference_mode(use_inference=use_inference_mode)
 
         check_is_fitted(self)
 
@@ -781,15 +780,12 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
                     output = output.clone()  # noqa: PLW2901
                     output[..., logit_cancel_mask] = float("-inf")
 
-            # TODO (Klemens) Maybe keep, or built codebase on a Bsz=1.
-            # Bsz > 1, Not sure about this part tbh
-            elif isinstance(config, list):
-                # Need to loop through configs, and to code above for each.
-                # Select in dim=0 in output based on index
-                # For now leave unimplemented to appease linter
-                raise ValueError("Batch prediction is not supported yet!")
+            # TODO (Klemens) Fix what happens when we get a list here.
             else:
-                raise ValueError("Unexpected config format")
+                raise ValueError(
+                    "Unexpected config format "
+                    "and Batch prediction is not supported yet!"
+                )
 
             outputs.append(output)  # type: ignore
 

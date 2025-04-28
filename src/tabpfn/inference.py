@@ -74,7 +74,7 @@ class InferenceEngine(ABC):
         """
         ...
 
-    def use_torch_inference_mode(self, *, _use_inference: bool):
+    def use_torch_inference_mode(self, *, use_inference: bool):
         """Enable / Disable Torch inference mode for quicker inference.
         To allow for backpropagation, this needs to be disabled. Not all inference
         engines are compatible with backpropagation, which will raise

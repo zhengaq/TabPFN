@@ -60,7 +60,7 @@ def eval_test(
 if __name__ == "__main__":
     device = "cpu"
     # n_use = 200_000
-    n_use = 1000
+    n_use = 750
     do_epochs = 3
     random_seed = 42
     test_set_size = 0.3
@@ -119,6 +119,8 @@ if __name__ == "__main__":
         for data_batch in tqdm(my_dl_train):
             optim_impl.zero_grad()
             X_trains, X_tests, y_trains, y_tests, cat_ixs, confs = data_batch
+            print("AA", X_tests.shape)
+
             clf.fit_from_preprocessed(X_trains, y_trains, cat_ixs, confs)
             preds = clf.predict_proba_from_preprocessed(X_tests)
             loss = lossfn(torch.log(preds), y_tests.to(device))
@@ -137,7 +139,4 @@ if __name__ == "__main__":
         print("Test Acc:", res_acc)
         print("Test Log Loss:", ll)
 
-        # loss_batches.append(ll)
-        # acc_batches.append(res_acc)
-        # with Path("finetune.json").open(mode="w") as file:
-        #    json.dump({"loss": loss_batches, "acc": acc_batches}, file)
+        # TODO: implement experiment tracking 

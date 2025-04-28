@@ -410,7 +410,7 @@ def test_tabpfn_finetune_from_preprocessed_runs(synthetic_data) -> None:
         X_train, y_train, train_test_split, 100
     )
     # Test with batch_size=1 and batch_size=2
-    for batch_size in [1]:
+    for batch_size in [1, 2]:
         my_dl_train = DataLoader(
             datasets_list,
             batch_size=batch_size,
@@ -421,7 +421,7 @@ def test_tabpfn_finetune_from_preprocessed_runs(synthetic_data) -> None:
             clf.fit_from_preprocessed(X_trains, y_trains, cat_ixs, confs)
             preds = clf.predict_proba_from_preprocessed(X_tests)
             assert preds.shape[0] == X_tests[0].shape[0]
-            assert batch_size == X_tests[0].shape[0]
+            assert batch_size == X_trains.shape[0]
             assert len(X_tests) == clf.n_estimators
             assert len(y_tests) == clf.n_estimators
             assert len(X_trains) == clf.n_estimators
