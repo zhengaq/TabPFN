@@ -26,9 +26,9 @@ if torch.cuda.is_available():
 feature_shift_decoders = ["shuffle", "rotate"]
 fit_modes = [
     "batched",
-    # "fit_preprocessors",
-    # "fit_with_cache",
-    # "low_memory",
+    "fit_preprocessors",
+    "fit_with_cache",
+    "low_memory",
 ]
 inference_precision_methods: list[torch.types._dtype | Literal["autocast", "auto"]] = [
     "auto",
@@ -476,7 +476,7 @@ def test_finetuning_consistency_bar_distribution(
 
 
 class TestTabPFNPreprocessingInspection(unittest.TestCase):
-    def test_finetuning_consistency_preprocessing(self):
+    def test_finetuning_consistency_preprocessing_regressor(self):
         """In order to test the consistency of our FineTuning code
         and the preprocessing code, we will test the consistency
         of the preprocessed datasets. We do this by checking

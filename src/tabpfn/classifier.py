@@ -808,7 +808,8 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
             autocast=self.use_autocast_,
         ):
             # Cut out logits for classes which do not exist
-            if output.ndim == 2:
+            if use_inference_mode:
+                assert output.ndim == 2
                 if self.softmax_temperature != 1:
                     output = (  # noqa: PLW2901
                         output[:, : self.n_classes_].float() / self.softmax_temperature
@@ -820,7 +821,8 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
 
                 output_all = output
 
-            elif output.ndim == 3:  # [Batch, Nsamples, NClasses]
+            else:
+                assert output.ndim == 3  # [Batch, Nsamples, NClasses]
                 n_classes = output.size(-1)
                 if self.softmax_temperature != 1:
                     output = (  # noqa: PLW2901
@@ -841,27 +843,17 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
                         output_batch.append(output[:, i, use_perm])
                     output_all = torch.stack(output_batch, dim=1)
 
-            else:
-                raise ValueError("Output tensor must be 2d or 3d")
-
             outputs.append(output_all)
+
+        soft_max_dim = 1 if use_inference_mode else -1
 
         if self.average_before_softmax:
             output = torch.stack(outputs).mean(dim=0)
-            if output.ndim == 2:
-                output = torch.nn.functional.softmax(output, dim=1)
-            elif output.ndim == 3:
-                output = torch.nn.functional.softmax(output, dim=-1)
-            else:
-                raise ValueError("Output tensor must be 2d or 3d")
+            output = torch.nn.functional.softmax(output, dim=soft_max_dim)
         else:
-            # Softmax each 2d outputs before average
-            if output.ndim == 2:
-                outputs = [torch.nn.functional.softmax(o, dim=1) for o in outputs]
-            elif output.ndim == 3:
-                outputs = [torch.nn.functional.softmax(o, dim=-1) for o in outputs]
-            else:
-                raise ValueError("Output tensor must be 2d or 3d")
+            outputs = [
+                torch.nn.functional.softmax(o, dim=soft_max_dim) for o in outputs
+            ]
             output = torch.stack(outputs).mean(dim=0)
 
         if self.balance_probabilities:
@@ -869,7 +861,8 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
             output = output / torch.Tensor(class_prob_in_train).to(self.device_)
             output = output / output.sum(dim=-1, keepdim=True)
 
-        if output.ndim == 3:
+        # Fine Tuning
+        if not use_inference_mode:
             output = output.transpose(0, 1).transpose(1, 2)  # for NLLLoss [B, C, D1]
 
         return output

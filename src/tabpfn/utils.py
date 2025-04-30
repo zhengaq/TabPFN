@@ -612,6 +612,8 @@ def translate_probs_across_borders(
     return (prob_left[..., 1:] - prob_left[..., :-1]).clamp_min(0.0)
 
 
+# TODO: change regressor to replace this with update_encoder_params
+# in regressor
 def update_encoder_outlier_params(
     model: nn.Module,
     remove_outliers_std: float | None,
@@ -619,7 +621,9 @@ def update_encoder_outlier_params(
     *,
     inplace: Literal[True],
 ) -> None:
-    """Deprecated legacy, remove in next update and repace with function below."""
+    """Deprecated legacy in Classifier, now used in regression,
+    remove in next update and replace with function below.
+    """
     return update_encoder_params(model, remove_outliers_std, seed, inplace=inplace)
 
 
