@@ -48,7 +48,7 @@ def eval_test(
 if __name__ == "__main__":
     device = "cuda" if torch.cuda.is_available() else "cpu"
     # n_use = 200_000
-    n_use = 5000
+    n_use = 1000
     do_epochs = 3
     random_seed = 42
     test_set_size = 0.3
@@ -80,7 +80,7 @@ if __name__ == "__main__":
         "random_state": 2,
         "inference_precision": torch.float32,
     }
-    clf = TabPFNClassifier(**classifier_args)
+    clf = TabPFNClassifier(**classifier_args, fit_mode="batched")
 
     datasets_list = clf.get_preprocessed_datasets(X_train, y_train, splitfn, 1000)
     datasets_list_test = clf.get_preprocessed_datasets(X_test, y_test, splitfn, 1000)

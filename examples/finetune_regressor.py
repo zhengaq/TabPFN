@@ -63,13 +63,13 @@ if __name__ == "__main__":
     regressor_args = {
         "ignore_pretraining_limits": True,
         "device": device,
-        "n_estimators": 10,
+        "n_estimators": 2,
         "random_state": 2,  # For reproducibility of internal sampling/preprocessing
         "inference_precision": torch.float32,  # Keep precision consistent
         # memory_saving_mode default is 'auto'
     }
 
-    reg = TabPFNRegressor(**regressor_args, differentiable_input=False)
+    reg = TabPFNRegressor(**regressor_args, differentiable_input=False, fit_mode="batched")
 
     res_mse, res_mae, res_r2 = eval_test_regression_standard(
         reg,
@@ -112,9 +112,13 @@ if __name__ == "__main__":
                 cat_ixs,
                 confs,
                 renormalized_criterion,
+                bar_distribution,
                 batch_x_test_raw,
                 batch_y_test_raw,
             ) = data_batch
+
+
+            reg.renormalized_criterion_ = renormalized_criterion
 
             reg.fit_from_preprocessed(
                 X_trains_preprocessed, y_trains_preprocessed, cat_ixs, confs
@@ -131,16 +135,18 @@ if __name__ == "__main__":
             # distributions in this standardised (prepreocessed)
             # space or the raw label space.
 
-            loss_fn = None
+            lossfn = None
             if hyperparams["optimization_space"] == "raw_label_space":
-                lossfn = reg.bardist_
+                lossfn = renormalized_criterion[0]
+                y_test = batch_y_test_raw
             elif hyperparams["optimization_space"] == "preprocessed":
-                lossfn = reg.renormalized_criterion_
+                lossfn = bar_distribution[0]
+                y_test = y_test_standardized
             else:
                 raise ValueError("Need to define optimization space")
 
             nll_loss_per_sample = lossfn(
-                averaged_pred_logits, batch_y_test_raw.to(device)
+                averaged_pred_logits, y_test.to(device)
             )
             loss = nll_loss_per_sample.mean()
 

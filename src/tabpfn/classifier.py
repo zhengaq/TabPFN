@@ -606,6 +606,12 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
                 self.inference_precision, self.device_
             )
 
+        if self.fit_mode == "batched":
+            raise ValueError(
+                "The fit() function is currently"
+                " not supported in the batched fit_mode."
+            )
+
         # Create the inference engine
         self.executor_ = create_inference_engine(
             X_train=X,

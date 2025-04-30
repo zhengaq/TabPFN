@@ -1,8 +1,6 @@
 """An example of how prompt-tuning can be applied with TabPFN."""
 
-import json
 from functools import partial
-from pathlib import Path
 
 import sklearn
 import torch
@@ -120,5 +118,3 @@ if __name__ == "__main__":
         print(f"---- EPOCH {epoch}: ----")
         print("Test Acc:", res_acc)
         print("Test Loss:", loss_test)
-        with Path("prompttune.json").open(mode="w") as f:
-            json.dump({"loss": loss_batches, "acc": acc_batches}, f)

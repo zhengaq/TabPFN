@@ -24,6 +24,7 @@ from tabpfn.constants import (
     PARALLEL_MODE_TO_RETURN_AS,
     SUPPORTS_RETURN_AS,
 )
+from tabpfn.model.bar_distribution import BarDistribution, FullSupportBarDistribution
 from tabpfn.model.preprocessing import (
     AddFingerprintFeaturesStep,
     DifferentiableZNormStep,
@@ -42,7 +43,9 @@ if TYPE_CHECKING:
     from sklearn.base import TransformerMixin
     from sklearn.pipeline import Pipeline
 
-    from tabpfn.model.bar_distribution import FullSupportBarDistribution
+    from tabpfn.model.bar_distribution import (
+        BarDistribution,
+    )
 
 T = TypeVar("T")
 
@@ -71,8 +74,7 @@ class ClassifierDatasetConfig(BaseDatasetConfig):
 class RegressorDatasetConfig(BaseDatasetConfig):
     """Regression Dataset + Model Configuration class."""
 
-    y_full_standardised: np.ndarray | torch.Tensor
-    renormalized_criterion: FullSupportBarDistribution
+    bar_distribution: BarDistribution
 
 
 @dataclass
@@ -742,6 +744,7 @@ class DatasetCollectionWithPreprocessing(Dataset):
         attribute) on the *training* data using the `fit_preprocessing`
         utility. This may result in multiple preprocessed versions
         if the configuration specifies an ensemble of preprocessing pipelines.
+        For regression we also standardise the target variable.
     4.  Applies the fitted preprocessors to the *testing* features (`x_test_raw`).
     5.  Converts relevant outputs to `torch.Tensor` objects.
     6.  Returns the preprocessed data splits along with other relevant
@@ -830,8 +833,10 @@ class DatasetCollectionWithPreprocessing(Dataset):
                 * `cat_ixs` (List[Optional[List[int]]]): List of categorical feature
                   indices corresponding to each preprocessed X_train/X_test.
                 * `conf` (List): The list of preprocessing configurations used.
-                * `renormalized_criterion` (Any): Criterion object for
-                  renormalization (specific to the regression config).
+                * `renormalized_criterion` (FullSupportBarDistribution): Binning class
+                  for target variable (specific to the regression config).
+                * `bar_distribution` (BarDistribution): Binning class for
+                  target variable (specific to the regression config).
                 * `x_test_raw` (torch.Tensor): Original, unprocessed test feature
                   tensor.
                 * `y_test_raw` (torch.Tensor): Original, unprocessed test target
@@ -856,8 +861,7 @@ class DatasetCollectionWithPreprocessing(Dataset):
             x_full_raw = config.X_raw
             y_full_raw = config.y_raw
             cat_ix = config.cat_ix
-            y_full_standardised = config.y_full_standardised
-            renormalized_criterion = config.renormalized_criterion
+            bar_distribution = config.bar_distribution
         elif isinstance(config, ClassifierDatasetConfig):
             conf = config.config
             x_full_raw = config.X_raw
@@ -868,46 +872,25 @@ class DatasetCollectionWithPreprocessing(Dataset):
 
         regression_task = isinstance(config, RegressorDatasetConfig)
 
-        MAX_SEED = 2**32 - 1
-        split_seed = self.rng.integers(MAX_SEED)
-
-        if regression_task:
-            (
-                x_train,
-                x_test,
-                y_train_standardized,
-                y_test_standardized,
-            ) = self.split_fn(
-                x_full_raw,
-                y_full_standardised,
-                random_state=split_seed,
-            )
-
         x_train_raw, x_test_raw, y_train_raw, y_test_raw = self.split_fn(
-            x_full_raw, y_full_raw, random_state=split_seed
+            x_full_raw, y_full_raw
         )
 
-        # Sanity checks
+        # Compute traget varibale Z-transform standardization
+        # based on statistics of training set
+        # Note: Since we compute renormalized_criterion here,
+        # it is not set as an attribute of the Regressor class
+        # This however makes also sense when considering that
+        # this attribute changes on every dataset
         if regression_task:
-            tolerance = 1e-10
-            full_mean = np.mean(y_full_raw)
-            full_std = np.std(y_full_raw)
-            expect_y_raw_standardised = (y_full_raw - full_mean) / full_std
-            assert (
-                y_full_standardised is not None
-            ), "y_full_standardised should exist when in Regression Task"
-            assert np.isclose(np.mean(y_full_standardised), 0, atol=10e-8), (
-                f"Mean of y_full_standardised is not close to zero: "
-                f"{np.mean(y_full_standardised)}"
-            )
-            assert np.allclose(
-                y_full_standardised, expect_y_raw_standardised, atol=tolerance
-            )
+            train_mean = np.mean(y_train_raw)
+            train_std = np.std(y_train_raw)
+            y_test_standardized = (y_test_raw - train_mean) / train_std
+            y_train_standardized = (y_train_raw - train_mean) / train_std
+            renormalized_criterion = FullSupportBarDistribution(
+                bar_distribution.borders * train_std + train_mean
+            ).float()
 
-            assert np.allclose(x_train, x_train_raw, atol=tolerance)
-            assert np.allclose(x_test, x_test_raw, atol=tolerance)
-
-        y_train = None
         y_train = y_train_standardized if regression_task else y_train_raw
 
         itr = fit_preprocessing(
@@ -961,6 +944,10 @@ class DatasetCollectionWithPreprocessing(Dataset):
         y_train_raw = torch.from_numpy(y_train_raw)
         y_test_raw = torch.from_numpy(y_test_raw)
 
+        # Also return raw_target variable because of flexiblity
+        # in optimisation space -> see examples/
+        # Aslo return corresponding target variable binning
+        # classes renormalized_criterion and bar_distribution
         if regression_task:  # Pass through renorm. for regression.
             return (
                 X_trains_preprocessed,
@@ -970,6 +957,7 @@ class DatasetCollectionWithPreprocessing(Dataset):
                 cat_ixs,
                 conf,
                 renormalized_criterion,
+                bar_distribution,
                 x_test_raw,
                 y_test_raw,
             )
