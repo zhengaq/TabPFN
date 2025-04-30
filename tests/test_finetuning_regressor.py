@@ -145,6 +145,62 @@ def create_regressor(
 # --- Tests ---
 
 
+def test_regressor_dataset_and_collator_batches_type(
+    synthetic_regression_data, ft_regressor_instance
+):
+    """Test that the batches returned by the dataset and collator
+    are of the correct type.
+    """
+    import torch
+
+    from tabpfn.model.bar_distribution import (
+        BarDistribution,
+        FullSupportBarDistribution,
+    )
+    from tabpfn.preprocessing import RegressorEnsembleConfig
+    from tabpfn.utils import collate_for_tabpfn_dataset
+
+    X, y = synthetic_regression_data
+    dataset_collection = ft_regressor_instance.get_preprocessed_datasets(
+        X, y, train_test_split, 100
+    )
+    batch_size = 1
+    dl = DataLoader(
+        dataset_collection,
+        batch_size=batch_size,
+        collate_fn=collate_for_tabpfn_dataset,
+    )
+    for batch in dl:
+        assert isinstance(batch, tuple)
+        (
+            X_trains_preprocessed,
+            X_tests_preprocessed,
+            y_trains_preprocessed,
+            y_test_standardized,
+            cat_ixs,
+            confs,
+            renormalized_criterion,
+            bar_distribution,
+            x_test_raw,
+            y_test_raw,
+        ) = batch
+        for est_tensor in X_trains_preprocessed:
+            assert isinstance(est_tensor, torch.Tensor)
+            assert est_tensor.shape[0] == batch_size
+        for est_tensor in y_trains_preprocessed:
+            assert isinstance(est_tensor, torch.Tensor)
+            assert est_tensor.shape[0] == batch_size
+        assert isinstance(cat_ixs, list)
+        for conf in confs:
+            for c in conf:
+                assert isinstance(c, RegressorEnsembleConfig)
+        for ren_crit in renormalized_criterion:
+            assert isinstance(ren_crit, FullSupportBarDistribution)
+        for bar_dist in bar_distribution:
+            assert isinstance(bar_dist, BarDistribution)
+        break
+
+
 @pytest.mark.parametrize(all_combinations_params, all_combinations)
 def test_tabpfn_regressor_finetuning_loop(
     n_estimators,

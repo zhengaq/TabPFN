@@ -103,6 +103,8 @@ if __name__ == "__main__":
     )
     print("Initial accuracy:", res_acc)
     print("Initial Test Log Loss:", ll)
+
+    # Training Loop
     for epoch in range(do_epochs):
         for data_batch in tqdm(my_dl_train):
             optim_impl.zero_grad()

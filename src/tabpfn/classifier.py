@@ -723,7 +723,7 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
             X = _fix_dtypes(X, cat_indices=self.categorical_features_indices)
             X = _process_text_na_dataframe(X, ord_encoder=self.preprocessor_)
 
-        output = self.predict_proba_tensor(X)
+        output = self.forward(X, use_inference_mode=True)
         output = output.float().detach().cpu().numpy()
 
         if self.interface_config_.USE_SKLEARN_16_DECIMAL_PRECISION:
@@ -734,11 +734,29 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
         # going from torch to numpy
         return output / output.sum(axis=1, keepdims=True)  # type: ignore
 
-    def predict_proba_from_preprocessed(self, X: list[torch.Tensor]) -> torch.Tensor:
-        """Predict the probabilities of the classes for the provided input samples
-        Different that the main predict proba function, this interface allows #
-        to backpropagate through the tensors which can be used to fine-tune
-        or prompt-tune the model.
+    # TODO: reduce complexity to remove noqa C901, PLR0912
+    def forward(  # noqa: C901, PLR0912
+        self,
+        X: list[torch.Tensor] | torch.Tensor,
+        *,
+        use_inference_mode: bool = False,
+    ) -> torch.Tensor:
+        """Forward pass returning predicted probabilities
+        for TabPFNClassifier Inference Engine. Used in
+        Fine-Tuning and prediction. Called directly
+        in FineTuning training loop or by predict() function
+        with the use_inference_mode flag explicitly set to True.
+
+        In PromptTuning use use_inference_mode=True, since we use
+        the batched fit_mode.
+
+        Iterates over outputs of InferenceEngine.
+
+        Args:
+            X: list[torch.Tensor] in fine-tuning, XType in normal predictions.
+            use_inference_mode: Flag for inference mode., default at False since
+            it is called within predict. During FineTuning forward() is called
+            directly by user, so default should be False here.
 
         Args:
             X: The input data.
@@ -746,14 +764,33 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
         Returns:
             The predicted probabilities of the classes.
         """
-        if not isinstance(self.executor_, InferenceEngineBatchedNoPreprocessing):
-            raise ValueError(
-                "Error using batched mode: \
-                predict_proba_from_preprocessed can only be called \
-                following fit_from_preprocessed."
+        assert (
+            # Condition 1: X is XType and executor is NOT the specific batched one
+            # and we are doing inference and NOT Fine Tuning
+            (
+                use_inference_mode
+                and not isinstance(
+                    self.executor_, InferenceEngineBatchedNoPreprocessing
+                )
             )
+            # Condition 2: X is a list of Tensors and executor IS the specific batched
+            # one and we are NOT doing inference and Fine Tuning
+            or (
+                not use_inference_mode
+                and isinstance(X, list)
+                and isinstance(X[0], torch.Tensor)
+                and isinstance(self.executor_, InferenceEngineBatchedNoPreprocessing)
+            )
+        ), (
+            "Input type X does not match the executor type. "
+            "Invalid use of function, should only be used directly by "
+            "TabPFNClassifier.predict_proba() and "
+            "TabPFNClassifier.predict_proba_tensor()"
+        )
 
-        if self.forced_inference_dtype_ == torch.float64:
+        if self.forced_inference_dtype_ == torch.float64 and isinstance(
+            self.executor_, InferenceEngineBatchedNoPreprocessing
+        ):
             raise ValueError(
                 "inference_precision=torch.float64 is not currently supported "
                 "for the predict_proba_from_preprocessed (fine-tuning) workflow. "
@@ -761,9 +798,9 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
                 "default model parameter dtypes during backpropagation."
             )
 
-        # TODO: InferenceEngineCachePreprocessing could
-        # also support this, currently never accessed
-        self.executor_.use_torch_inference_mode(use_inference=False)
+        if self.fit_mode in ["fit_preprocessors", "batched"]:
+            self.executor_.use_torch_inference_mode(use_inference=False)
+
         outputs = []
         for output, config in self.executor_.iter_outputs(
             X,
@@ -771,34 +808,60 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
             autocast=self.use_autocast_,
         ):
             # Cut out logits for classes which do not exist
-            assert output.ndim == 3  # [Batch, Nsamples, NClasses]
-            n_classes = output.size(-1)
-            if self.softmax_temperature != 1:
-                output = (  # noqa: PLW2901
-                    output[:, :, :n_classes].float() / self.softmax_temperature
-                )
+            if output.ndim == 2:
+                if self.softmax_temperature != 1:
+                    output = (  # noqa: PLW2901
+                        output[:, : self.n_classes_].float() / self.softmax_temperature
+                    )
 
-            if config is not None:
-                output_batch = []
-                for i, batch_config in enumerate(config):
-                    # make sure the output num_classes are the same.
-                    if len(batch_config.class_permutation) != self.n_classes_:
-                        use_perm = np.arange(self.n_classes_)
-                        use_perm[: len(batch_config.class_permutation)] = (
-                            batch_config.class_permutation
-                        )
-                    else:
-                        use_perm = batch_config.class_permutation
-                    output_batch.append(output[:, i, use_perm])
-                output_all = torch.stack(output_batch, dim=1)
+                # Reverse class permutation if exists
+                if config.class_permutation is not None:
+                    output = output[..., config.class_permutation]  # noqa: PLW2901
+
+                output_all = output
+
+            elif output.ndim == 3:  # [Batch, Nsamples, NClasses]
+                n_classes = output.size(-1)
+                if self.softmax_temperature != 1:
+                    output = (  # noqa: PLW2901
+                        output[:, :, :n_classes].float() / self.softmax_temperature
+                    )
+
+                if config is not None:
+                    output_batch = []
+                    for i, batch_config in enumerate(config):
+                        # make sure the output num_classes are the same.
+                        if len(batch_config.class_permutation) != self.n_classes_:
+                            use_perm = np.arange(self.n_classes_)
+                            use_perm[: len(batch_config.class_permutation)] = (
+                                batch_config.class_permutation
+                            )
+                        else:
+                            use_perm = batch_config.class_permutation
+                        output_batch.append(output[:, i, use_perm])
+                    output_all = torch.stack(output_batch, dim=1)
+
+            else:
+                raise ValueError("Output tensor must be 2d or 3d")
+
             outputs.append(output_all)
 
         if self.average_before_softmax:
             output = torch.stack(outputs).mean(dim=0)
-            output = torch.nn.functional.softmax(output, dim=-1)
+            if output.ndim == 2:
+                output = torch.nn.functional.softmax(output, dim=1)
+            elif output.ndim == 3:
+                output = torch.nn.functional.softmax(output, dim=-1)
+            else:
+                raise ValueError("Output tensor must be 2d or 3d")
         else:
             # Softmax each 2d outputs before average
-            outputs = [torch.nn.functional.softmax(o, dim=-1) for o in outputs]
+            if output.ndim == 2:
+                outputs = [torch.nn.functional.softmax(o, dim=1) for o in outputs]
+            elif output.ndim == 3:
+                outputs = [torch.nn.functional.softmax(o, dim=-1) for o in outputs]
+            else:
+                raise ValueError("Output tensor must be 2d or 3d")
             output = torch.stack(outputs).mean(dim=0)
 
         if self.balance_probabilities:
@@ -806,53 +869,8 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
             output = output / torch.Tensor(class_prob_in_train).to(self.device_)
             output = output / output.sum(dim=-1, keepdim=True)
 
-        return output.transpose(0, 1).transpose(1, 2)  # for NLLLoss [B, C, D1]
-
-    def predict_proba_tensor(self, X: torch.Tensor) -> torch.Tensor:
-        """Same as predict_proba, but without preprocessing and with
-        Tensor inputs and outputs. Use, e.g., for prompt-tuning
-        or when the outputs need to be differentiable.
-        """
-        outputs: list[torch.Tensor] = []
-        if isinstance(self.executor_, InferenceEngineBatchedNoPreprocessing):
-            raise ValueError(
-                "Error using predict_proba: \
-                If you use fit_from_preprocessed use \
-                predict_proba_from_preprocessed for following inferences."
-            )
-
-        for output, config in self.executor_.iter_outputs(
-            X,
-            device=self.device_,
-            autocast=self.use_autocast_,
-        ):
-            assert isinstance(config, ClassifierEnsembleConfig)
-            # Cut out logits for classes which do not exist
-            assert output.ndim == 2
-
-            if self.softmax_temperature != 1:
-                output = (  # noqa: PLW2901
-                    output[:, : self.n_classes_].float() / self.softmax_temperature
-                )
-
-            # Reverse class permutation if exists
-            if config.class_permutation is not None:
-                output = output[..., config.class_permutation]  # noqa: PLW2901
-
-            outputs.append(output)
-
-        if self.average_before_softmax:
-            output = torch.stack(outputs).mean(dim=0)
-            output = torch.nn.functional.softmax(output, dim=1)
-        else:
-            # Softmax each 2d outputs before average
-            outputs = [torch.nn.functional.softmax(o, dim=1) for o in outputs]
-            output = torch.stack(outputs).mean(dim=0)
-
-        if self.balance_probabilities:
-            class_prob_in_train = self.class_counts_ / self.class_counts_.sum()
-            output = output / torch.Tensor(class_prob_in_train).to(self.device_)
-            output = output / output.sum(dim=-1, keepdim=True)
+        if output.ndim == 3:
+            output = output.transpose(0, 1).transpose(1, 2)  # for NLLLoss [B, C, D1]
 
         return output
 

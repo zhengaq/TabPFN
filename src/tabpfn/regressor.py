@@ -998,7 +998,10 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
         *,
         use_inference_mode: bool = False,
     ) -> torch.Tensor:  # FIXME: Refactor to reduce complexity,
-        """Forward pass for TabPFNRegressor. Used in fine-tuning and prediction.
+        """Forward pass for TabPFNRegressor Infernce Engine.
+        Used in fine-tuning and prediction. Called directly
+        in FineTuning training loop or by predict() function
+        with the use_inference_mode flag explicitly set to True.
 
         Iterates over outputs of InferenceEngine.
 

@@ -256,7 +256,7 @@ def test_tabpfn_classifier_finetuning_loop(
 
             # --- Fit and Predict ---
             clf.fit_from_preprocessed(X_tr, y_tr, cat_ixs, confs)
-            preds = clf.predict_proba_from_preprocessed(X_te)
+            preds = clf.forward(X_te)
 
             # --- Basic Shape Checks ---
             assert preds.ndim == 3, f"Expected 3D output, got {preds.shape}"
@@ -462,11 +462,15 @@ def test_dataset_and_collator_with_dataloader_uniform(
         break  # Only check one batch
 
 
-def test_dataset_and_collator_with_dataloader_variable(
+def test_classifier_dataset_and_collator_batches_type(
     variable_synthetic_dataset_collection, classifier_instance
 ):
+    """Test that the batches returned by the dataset and collator
+    are of the correct type.
+    """
     import torch
 
+    from tabpfn.preprocessing import ClassifierEnsembleConfig
     from tabpfn.utils import collate_for_tabpfn_dataset
 
     X_list = [X for X, _ in variable_synthetic_dataset_collection]
@@ -489,6 +493,10 @@ def test_dataset_and_collator_with_dataloader_variable(
         for est_tensor in y_trains:
             assert isinstance(est_tensor, torch.Tensor)
             assert est_tensor.shape[0] == batch_size
+        assert isinstance(cat_ixs, list)
+        for conf in confs:
+            for c in conf:
+                assert isinstance(c, ClassifierEnsembleConfig)
         break
 
 
@@ -517,7 +525,7 @@ def test_get_preprocessed_datasets_categorical_features(classifier_instance):
     # Optionally, check that categorical indices are stored or used
 
 
-def test_predict_proba_tensor_runs(classifier_instance, classification_data):
+def test_forward_runs(classifier_instance, classification_data):
     """Ensure predict_proba_tensor runs OK after standard fit."""
     import torch
 
@@ -525,7 +533,9 @@ def test_predict_proba_tensor_runs(classifier_instance, classification_data):
     clf = classifier_instance
     clf.fit_mode = "low_memory"
     clf.fit(X_train, y_train)
-    preds = clf.predict_proba_tensor(torch.tensor(X_test, dtype=torch.float32))
+    preds = clf.forward(
+        torch.tensor(X_test, dtype=torch.float32), use_inference_mode=True
+    )
     # Check output shape and probability sum
     assert preds.ndim == 2, f"Expected 2D output, got {preds.shape}"
     assert preds.shape[0] == X_test.shape[0], "Mismatch in test sample count"
@@ -563,7 +573,7 @@ def test_fit_from_preprocessed_runs(classifier_instance, classification_data) ->
         # Fit using preprocessed data
         clf.fit_from_preprocessed(X_trains, y_trains, cat_ixs, confs)
         # Predict using preprocessed test data
-        preds = clf.predict_proba_from_preprocessed(X_tests)
+        preds = clf.forward(X_tests)
         # Check shape: [batch_size, n_samples, n_classes]
         assert preds.ndim == 3, f"Expected 3D output, got {preds.shape}"
         assert preds.shape[0] == X_tests[0].shape[0]
@@ -586,7 +596,7 @@ class TestTabPFNClassifierPreprocessingInspection(unittest.TestCase):
         """Tests the consistency between standard preprocessing (fit -> predict_proba)
         and the fine-tuning preprocessing pipeline
         (get_preprocessed_datasets -> fit_from_preprocessed
-            -> predict_proba_from_preprocessed)
+            -> forward)
         for the TabPFNClassifier by comparing the tensors entering the internal model.
         """
         # --- Test Parameters ---
@@ -716,14 +726,14 @@ class TestTabPFNClassifierPreprocessingInspection(unittest.TestCase):
             "found after fit_from_preprocessed."
         )
 
-        # Step 3c: Call predict_proba_from_preprocessed and capture the input tensor
+        # Step 3c: Call forward and capture the input tensor
         # to the *internal transformer model*
         tensor_p2_full = None
         # Patch the *batched* classifier's internal model's forward method
         with patch.object(
             clf_batched.model_, "forward", wraps=clf_batched.model_.forward
         ) as mock_forward_p2:
-            _ = clf_batched.predict_proba_from_preprocessed(X_tests_p2)
+            _ = clf_batched.forward(X_tests_p2)
             assert mock_forward_p2.called, "Batched model_.forward was not called."
 
             # Capture the tensor input 'x' (assuming same argument position as Path 1)

@@ -18,8 +18,8 @@ from tabpfn.utils import collate_for_tabpfn_dataset
 
 def eval_test_regression_standard(
     reg: TabPFNRegressor,
-    eval_init_args: dict,  # The dictionary of args for eval instance
-    *,  # Make subsequent args keyword-only
+    eval_init_args: dict,
+    *,
     X_train_raw: np.ndarray,
     y_train_raw: np.ndarray,
     X_test_raw: np.ndarray,
@@ -100,6 +100,7 @@ if __name__ == "__main__":
     loss_batches = []
     mse_batches = []
 
+    # Training Loop
     for epoch in range(do_epochs):
         for data_batch in tqdm(my_dl_train):
             optim_impl.zero_grad()

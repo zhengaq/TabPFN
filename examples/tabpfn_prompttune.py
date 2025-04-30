@@ -22,7 +22,7 @@ def eval_test(clf, prompt_x, prompt_y, my_dl_test, lossfn):
         clf.fit(prompt_x.detach(), prompt_y.flatten().detach())
         for data_batch in my_dl_test:
             X_tests, y_tests = data_batch
-            predictions = clf.predict_proba_tensor(X_tests)
+            predictions = clf.forward(X_tests, use_inference_mode=True)
             loss_sum += lossfn(torch.log(predictions), y_tests.to(device)).item()
             acc_sum += (
                 accuracy_score(
@@ -38,9 +38,9 @@ def eval_test(clf, prompt_x, prompt_y, my_dl_test, lossfn):
 
 if __name__ == "__main__":
     n_prompt_samples = 200  # samples used for prompt_tuning
-    n_total_samples = 100_000  # prompt+train+test
+    n_total_samples = 300  # prompt+train+test
     do_epochs = 3
-    device = "cuda"
+    device = "cpu"
 
     # Load Covertype Dataset (7-way classification)
     data_frame_x, data_frame_y = sklearn.datasets.fetch_covtype(
@@ -108,7 +108,10 @@ if __name__ == "__main__":
             input_x_batch, input_y_batch = data_batch
             optim_impl.zero_grad()
             clf.fit(prompt_x_tensor, prompt_y_tensor.flatten())
-            predictions = clf.predict_proba_tensor(input_x_batch)
+            # Important: set use_inference_mode=True here
+            # This is because prompt tuning is the only method
+            # That uses inference with the batched inference engine
+            predictions = clf.forward(input_x_batch, use_inference_mode=True)
             loss = lossfn(torch.log(predictions), input_y_batch.to(device))
             loss.backward()
             optim_impl.step()

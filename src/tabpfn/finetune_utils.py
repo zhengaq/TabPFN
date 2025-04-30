@@ -10,6 +10,11 @@ from tabpfn.base import ClassifierModelSpecs, RegressorModelSpecs
 # TODO: temporary new file, move to
 # Separate FineTuning folder soon
 
+# TODO: passing eval_init_args is not optimal,
+# since we are copying the model, we should
+# be able to pass the original model to the
+# evaluation model directly.
+
 
 def _prepare_eval_model(
     original_model: TabPFNClassifier | TabPFNRegressor,
@@ -18,6 +23,10 @@ def _prepare_eval_model(
 ) -> TabPFNClassifier | TabPFNRegressor:
     """Prepares a deep copy of the model for
     evaluation to prevent modifying the original.
+    Important in FineTuning since we are actively
+    chaning the model being fine-tuned, however we
+    still wish to evaluate it with our standard
+    sklearn fit/predict inference interface.
 
     Args:
         original_model: The trained model instance
