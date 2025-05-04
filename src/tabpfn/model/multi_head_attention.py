@@ -600,14 +600,15 @@ class MultiHeadAttention(torch.nn.Module):
             except (TypeError, RuntimeError):
                 TORCH_2_SUPPORTS_GQ = False
 
-            if torch.cuda.is_available():
-                device = torch.cuda.current_device()
-                capability = torch.cuda.get_device_capability(device)
-                nvidia_compute_capability = f"{capability[0]}.{capability[1]}"
-            else:
-                nvidia_compute_capability = None
-            USE_TORCH_2_GQA = nvidia_compute_capability >= "8" and TORCH_2_SUPPORTS_GQ
-
+            # if torch.cuda.is_available():
+            #     device = torch.cuda.current_device()
+            #     capability = torch.cuda.get_device_capability(device)
+            #     nvidia_compute_capability = f"{capability[0]}.{capability[1]}"
+            # else:
+            #     nvidia_compute_capability = None
+            # USE_TORCH_2_GQA = nvidia_compute_capability >= "8" and TORCH_2_SUPPORTS_GQ
+            # The code above hangs on multi-gpu settings, so we use a temporary solution:
+            USE_TORCH_2_GQA = True #TODO
             # TODO: add logging for something like this
             # if use_flash_attention and USE_TORCH_2_GQA:
             # print("Using FlashAttention might be slower than torch's implementation,
