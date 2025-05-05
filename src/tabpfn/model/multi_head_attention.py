@@ -11,17 +11,6 @@ from torch.utils.checkpoint import checkpoint
 
 from tabpfn.model.memory import support_save_peak_mem_factor
 
-try:
-    from flash_attn.flash_attn_interface import (
-        flash_attn_unpadded_func,
-        flash_attn_unpadded_kvpacked_func,
-        flash_attn_unpadded_qkvpacked_func,
-    )
-
-    HAVE_FLASH_ATTN = True
-except (ModuleNotFoundError, ImportError):
-    HAVE_FLASH_ATTN = False
-
 
 class MultiHeadAttention(torch.nn.Module):
     _input_size: int
@@ -568,166 +557,21 @@ class MultiHeadAttention(torch.nn.Module):
         assert v is not None
 
         batch_size, seqlen_q, nhead, d_k = q.shape
-        _, seqlen_kv, nhead_kv, d_v = v.shape
-        share_kv_across_n_heads = nhead // nhead_kv
+        _, _, nhead_kv, d_v = v.shape
         if dropout_p is None:
             dropout_p = 0.0  # TODO: necessary?
 
-        use_flash_attention = (
-            HAVE_FLASH_ATTN
-            and torch.cuda.is_available()
-            and q.dtype == k.dtype == v.dtype == torch.float16
+        attention_head_outputs = torch.nn.functional.scaled_dot_product_attention(
+            q.transpose(1, 2),  # (Batch, N_Heads_Q, Seq_Q, Dim_K)
+            k.transpose(1, 2),  # (Batch, N_Heads_KV, Seq_KV, Dim_K)
+            v.transpose(1, 2),  # (Batch, N_Heads_KV, Seq_KV, Dim_V)
+            dropout_p=dropout_p,
+            is_causal=False,
+            scale=softmax_scale,
+            enable_gqa=nhead > nhead_kv
         )
-
-        # this string comparison is reliable, as it does not compare to a subversion
-        TORCH_2_ATTENTION_POSSIBLE = (
-            torch.__version__ >= "2" and torch.cuda.is_available()
-        )
-        USE_TORCH_2_GQA = False
-        if TORCH_2_ATTENTION_POSSIBLE:
-            # check whether torch.nn.functional.scaled_dot_product_attention has a
-            # kwarg enable_gqa
-            # Check if enable_gqa is supported by trying to call the function with
-            # the parameter
-            try:
-                _ = torch.nn.functional.scaled_dot_product_attention(
-                    torch.empty(1, 1, 1, 1),
-                    torch.empty(1, 1, 1, 1),
-                    torch.empty(1, 1, 1, 1),
-                    enable_gqa=True,
-                )
-                TORCH_2_SUPPORTS_GQ = True
-            except (TypeError, RuntimeError):
-                TORCH_2_SUPPORTS_GQ = False
-
-            # if torch.cuda.is_available():
-            #     device = torch.cuda.current_device()
-            #     capability = torch.cuda.get_device_capability(device)
-            #     nvidia_compute_capability = f"{capability[0]}.{capability[1]}"
-            # else:
-            #     nvidia_compute_capability = None
-            # USE_TORCH_2_GQA = nvidia_compute_capability >= "8" and TORCH_2_SUPPORTS_GQ
-            # The code above hangs on multi-gpu settings, so we use a temporary solution:
-            USE_TORCH_2_GQA = True #TODO
-            # TODO: add logging for something like this
-            # if use_flash_attention and USE_TORCH_2_GQA:
-            # print("Using FlashAttention might be slower than torch's implementation,
-            # try setting `tabpfn.model.multi_head_attention.HAVE_FLASH_ATTN=False`.")
-
-            # print(f"USE_TORCH_2_GQA: {USE_TORCH_2_GQA}, nvidia_compute_capability:
-            # {nvidia_compute_capability}, TORCH_2_SUPPORTS_GQ: {TORCH_2_SUPPORTS_GQ}")
-
-        if use_flash_attention:
-
-            def get_seqlen_cumsums(
-                batch_size: int,
-                seqlen: int,
-                device: torch.device,
-            ) -> torch.Tensor:
-                return torch.arange(
-                    0,
-                    (batch_size + 1) * seqlen,
-                    step=seqlen,
-                    dtype=torch.int32,
-                    device=device,
-                )
-
-            if qkv is not None:
-                attention_head_outputs = flash_attn_unpadded_qkvpacked_func(  # type: ignore
-                    qkv.reshape(batch_size * seqlen_q, 3, nhead, d_k),
-                    get_seqlen_cumsums(batch_size, seqlen_q, qkv.device),
-                    seqlen_q,
-                    dropout_p=dropout_p,
-                    softmax_scale=softmax_scale,  # defaults to 1/sqrt(d_k) if None
-                    causal=False,
-                    return_attn_probs=False,
-                    deterministic=False,
-                )
-            elif kv is not None:
-                kv = MultiHeadAttention.broadcast_kv_across_heads(
-                    kv,
-                    share_kv_across_n_heads,
-                )
-                attention_head_outputs = flash_attn_unpadded_kvpacked_func(  # type: ignore
-                    q.reshape(batch_size * seqlen_q, nhead, d_k),
-                    kv.reshape(batch_size * seqlen_kv, 2, nhead, d_k),
-                    get_seqlen_cumsums(batch_size, seqlen_q, q.device),
-                    get_seqlen_cumsums(batch_size, seqlen_kv, kv.device),
-                    seqlen_q,
-                    seqlen_kv,
-                    dropout_p=dropout_p,
-                    causal=False,
-                    return_attn_probs=False,
-                    deterministic=False,
-                )
-            else:
-                assert d_k <= d_v, (
-                    "This requirement is here for safety but not strictly necessary."
-                    "Needs testing/coding to remove."
-                )
-                if d_k < d_v:
-                    k = torch.nn.functional.pad(k, d_v - d_k)
-                    q = torch.nn.functional.pad(v, d_v - d_k)
-                    d_k_ = d_v
-                k = MultiHeadAttention.broadcast_kv_across_heads(
-                    k,
-                    share_kv_across_n_heads,
-                )
-                v = MultiHeadAttention.broadcast_kv_across_heads(
-                    v,
-                    share_kv_across_n_heads,
-                )
-                attention_head_outputs = flash_attn_unpadded_func(  # type: ignore
-                    q.reshape(batch_size * seqlen_q, nhead, d_k_),  # type: ignore
-                    k.reshape(batch_size * seqlen_kv, nhead, d_k_),  # type: ignore
-                    v.reshape(batch_size * seqlen_kv, nhead, d_v),
-                    get_seqlen_cumsums(batch_size, seqlen_q, q.device),
-                    get_seqlen_cumsums(batch_size, seqlen_kv, k.device),
-                    seqlen_q,
-                    seqlen_kv,
-                    dropout_p=dropout_p,
-                    softmax_scale=softmax_scale,
-                    causal=False,
-                    return_attn_probs=False,
-                    deterministic=False,
-                )
-        elif TORCH_2_ATTENTION_POSSIBLE:
-            extra_inputs = {}
-            if softmax_scale is not None:
-                extra_inputs["scale"] = (
-                    softmax_scale  # defaults to 1/sqrt(d_k) if None or not provided
-                )
-            if not USE_TORCH_2_GQA:
-                k = MultiHeadAttention.broadcast_kv_across_heads(
-                    k,
-                    share_kv_across_n_heads,
-                )
-                v = MultiHeadAttention.broadcast_kv_across_heads(
-                    v,
-                    share_kv_across_n_heads,
-                )
-            else:
-                extra_inputs["enable_gqa"] = True
-            attention_head_outputs = torch.nn.functional.scaled_dot_product_attention(
-                q.transpose(1, 2),
-                k.transpose(1, 2),
-                v.transpose(1, 2),
-                dropout_p=dropout_p,
-                **extra_inputs,
-            )
-            attention_head_outputs = attention_head_outputs.transpose(1, 2)
-        else:
-            k = MultiHeadAttention.broadcast_kv_across_heads(k, share_kv_across_n_heads)
-            v = MultiHeadAttention.broadcast_kv_across_heads(v, share_kv_across_n_heads)
-            logits = torch.einsum("b q h d, b k h d -> b q k h", q, k)
-            logits *= (
-                torch.sqrt(torch.tensor(1.0 / d_k)).to(k.device)
-                if softmax_scale is None
-                else softmax_scale
-            )
-            ps = torch.softmax(logits, dim=2)
-            ps = torch.dropout(ps, dropout_p, train=True)
-            attention_head_outputs = torch.einsum("b q k h, b k h d -> b q h d", ps, v)
+        # Transpose back to (Batch, Seq_Q, N_Heads_Q, Dim_V)
+        attention_head_outputs = attention_head_outputs.transpose(1, 2)
 
         return attention_head_outputs.reshape(
             batch_size,
