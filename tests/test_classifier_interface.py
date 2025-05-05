@@ -264,15 +264,33 @@ class ModelWrapper(nn.Module):
         )
 
 
-# TODO: comment this
 def patch_layernorm_no_affine(model: nn.Module) -> None:
-    """Patch LayerNorm(affine=False) layers for ONNX export.
+    """Workaround for ONNX export issue with LayerNorm(affine=False) in
+    PyTorch <= 2.1.3.
 
-    Older PyTorch ONNX exporters fail if LayerNorm lacks affine params
-    (weight/bias). This function adds frozen gamma=1, beta=0 tensors
-    to these layers before export. This resolves the ONNX checker
-    error seen in `test_onnx_exportable_cpu` without changing the
-    model's functional behavior.
+    This patch function was necessary to enable successful ONNX export
+    of the TabPFN model when using PyTorch version 2.1.3. The issue arose
+    because the ONNX exporter in that version (and potentially earlier ones)
+    failed to correctly handle `nn.LayerNorm` layers initialized with
+    `affine=False`, which means they lack the learnable 'weight' (gamma) and
+    'bias' (beta) parameters.
+
+    The `test_onnx_exportable_cpu` test attempts to export the internal
+    transformer model used by `TabPFNClassifier`. This model contains such
+    `LayerNorm(affine=False)` layers. When exporting with torch 2.1.3, this
+    led to an ONNX checker error or export failure.
+
+    However, testing indicated that this issue is resolved in later PyTorch
+    versions; specifically, the ONNX export runs without errors on
+    PyTorch 2.6.0 even without this patch.
+
+    This function circumvents the problem by iterating through the model's
+    modules and, for any `nn.LayerNorm` layer where `layer.weight` is None
+    (indicating `affine=False`), it manually adds non-learnable
+    (`requires_grad=False`) parameters for 'weight' (initialized to ones) and
+    'bias' (initialized to zeros). This addition satisfies the requirements
+    of the older ONNX exporter without changing the model's functional behavior,
+    as these added parameters represent an identity affine transformation.
     """
     for layer in model.modules():
         if isinstance(layer, nn.LayerNorm) and layer.weight is None:

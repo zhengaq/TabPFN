@@ -1,4 +1,28 @@
-"""An example for finetuning TabPFN on the Covertype dataset."""
+"""An example for finetuning TabPFN on the Covertype dataset.
+
+This code can be restructured into an Sklearn compatible classifier:
+FinetunedTabPFNClassifier(sklearn.base.ClassifierMixin, sklearn.base.RegressorMixin)
+def __init__(self, base_estimator: TabPFNClassifier,
+ training_datasets: list[pd.DataFrame],
+  evaluation_datasets: list[pd.DataFrame],
+  epochs: int,
+
+  ):
+    self.base_estimator = base_estimator
+    self.training_datasets = training_datasets
+    self.evaluation_datasets = evaluation_datasets
+    self.epochs = epochs
+
+def fit(self):
+    # below training code
+
+def predict(self, X):
+    self.base_estimator.predict(X)
+
+def predict_proba(self, X):
+    self.base_estimator.predict_proba(X)
+
+"""
 
 from functools import partial
 
