@@ -839,7 +839,7 @@ def pad_tensors(tensor_list, padding_val=0, *, labels=False):
     return ret_list
 
 
-def collate_for_tabpfn_dataset(batch, padding_val=0.0):
+def meta_dataset_collator(batch, padding_val=0.0):
     """Collate function for torch.utils.data.DataLoader.
 
     Designed for batches from DatasetCollectionWithPreprocessing.

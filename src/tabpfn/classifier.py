@@ -151,6 +151,7 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
             "low_memory",
             "fit_preprocessors",
             "fit_with_cache",
+            "batched",
         ] = "fit_preprocessors",
         memory_saving_mode: bool | Literal["auto"] | float | int = "auto",
         random_state: int | np.random.RandomState | np.random.Generator | None = 0,
@@ -284,6 +285,13 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
                   faster inference on the same data at a large cost of memory.
                   Ideal with very high GPU memory and multiple calls to `.predict()`
                   with the same training data.
+                - If `"batched"`, the already pre-processed data is iterated over in
+                  batches. This can only be done after the data has been preprocessed
+                  with the get_preprocessed_datasets function. This is primarily used
+                  only for inference with the InferenceEngineBatchedNoPreprocessing
+                  class in Fine-Tuning. The fit_from_preprocessed() function sets this
+                  attribute internally.
+
 
             memory_saving_mode:
                 Enable GPU/CPU memory saving mode. This can help to prevent
@@ -641,9 +649,10 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
         *,
         no_refit=True,
     ) -> TabPFNClassifier:
-        """Fit the model to preprocessed inputs from torch dataloader
-        inside a training loop a Dataset provided by
-        get_preprocessed_datasets.
+        """Used in Fine-Tuning. Fit the model to preprocessed inputs from torch
+        dataloader inside a training loop a Dataset provided by
+        get_preprocessed_datasets. This function sets the fit_mode attribute
+        to "batched" internally.
 
         Args:
             X_preprocessed: The input features obtained from the preprocessed Dataset

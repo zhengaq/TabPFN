@@ -264,6 +264,32 @@ class ModelWrapper(nn.Module):
         )
 
 
+# TODO: comment this
+def patch_layernorm_no_affine(model: nn.Module) -> None:
+    """Patch LayerNorm(affine=False) layers for ONNX export.
+
+    Older PyTorch ONNX exporters fail if LayerNorm lacks affine params
+    (weight/bias). This function adds frozen gamma=1, beta=0 tensors
+    to these layers before export. This resolves the ONNX checker
+    error seen in `test_onnx_exportable_cpu` without changing the
+    model's functional behavior.
+    """
+    for layer in model.modules():
+        if isinstance(layer, nn.LayerNorm) and layer.weight is None:
+            # Build tensors on the same device/dtype as the layer's buffer
+            device = next(layer.parameters(), torch.tensor([], device="cpu")).device
+            dtype = getattr(layer, "weight_dtype", torch.float32)
+
+            gamma = torch.ones(layer.normalized_shape, dtype=dtype, device=device)
+            beta = torch.zeros_like(gamma)
+
+            layer.weight = nn.Parameter(gamma, requires_grad=False)
+            layer.bias = nn.Parameter(beta, requires_grad=False)
+
+            # Optional: mark that we changed it (useful for logging)
+            layer._patched_for_onnx = True
+
+
 @pytest.mark.filterwarnings("ignore::torch.jit.TracerWarning")
 def test_onnx_exportable_cpu(X_y: tuple[np.ndarray, np.ndarray]) -> None:
     if os.name == "nt":
@@ -291,6 +317,7 @@ def test_onnx_exportable_cpu(X_y: tuple[np.ndarray, np.ndarray]) -> None:
             "X": {0: "num_datapoints", 1: "batch_size", 2: "num_features"},
             "y": {0: "num_labels"},
         }
+        patch_layernorm_no_affine(classifier.model_)
         torch.onnx.export(
             ModelWrapper(classifier.model_).eval(),
             (X, y, y.shape[0], True, []),

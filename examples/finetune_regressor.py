@@ -12,8 +12,12 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from tabpfn import TabPFNRegressor
-from tabpfn.finetune_utils import _prepare_eval_model
-from tabpfn.utils import collate_for_tabpfn_dataset
+from tabpfn.finetune_utils import clone_model_for_evaluation
+from tabpfn.utils import meta_dataset_collator
+
+# TODO: refactor common logic: Data loading
+# and training loop into BAsic FineTuner class
+# for both regression and classification
 
 
 def eval_test_regression_standard(
@@ -25,7 +29,7 @@ def eval_test_regression_standard(
     X_test_raw: np.ndarray,
     y_test_raw: np.ndarray,
 ):
-    reg_eval = _prepare_eval_model(reg, eval_init_args, TabPFNRegressor)
+    reg_eval = clone_model_for_evaluation(reg, eval_init_args, TabPFNRegressor)
 
     reg_eval.fit(X_train_raw, y_train_raw)
     predictions = reg_eval.predict(X_train_raw)
@@ -93,7 +97,7 @@ if __name__ == "__main__":
     )
 
     my_dl_train = DataLoader(
-        datasets_collection, batch_size=1, collate_fn=collate_for_tabpfn_dataset
+        datasets_collection, batch_size=1, collate_fn=meta_dataset_collator
     )
     optim_impl = Adam(reg.model_.parameters(), lr=1e-5)
 

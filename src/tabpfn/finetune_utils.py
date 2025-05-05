@@ -16,7 +16,7 @@ from tabpfn.base import ClassifierModelSpecs, RegressorModelSpecs
 # evaluation model directly.
 
 
-def _prepare_eval_model(
+def clone_model_for_evaluation(
     original_model: TabPFNClassifier | TabPFNRegressor,
     eval_init_args: dict,
     model_class: type[TabPFNClassifier | TabPFNRegressor],

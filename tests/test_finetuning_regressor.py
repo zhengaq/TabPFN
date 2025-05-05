@@ -15,7 +15,7 @@ from torch.optim import Adam
 from torch.utils.data import DataLoader
 
 from tabpfn import TabPFNRegressor
-from tabpfn.utils import collate_for_tabpfn_dataset
+from tabpfn.utils import meta_dataset_collator
 
 rng = np.random.default_rng(42)
 
@@ -158,7 +158,6 @@ def test_regressor_dataset_and_collator_batches_type(
         FullSupportBarDistribution,
     )
     from tabpfn.preprocessing import RegressorEnsembleConfig
-    from tabpfn.utils import collate_for_tabpfn_dataset
 
     X, y = synthetic_regression_data
     dataset_collection = ft_regressor_instance.get_preprocessed_datasets(
@@ -168,7 +167,7 @@ def test_regressor_dataset_and_collator_batches_type(
     dl = DataLoader(
         dataset_collection,
         batch_size=batch_size,
-        collate_fn=collate_for_tabpfn_dataset,
+        collate_fn=meta_dataset_collator,
     )
     for batch in dl:
         assert isinstance(batch, tuple)
@@ -238,7 +237,7 @@ def test_tabpfn_regressor_finetuning_loop(
 
     batch_size = 1
     my_dl_train = DataLoader(
-        datasets_list, batch_size=batch_size, collate_fn=collate_for_tabpfn_dataset
+        datasets_list, batch_size=batch_size, collate_fn=meta_dataset_collator
     )
 
     optim_impl = Adam(reg.model_.parameters(), lr=1e-5)
@@ -388,7 +387,7 @@ def test_finetuning_consistency_bar_distribution(
     dataloader = DataLoader(
         datasets_list,
         batch_size=batch_size,
-        collate_fn=collate_for_tabpfn_dataset,
+        collate_fn=meta_dataset_collator,
         shuffle=False,
     )
     data_batch = next(iter(dataloader))
@@ -488,7 +487,7 @@ class TestTabPFNPreprocessingInspection(unittest.TestCase):
         from sklearn.model_selection import train_test_split
         from torch.utils.data import DataLoader
 
-        from tabpfn.utils import collate_for_tabpfn_dataset  # Adjust import as needed
+        from tabpfn.utils import meta_dataset_collator
 
         test_set_size = 0.3
         common_seed = 42
@@ -552,7 +551,7 @@ class TestTabPFNPreprocessingInspection(unittest.TestCase):
         dataloader = DataLoader(
             datasets_list,
             batch_size=1,
-            collate_fn=collate_for_tabpfn_dataset,
+            collate_fn=meta_dataset_collator,
             shuffle=False,
         )
         data_batch = next(iter(dataloader))

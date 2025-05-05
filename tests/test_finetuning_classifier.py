@@ -14,7 +14,7 @@ from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader
 
 from tabpfn import TabPFNClassifier
-from tabpfn.utils import collate_for_tabpfn_dataset
+from tabpfn.utils import meta_dataset_collator
 
 rng = np.random.default_rng(42)
 
@@ -209,7 +209,7 @@ def test_tabpfn_classifier_finetuning_loop(
 ) -> None:
     import torch
 
-    from tabpfn.utils import collate_for_tabpfn_dataset
+    from tabpfn.utils import meta_dataset_collator
 
     X, y = synthetic_data
     X_train, X_test, y_train, y_test = train_test_split(
@@ -235,7 +235,7 @@ def test_tabpfn_classifier_finetuning_loop(
     lossfn = torch.nn.NLLLoss()
     batch_size = 1
     my_dl_train = DataLoader(
-        datasets_list, batch_size=batch_size, collate_fn=collate_for_tabpfn_dataset
+        datasets_list, batch_size=batch_size, collate_fn=meta_dataset_collator
     )
 
     if inference_precision == torch.float64:
@@ -431,8 +431,6 @@ def test_dataset_and_collator_with_dataloader_uniform(
 ) -> None:
     import torch
 
-    from tabpfn.utils import collate_for_tabpfn_dataset
-
     # Prepare dataset collection
     X_list = [X for X, _ in uniform_synthetic_dataset_collection]
     y_list = [y for _, y in uniform_synthetic_dataset_collection]
@@ -443,7 +441,7 @@ def test_dataset_and_collator_with_dataloader_uniform(
     dl = DataLoader(
         dataset_collection,
         batch_size=batch_size,
-        collate_fn=collate_for_tabpfn_dataset,
+        collate_fn=meta_dataset_collator,
     )
     for batch in dl:
         # Should be tuple with X_trains, X_tests, y_trains, y_tests, cat_ixs, confs
@@ -471,7 +469,7 @@ def test_classifier_dataset_and_collator_batches_type(
     import torch
 
     from tabpfn.preprocessing import ClassifierEnsembleConfig
-    from tabpfn.utils import collate_for_tabpfn_dataset
+    from tabpfn.utils import meta_dataset_collator
 
     X_list = [X for X, _ in variable_synthetic_dataset_collection]
     y_list = [y for _, y in variable_synthetic_dataset_collection]
@@ -482,7 +480,7 @@ def test_classifier_dataset_and_collator_batches_type(
     dl = DataLoader(
         dataset_collection,
         batch_size=batch_size,
-        collate_fn=collate_for_tabpfn_dataset,
+        collate_fn=meta_dataset_collator,
     )
     for batch in dl:
         assert isinstance(batch, tuple)
@@ -554,7 +552,7 @@ def test_fit_from_preprocessed_runs(classifier_instance, classification_data) ->
     import torch
     from sklearn.model_selection import train_test_split
 
-    from tabpfn.utils import collate_for_tabpfn_dataset
+    from tabpfn.utils import meta_dataset_collator
 
     # Unpack data
     X_train, X_test, y_train, y_test = classification_data
@@ -565,7 +563,7 @@ def test_fit_from_preprocessed_runs(classifier_instance, classification_data) ->
     datasets_list = clf.get_preprocessed_datasets(X_train, y_train, split_fn, 100)
     batch_size = 1
     dl = DataLoader(
-        datasets_list, batch_size=batch_size, collate_fn=collate_for_tabpfn_dataset
+        datasets_list, batch_size=batch_size, collate_fn=meta_dataset_collator
     )
 
     for data_batch in dl:
@@ -698,7 +696,7 @@ class TestTabPFNClassifierPreprocessingInspection(unittest.TestCase):
         dataloader = DataLoader(
             datasets_list,
             batch_size=1,
-            collate_fn=collate_for_tabpfn_dataset,
+            collate_fn=meta_dataset_collator,
             shuffle=False,
         )
         try:

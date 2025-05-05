@@ -14,8 +14,8 @@ from tqdm import tqdm
 from tabpfn import TabPFNClassifier
 
 #TODO: fix this import for tests
-from tabpfn.finetune_utils import _prepare_eval_model
-from tabpfn.utils import collate_for_tabpfn_dataset
+from tabpfn.finetune_utils import clone_model_for_evaluation
+from tabpfn.utils import meta_dataset_collator
 
 
 def eval_test(
@@ -29,7 +29,7 @@ def eval_test(
 ) -> tuple[float, float]:
 
 
-    clf_eval = _prepare_eval_model(clf, classifier_args, TabPFNClassifier)
+    clf_eval = clone_model_for_evaluation(clf, classifier_args, TabPFNClassifier)
     clf_eval.fit(X_train_raw, y_train_raw)
 
     try:
@@ -85,7 +85,7 @@ if __name__ == "__main__":
     datasets_list = clf.get_preprocessed_datasets(X_train, y_train, splitfn, 1000)
     datasets_list_test = clf.get_preprocessed_datasets(X_test, y_test, splitfn, 1000)
     my_dl_train = DataLoader(
-        datasets_list, batch_size=1, collate_fn=collate_for_tabpfn_dataset
+        datasets_list, batch_size=1, collate_fn=meta_dataset_collator
     )
 
     optim_impl = Adam(clf.model_.parameters(), lr=1e-4)
