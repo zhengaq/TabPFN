@@ -89,7 +89,7 @@ if __name__ == "__main__":
     print(f"Test R2: {res_r2:.4f}")
 
     hyperparams = {
-        "optimization_space": "raw_label_space"  # "raw_label_space",  "preprocessed"
+        "optimization_space": "preprocessed"  # "raw_label_space",  "preprocessed"
     }
 
     datasets_collection = reg.get_preprocessed_datasets(
@@ -116,14 +116,14 @@ if __name__ == "__main__":
                 y_test_standardized,
                 cat_ixs,
                 confs,
-                renormalized_criterion,
-                bar_distribution,
+                renormalized_criterion_,
+                bardist_,
                 batch_x_test_raw,
                 batch_y_test_raw,
             ) = data_batch
 
 
-            reg.renormalized_criterion_ = renormalized_criterion
+            reg.renormalized_criterion_ = renormalized_criterion_
 
             reg.fit_from_preprocessed(
                 X_trains_preprocessed, y_trains_preprocessed, cat_ixs, confs
@@ -142,10 +142,11 @@ if __name__ == "__main__":
 
             lossfn = None
             if hyperparams["optimization_space"] == "raw_label_space":
-                lossfn = renormalized_criterion[0]
+                lossfn =  bardist_[0]
                 y_test = batch_y_test_raw
+
             elif hyperparams["optimization_space"] == "preprocessed":
-                lossfn = bar_distribution[0]
+                lossfn = renormalized_criterion_[0]
                 y_test = y_test_standardized
             else:
                 raise ValueError("Need to define optimization space")

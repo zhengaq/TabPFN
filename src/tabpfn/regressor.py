@@ -465,7 +465,7 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
         X, y = X_split, y_split
         dataset_config_collection = []
         for X_item, y_item in zip(X, y):
-            (configs, X_mod_raw, y_mod_raw, bar_distribution) = (
+            (configs, X_mod_raw, y_mod_raw, bardist_) = (
                 self._initialize_dataset_preprocessing(X_item, y_item, rng)
             )
             dataset_config_collection.append(
@@ -474,7 +474,7 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
                     X_raw=X_mod_raw,
                     y_raw=y_mod_raw,
                     cat_ix=self.inferred_categorical_indices_,
-                    bar_distribution=bar_distribution,
+                    bardist_=bardist_,
                 )
             )
         return DatasetCollectionWithPreprocessing(
@@ -614,9 +614,7 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
         )
         assert len(ensemble_configs) == self.n_estimators
 
-        bar_distribution = self.bardist_
-
-        return ensemble_configs, X_raw, y_raw, bar_distribution
+        return ensemble_configs, X_raw, y_raw, self.bardist_
 
     def fit_from_preprocessed(
         self,
