@@ -735,7 +735,7 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
         return output / output.sum(axis=1, keepdims=True)  # type: ignore
 
     # TODO: reduce complexity to remove noqa C901, PLR0912
-    def forward(  # noqa: C901, PLR0912
+    def forward(
         self,
         X: list[torch.Tensor] | torch.Tensor,
         *,
@@ -801,51 +801,40 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
         if self.fit_mode in ["fit_preprocessors", "batched"]:
             self.executor_.use_torch_inference_mode(use_inference=False)
 
+        if use_inference_mode:
+            return self.forward_use_inference_mode(X)
+        return self.forward_fine_tuning(X)
+
+    def forward_use_inference_mode(
+        self,
+        X: list[torch.Tensor] | torch.Tensor,
+    ) -> torch.Tensor:
+        """Helper function to make forward() ONNX compatible
+        Handles the inference forward() pass with the
+        InferenceEngine executor for the normal predict()
+        call.
+        """
         outputs = []
         for output, config in self.executor_.iter_outputs(
             X,
             device=self.device_,
             autocast=self.use_autocast_,
         ):
-            # Cut out logits for classes which do not exist
-            if use_inference_mode:
-                assert output.ndim == 2
-                if self.softmax_temperature != 1:
-                    output = (  # noqa: PLW2901
-                        output[:, : self.n_classes_].float() / self.softmax_temperature
-                    )
+            assert output.ndim == 2
+            if self.softmax_temperature != 1:
+                output = (  # noqa: PLW2901
+                    output[:, : self.n_classes_].float() / self.softmax_temperature
+                )
 
-                # Reverse class permutation if exists
-                if config.class_permutation is not None:
-                    output = output[..., config.class_permutation]  # noqa: PLW2901
+            # Reverse class permutation if exists
+            if config.class_permutation is not None:
+                output = output[..., config.class_permutation]  # noqa: PLW2901
 
-                output_all = output
-
-            else:
-                assert output.ndim == 3  # [Batch, Nsamples, NClasses]
-                n_classes = output.size(-1)
-                if self.softmax_temperature != 1:
-                    output = (  # noqa: PLW2901
-                        output[:, :, :n_classes].float() / self.softmax_temperature
-                    )
-
-                if config is not None:
-                    output_batch = []
-                    for i, batch_config in enumerate(config):
-                        # make sure the output num_classes are the same.
-                        if len(batch_config.class_permutation) != self.n_classes_:
-                            use_perm = np.arange(self.n_classes_)
-                            use_perm[: len(batch_config.class_permutation)] = (
-                                batch_config.class_permutation
-                            )
-                        else:
-                            use_perm = batch_config.class_permutation
-                        output_batch.append(output[:, i, use_perm])
-                    output_all = torch.stack(output_batch, dim=1)
+            output_all = output
 
             outputs.append(output_all)
 
-        soft_max_dim = 1 if use_inference_mode else -1
+        soft_max_dim = 1
 
         if self.average_before_softmax:
             output = torch.stack(outputs).mean(dim=0)
@@ -861,11 +850,62 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
             output = output / torch.Tensor(class_prob_in_train).to(self.device_)
             output = output / output.sum(dim=-1, keepdim=True)
 
-        # Fine Tuning
-        if not use_inference_mode:
-            output = output.transpose(0, 1).transpose(1, 2)  # for NLLLoss [B, C, D1]
-
         return output
+
+    def forward_fine_tuning(
+        self,
+        X: list[torch.Tensor] | torch.Tensor,
+    ) -> torch.Tensor:
+        """Helper function to make forward() ONNX compatible
+        Handles the FineTuning forward() pass with the
+        InferenceEngineBatchedNoPreprocessing executor.
+        """
+        outputs = []
+        for output, config in self.executor_.iter_outputs(
+            X,
+            device=self.device_,
+            autocast=self.use_autocast_,
+        ):
+            assert output.ndim == 3  # [Batch, Nsamples, NClasses]
+            n_classes = output.size(-1)
+            if self.softmax_temperature != 1:
+                output = (  # noqa: PLW2901
+                    output[:, :, :n_classes].float() / self.softmax_temperature
+                )
+
+            if config is not None:
+                output_batch = []
+                for i, batch_config in enumerate(config):
+                    # make sure the output num_classes are the same.
+                    if len(batch_config.class_permutation) != self.n_classes_:
+                        use_perm = np.arange(self.n_classes_)
+                        use_perm[: len(batch_config.class_permutation)] = (
+                            batch_config.class_permutation
+                        )
+                    else:
+                        use_perm = batch_config.class_permutation
+                    output_batch.append(output[:, i, use_perm])
+                output_all = torch.stack(output_batch, dim=1)
+
+            outputs.append(output_all)
+
+        soft_max_dim = -1
+
+        if self.average_before_softmax:
+            output = torch.stack(outputs).mean(dim=0)
+            output = torch.nn.functional.softmax(output, dim=soft_max_dim)
+        else:
+            outputs = [
+                torch.nn.functional.softmax(o, dim=soft_max_dim) for o in outputs
+            ]
+            output = torch.stack(outputs).mean(dim=0)
+
+        if self.balance_probabilities:
+            class_prob_in_train = self.class_counts_ / self.class_counts_.sum()
+            output = output / torch.Tensor(class_prob_in_train).to(self.device_)
+            output = output / output.sum(dim=-1, keepdim=True)
+
+        return output.transpose(0, 1).transpose(1, 2)  # for NLLLoss [B, C, D1]
 
     def get_embeddings(
         self,
