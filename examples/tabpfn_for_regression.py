@@ -10,37 +10,19 @@ from sklearn.datasets import load_diabetes
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.model_selection import train_test_split
 
-# from src.tabpfn.regressor import TabPFNRegressor
 from tabpfn import TabPFNRegressor
 
 # Load data
 X, y = load_diabetes(return_X_y=True)
-"""X_train, X_test, y_train, y_test = train_test_split(
+X_train, X_test, y_train, y_test = train_test_split(
     X,
     y,
     test_size=0.33,
     random_state=42,
-)"""
-
-# Use numpy Generator for reproducibility
-rng = np.random.default_rng(42)
-n_samples = 200  # Reduce the number of samples
-random_indices = rng.choice(X.shape[0], n_samples, replace=False)
-X_subsampled = X[random_indices]
-y_subsampled = y[random_indices]
-
-X_train, X_test, y_train, y_test = train_test_split(
-    X_subsampled,
-    y_subsampled,
-    test_size=0.33,
-    random_state=42,
 )
-
 
 # Initialize a regressor
-reg = TabPFNRegressor(
-    fit_mode="low_memory",
-)
+reg = TabPFNRegressor()
 reg.fit(X_train, y_train)
 
 # Predict a point estimate (using the mean)
