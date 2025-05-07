@@ -10,10 +10,15 @@ import numpy as np
 import pytest
 import sklearn
 import torch
+from sklearn.datasets import make_classification
 from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader
 
 from tabpfn import TabPFNClassifier
+from tabpfn.preprocessing import (
+    ClassifierEnsembleConfig,
+    DatasetCollectionWithPreprocessing,
+)
 from tabpfn.utils import meta_dataset_collator
 
 rng = np.random.default_rng(42)
@@ -104,9 +109,6 @@ def uniform_synthetic_dataset_collection():
 
 @pytest.fixture(scope="module")
 def classification_data():
-    from sklearn.datasets import make_classification
-    from sklearn.model_selection import train_test_split
-
     """Generate simple classification data."""
     X, y = make_classification(
         n_samples=20,
@@ -207,10 +209,6 @@ def test_tabpfn_classifier_finetuning_loop(
     ignore_pretraining_limits,
     synthetic_data,
 ) -> None:
-    import torch
-
-    from tabpfn.utils import meta_dataset_collator
-
     X, y = synthetic_data
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=0.3, random_state=42
@@ -303,16 +301,7 @@ def test_tabpfn_classifier_finetuning_loop(
             break  # Only test one batch
 
 
-# Test for tensor input into fit_from_preprocessed()
-
-
 def test_get_preprocessed_datasets_basic():
-    import numpy as np
-    from sklearn.model_selection import train_test_split
-
-    from tabpfn.classifier import TabPFNClassifier
-
-    # Create synthetic data
     X = rng.normal(size=(100, 4)).astype(np.float32)
     y = rng.integers(0, 3, size=100)
 
@@ -330,11 +319,6 @@ def test_get_preprocessed_datasets_basic():
 def test_datasetcollectionwithpreprocessing_classification_single_dataset(
     synthetic_data, classifier_instance: TabPFNClassifier
 ) -> None:
-    import numpy as np
-    from sklearn.model_selection import train_test_split
-
-    from tabpfn.preprocessing import DatasetCollectionWithPreprocessing
-
     X_raw, y_raw = synthetic_data
     clf = classifier_instance
     n_estimators = clf.n_estimators
@@ -380,11 +364,6 @@ def test_datasetcollectionwithpreprocessing_classification_multiple_datasets(
     """Test DatasetCollectionWithPreprocessing
     using a collection of multiple synthetic datasets.
     """
-    import numpy as np
-    from sklearn.model_selection import train_test_split
-
-    from tabpfn.preprocessing import DatasetCollectionWithPreprocessing
-
     datasets = uniform_synthetic_dataset_collection
     clf = classifier_instance
     n_estimators = clf.n_estimators
@@ -429,9 +408,6 @@ def test_datasetcollectionwithpreprocessing_classification_multiple_datasets(
 def test_dataset_and_collator_with_dataloader_uniform(
     uniform_synthetic_dataset_collection, classifier_instance
 ) -> None:
-    import torch
-
-    # Prepare dataset collection
     X_list = [X for X, _ in uniform_synthetic_dataset_collection]
     y_list = [y for _, y in uniform_synthetic_dataset_collection]
     dataset_collection = classifier_instance.get_preprocessed_datasets(
@@ -466,11 +442,6 @@ def test_classifier_dataset_and_collator_batches_type(
     """Test that the batches returned by the dataset and collator
     are of the correct type.
     """
-    import torch
-
-    from tabpfn.preprocessing import ClassifierEnsembleConfig
-    from tabpfn.utils import meta_dataset_collator
-
     X_list = [X for X, _ in variable_synthetic_dataset_collection]
     y_list = [y for _, y in variable_synthetic_dataset_collection]
     dataset_collection = classifier_instance.get_preprocessed_datasets(
@@ -525,8 +496,6 @@ def test_get_preprocessed_datasets_categorical_features(classifier_instance):
 
 def test_forward_runs(classifier_instance, classification_data):
     """Ensure predict_proba_tensor runs OK after standard fit."""
-    import torch
-
     X_train, X_test, y_train, y_test = classification_data
     clf = classifier_instance
     clf.fit_mode = "low_memory"
@@ -549,12 +518,6 @@ def test_fit_from_preprocessed_runs(classifier_instance, classification_data) ->
     using prepared data and produces
     valid predictions.
     """
-    import torch
-    from sklearn.model_selection import train_test_split
-
-    from tabpfn.utils import meta_dataset_collator
-
-    # Unpack data
     X_train, X_test, y_train, y_test = classification_data
     clf = classifier_instance
 
@@ -568,11 +531,8 @@ def test_fit_from_preprocessed_runs(classifier_instance, classification_data) ->
 
     for data_batch in dl:
         X_trains, X_tests, y_trains, y_tests, cat_ixs, confs = data_batch
-        # Fit using preprocessed data
         clf.fit_from_preprocessed(X_trains, y_trains, cat_ixs, confs)
-        # Predict using preprocessed test data
         preds = clf.forward(X_tests)
-        # Check shape: [batch_size, n_samples, n_classes]
         assert preds.ndim == 3, f"Expected 3D output, got {preds.shape}"
         assert preds.shape[0] == X_tests[0].shape[0]
         assert preds.shape[0] == y_tests.shape[0]
@@ -584,9 +544,6 @@ def test_fit_from_preprocessed_runs(classifier_instance, classification_data) ->
             probs_sum, torch.ones_like(probs_sum), atol=1e-5
         ), "Probabilities do not sum to 1"
         break  # Only need to check one batch for this test
-
-
-# ------------ Test interaction of modern components with new ---------------
 
 
 class TestTabPFNClassifierPreprocessingInspection(unittest.TestCase):

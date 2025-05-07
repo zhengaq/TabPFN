@@ -4,6 +4,8 @@ from __future__ import annotations
 import pytest
 import torch
 
+from tabpfn.model.preprocessing import DifferentiableZNormStep
+
 # --- Fixtures ---
 
 
@@ -34,8 +36,6 @@ def categorical_features_list():
 
 def test_diff_znorm_initialization():
     """Test initialization with empty means and stds."""
-    from tabpfn.model.preprocessing import DifferentiableZNormStep
-
     step = DifferentiableZNormStep()
     assert isinstance(step.means, torch.Tensor)
     assert step.means.numel() == 0
@@ -45,8 +45,6 @@ def test_diff_znorm_initialization():
 
 def test_diff_znorm_fit(sample_data, categorical_features_list):
     """Test _fit calculates and stores mean/std correctly."""
-    from tabpfn.model.preprocessing import DifferentiableZNormStep
-
     step = DifferentiableZNormStep()
     expected_means = torch.mean(sample_data, dim=0, keepdim=True)
     expected_stds = torch.std(sample_data, dim=0, keepdim=True)
@@ -62,8 +60,6 @@ def test_diff_znorm_fit(sample_data, categorical_features_list):
 
 def test_diff_znorm_transform(sample_data, categorical_features_list):
     """Test _transform applies Z-norm correctly."""
-    from tabpfn.model.preprocessing import DifferentiableZNormStep
-
     step = DifferentiableZNormStep()
     step._fit(sample_data, categorical_features_list)  # Fit first
 
@@ -85,8 +81,6 @@ def test_diff_znorm_transform(sample_data, categorical_features_list):
 
 def test_diff_znorm_fit_transform_integration(sample_data, categorical_features_list):
     """Test fit and transform used together via base class methods."""
-    from tabpfn.model.preprocessing import DifferentiableZNormStep
-
     step = DifferentiableZNormStep()
     step.fit(sample_data, categorical_features_list)
     result = step.transform(sample_data)
@@ -104,8 +98,6 @@ def test_diff_znorm_fit_transform_integration(sample_data, categorical_features_
 
 def test_diff_znorm_transform_shape_mismatch(sample_data, categorical_features_list):
     """Test transform raises AssertionError on input shape mismatch."""
-    from tabpfn.model.preprocessing import DifferentiableZNormStep
-
     step = DifferentiableZNormStep()
     step._fit(sample_data, categorical_features_list)  # Fit with 3 features
 
@@ -121,8 +113,6 @@ def test_diff_znorm_transform_with_zero_std(
     data_with_zero_std, categorical_features_list
 ):
     """Test transform behavior with zero std deviation column."""
-    from tabpfn.model.preprocessing import DifferentiableZNormStep
-
     step = DifferentiableZNormStep()
     step._fit(data_with_zero_std, categorical_features_list)
 

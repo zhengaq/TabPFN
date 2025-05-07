@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+import typing
 from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -27,10 +28,11 @@ import numpy as np
 import torch
 from sklearn import config_context
 from sklearn.base import BaseEstimator, ClassifierMixin, check_is_fitted
+from sklearn.preprocessing import LabelEncoder
 
 from tabpfn.base import (
-    _initialize_dataset_preprocessing_helper,
     _initialize_model_variables_helper,
+    check_cpu_warning,
     create_inference_engine,
     determine_precision,
     get_preprocessed_datasets_helper,
@@ -42,18 +44,27 @@ from tabpfn.constants import (
     YType,
 )
 from tabpfn.inference import InferenceEngineBatchedNoPreprocessing
+from tabpfn.preprocessing import (
+    ClassifierEnsembleConfig,
+    DatasetCollectionWithPreprocessing,
+    EnsembleConfig,
+    PreprocessorConfig,
+    default_classifier_preprocessor_configs,
+)
 from tabpfn.utils import (
     _fix_dtypes,
     _get_embeddings,
+    _get_ordinal_encoder,
     _process_text_na_dataframe,
+    infer_categorical_features,
     infer_random_state,
     validate_X_predict,
+    validate_Xy_fit,
 )
 
 if TYPE_CHECKING:
     import numpy.typing as npt
     from sklearn.compose import ColumnTransformer
-    from sklearn.preprocessing import LabelEncoder
     from torch.types import _dtype
 
     from tabpfn.config import ModelInterfaceConfig
@@ -62,7 +73,6 @@ if TYPE_CHECKING:
     from tabpfn.preprocessing import (
         ClassifierEnsembleConfig,
         DatasetCollectionWithPreprocessing,
-        EnsembleConfig,
     )
 
     try:
@@ -424,19 +434,103 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
 
     def _initialize_dataset_preprocessing(
         self, X: XType, y: YType, rng
-    ) -> tuple[list[ClassifierEnsembleConfig], list[int], XType, YType]:
+    ) -> tuple[list[ClassifierEnsembleConfig], XType, YType]:
         """Internal preprocessing method for input arguments.
         Returns ClassifierEnsembleConfigs, inferred categorical indices,
         and modelfied features X and labels y.
         Sets self.inferred_categorical_indices_.
         """
-        return _initialize_dataset_preprocessing_helper(
-            self,
+        X, y, feature_names_in, n_features_in = validate_Xy_fit(
             X,
             y,
-            rng,
-            model_type="classifier",
+            estimator=self,
+            ensure_y_numeric=False,
+            max_num_samples=self.interface_config_.MAX_NUMBER_OF_SAMPLES,
+            max_num_features=self.interface_config_.MAX_NUMBER_OF_FEATURES,
+            ignore_pretraining_limits=self.ignore_pretraining_limits,
         )
+
+        check_cpu_warning(self.device, X)
+
+        if feature_names_in is not None:
+            self.feature_names_in_ = feature_names_in
+        self.n_features_in_ = n_features_in
+
+        # Ensure that the y values are ordinally encoded
+        # TODO(eddiebergman): Ensure the counts here line up with
+        #   the actual classes after label encoder.
+        if not self.differentiable_input:
+            _, counts = np.unique(y, return_counts=True)
+            self.class_counts_ = counts
+            self.label_encoder_ = LabelEncoder()
+            y = self.label_encoder_.fit_transform(y)
+            self.classes_ = self.label_encoder_.classes_  # type: ignore
+            self.n_classes_ = len(self.classes_)
+        else:
+            # if pt_diffable, it is a convention that the class
+            # labels are [0, ..., n-1].
+            self.label_encoder_ = None
+            if not hasattr(self, "n_classes_"):
+                self.n_classes_ = int(torch.max(y).item()) + 1
+            self.classes_ = torch.arange(self.n_classes_)
+
+        # TODO: Support more classes with a fallback strategy.
+        if self.n_classes_ > self.interface_config_.MAX_NUMBER_OF_CLASSES:
+            raise ValueError(
+                f"Number of classes {self.n_classes_} exceeds the maximal number of "
+                "classes supported by TabPFN. Consider using a strategy to reduce "
+                "the number of classes. For code see "
+                "https://github.com/PriorLabs/tabpfn-extensions/blob/main/src/"
+                "tabpfn_extensions/many_class/many_class_classifier.py",
+            )
+
+        # Will convert specified categorical indices to category dtype, as well
+        # as handle `np.object` arrays or otherwise `object` dtype pandas columns.
+
+        if not self.differentiable_input:
+            X = _fix_dtypes(X, cat_indices=self.categorical_features_indices)
+
+            # Ensure categories are ordinally encoded
+            ord_encoder = _get_ordinal_encoder()
+            X = _process_text_na_dataframe(X, ord_encoder=ord_encoder, fit_encoder=True)
+
+            assert isinstance(X, np.ndarray)
+            self.preprocessor_ = ord_encoder
+
+            self.inferred_categorical_indices_ = infer_categorical_features(
+                X=X,
+                provided=self.categorical_features_indices,
+                min_samples_for_inference=self.interface_config_.MIN_NUMBER_SAMPLES_FOR_CATEGORICAL_INFERENCE,
+                max_unique_for_category=self.interface_config_.MAX_UNIQUE_FOR_CATEGORICAL_FEATURES,
+                min_unique_for_numerical=self.interface_config_.MIN_UNIQUE_FOR_NUMERICAL_FEATURES,
+            )
+            preprocess_transforms = self.interface_config_.PREPROCESS_TRANSFORMS
+        else:  # Minimal preprocessing for prompt tuning
+            self.inferred_categorical_indices_ = []
+            self.preprocessor_ = None
+            preprocess_transforms = [PreprocessorConfig("none", differentiable=True)]
+
+        ensemble_configs = EnsembleConfig.generate_for_classification(
+            n=self.n_estimators,
+            subsample_size=self.interface_config_.SUBSAMPLE_SAMPLES,
+            add_fingerprint_feature=self.interface_config_.FINGERPRINT_FEATURE,
+            feature_shift_decoder=self.interface_config_.FEATURE_SHIFT_METHOD,
+            polynomial_features=self.interface_config_.POLYNOMIAL_FEATURES,
+            max_index=len(X),
+            preprocessor_configs=typing.cast(
+                "Sequence[PreprocessorConfig]",
+                preprocess_transforms
+                if preprocess_transforms is not None
+                else default_classifier_preprocessor_configs(),
+            ),
+            class_shift_method=self.interface_config_.CLASS_SHIFT_METHOD
+            if not self.differentiable_input
+            else None,
+            n_classes=self.n_classes_,
+            random_state=rng,
+        )
+        assert len(ensemble_configs) == self.n_estimators
+        return ensemble_configs, X, y
 
     def fit_from_preprocessed(
         self,
@@ -614,39 +708,34 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
         Returns:
             The predicted probabilities of the classes.
         """
-        assert (
-            # Condition 1: X is XType and executor is NOT the specific batched one
-            # and we are doing inference and NOT Fine Tuning
-            (
-                use_inference_mode
-                and not isinstance(
-                    self.executor_, InferenceEngineBatchedNoPreprocessing
-                )
-            )
-            # Condition 2: X is a list of Tensors and executor IS the specific batched
-            # one and we are NOT doing inference and Fine Tuning
-            or (
-                not use_inference_mode
-                and isinstance(X, list)
-                and isinstance(X[0], torch.Tensor)
-                and isinstance(self.executor_, InferenceEngineBatchedNoPreprocessing)
-            )
-        ), (
-            "Input type X does not match the executor type. "
-            "Invalid use of function, should only be used directly by "
-            "TabPFNClassifier.predict_proba() and "
-            "TabPFNClassifier.predict_proba_tensor()"
+        # Scenario 1: Standard inference path
+        is_standard_inference = use_inference_mode and not isinstance(
+            self.executor_, InferenceEngineBatchedNoPreprocessing
         )
 
-        if self.forced_inference_dtype_ == torch.float64 and isinstance(
-            self.executor_, InferenceEngineBatchedNoPreprocessing
-        ):
-            raise ValueError(
-                "inference_precision=torch.float64 is not currently supported "
-                "for the predict_proba_from_preprocessed (fine-tuning) workflow. "
-                "This workflow typically requires float32 for compatibility with "
-                "default model parameter dtypes during backpropagation."
-            )
+        # Scenario 2: Batched path, typically for fine-tuning with gradients
+        is_batched_for_grads = (
+            not use_inference_mode
+            and isinstance(self.executor_, InferenceEngineBatchedNoPreprocessing)
+            and isinstance(X, list)
+            and (not X or isinstance(X[0], torch.Tensor))
+        )
+
+        assert is_standard_inference or is_batched_for_grads, (
+            "Invalid forward pass: Bad combination of inference mode, input X, "
+            "or executor type. Ensure call is from standard predict or a "
+            "batched fine-tuning context."
+        )
+
+        # Specific check for float64 incompatibility if the batched engine is being
+        # used, now framed as an assertion that the problematic condition is NOT met.
+        assert not (
+            isinstance(self.executor_, InferenceEngineBatchedNoPreprocessing)
+            and self.forced_inference_dtype_ == torch.float64
+        ), (
+            "Batched engine error: float64 precision is not supported for the "
+            "fine-tuning workflow (requires float32 for backpropagation)."
+        )
 
         if self.fit_mode in ["fit_preprocessors", "batched"]:
             self.executor_.use_torch_inference_mode(use_inference=False)

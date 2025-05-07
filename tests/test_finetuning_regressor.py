@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import unittest
+from functools import partial
 from itertools import product
 from typing import Literal
 from unittest.mock import patch
@@ -15,6 +16,11 @@ from torch.optim import Adam
 from torch.utils.data import DataLoader
 
 from tabpfn import TabPFNRegressor
+from tabpfn.model.bar_distribution import (
+    BarDistribution,
+    FullSupportBarDistribution,
+)
+from tabpfn.preprocessing import RegressorEnsembleConfig
 from tabpfn.utils import meta_dataset_collator
 
 rng = np.random.default_rng(42)
@@ -151,14 +157,6 @@ def test_regressor_dataset_and_collator_batches_type(
     """Test that the batches returned by the dataset and collator
     are of the correct type.
     """
-    import torch
-
-    from tabpfn.model.bar_distribution import (
-        BarDistribution,
-        FullSupportBarDistribution,
-    )
-    from tabpfn.preprocessing import RegressorEnsembleConfig
-
     X, y = synthetic_regression_data
     dataset_collection = ft_regressor_instance.get_preprocessed_datasets(
         X, y, train_test_split, 100
@@ -212,8 +210,6 @@ def test_tabpfn_regressor_finetuning_loop(
     synthetic_regression_data,
     optimization_space,
 ) -> None:
-    import torch
-
     X, y = synthetic_regression_data
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=0.3, random_state=42
@@ -344,9 +340,6 @@ def test_tabpfn_regressor_finetuning_loop(
             break  # Only test one batch
 
 
-# ------------ Test interaction of modern components with new -----------
-
-
 def test_finetuning_consistency_bar_distribution(
     std_regressor_instance, ft_regressor_instance, synthetic_regression_data
 ):
@@ -354,8 +347,6 @@ def test_finetuning_consistency_bar_distribution(
     get_preprocessed_datasets -> fit_from_preprocessed -> forward() -> post-processing,
     when no actual fine-tuning occurs.
     """
-    from functools import partial
-
     common_seed = 10
     test_set_size = 0.2
 
@@ -482,13 +473,6 @@ class TestTabPFNPreprocessingInspection(unittest.TestCase):
         comparing the tensors that enter the internal transformer
         model.
         """
-        from functools import partial
-
-        from sklearn.model_selection import train_test_split
-        from torch.utils.data import DataLoader
-
-        from tabpfn.utils import meta_dataset_collator
-
         test_set_size = 0.3
         common_seed = 42
         n_total = 20
@@ -507,7 +491,6 @@ class TestTabPFNPreprocessingInspection(unittest.TestCase):
         X_train_raw, X_test_raw, y_train_raw, _ = splitfn(X, y)
 
         # Initialize two regressors with the inference and FineTuning
-        # Inference engine
         reg_standard = TabPFNRegressor(
             n_estimators=n_estimators,
             device="cpu",
@@ -602,11 +585,7 @@ class TestTabPFNPreprocessingInspection(unittest.TestCase):
             p1_squeezed.shape == p3_squeezed.shape
         ), "Shapes of final model input tensors mismatch."
 
-        # Visual inspection of the tensors
-
-        # Perform numerical comparison using torch.allclose
         atol = 1e-6
         tensors_match = torch.allclose(p1_squeezed, p3_squeezed, atol=atol)
 
-        # Assertion: The final tensors fed to the model should be identical
         assert tensors_match, "Mismatch between preprocessed model input tensors."

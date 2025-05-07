@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import numpy as np
 import torch
 
-# TODO: move to test_utils.py
+from tabpfn.utils import (
+    pad_tensors,
+    split_large_data,
+)
 
 
 def test_pad_tensors_2d_and_1d():
-    from tabpfn.utils import pad_tensors
-
+    """Test the pad_tensors function with 2D and 1D tensors."""
     # 2D tensors (features)
     tensors_2d = [torch.ones((2, 3)), torch.ones((3, 2)), torch.ones((1, 4))]
     padded = pad_tensors(tensors_2d, padding_val=-1, labels=False)
@@ -26,10 +29,7 @@ def test_pad_tensors_2d_and_1d():
 
 
 def test_split_large_data():
-    import numpy as np
-
-    from tabpfn.utils import split_large_data
-
+    """Test the split_large_data function with a large dataset."""
     total_size = 1000
     max_chunk = 100
     large_x = np.arange(total_size * 2).reshape((total_size, 2))

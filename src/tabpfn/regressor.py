@@ -30,13 +30,14 @@ from sklearn import config_context
 from sklearn.base import (
     BaseEstimator,
     RegressorMixin,
+    TransformerMixin,
     check_is_fitted,
 )
 
 from tabpfn.base import (
     RegressorModelSpecs,
-    _initialize_dataset_preprocessing_helper,
     _initialize_model_variables_helper,
+    check_cpu_warning,
     create_inference_engine,
     determine_precision,
     get_preprocessed_datasets_helper,
@@ -48,21 +49,28 @@ from tabpfn.model.bar_distribution import FullSupportBarDistribution
 from tabpfn.preprocessing import (
     DatasetCollectionWithPreprocessing,
     EnsembleConfig,
+    PreprocessorConfig,
     RegressorEnsembleConfig,
+    ReshapeFeatureDistributionsStep,
+    default_regressor_preprocessor_configs,
 )
 from tabpfn.utils import (
     _fix_dtypes,
     _get_embeddings,
+    _get_ordinal_encoder,
     _process_text_na_dataframe,
     _transform_borders_one,
+    infer_categorical_features,
     infer_random_state,
     translate_probs_across_borders,
     validate_X_predict,
+    validate_Xy_fit,
 )
 
 if TYPE_CHECKING:
     import numpy.typing as npt
     from sklearn.compose import ColumnTransformer
+    from sklearn.pipeline import Pipeline
     from torch.types import _dtype
 
     from tabpfn.config import ModelInterfaceConfig
@@ -445,20 +453,94 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
 
     def _initialize_dataset_preprocessing(
         self, X: XType, y: YType, rng
-    ) -> tuple[list[RegressorEnsembleConfig], XType, YType, float, float]:
+    ) -> tuple[list[RegressorEnsembleConfig], XType, YType, FullSupportBarDistribution]:
         """Prepare ensemble configs and validate X, y for one dataset/chunk.
         Handle the preprocessing of the input (X and y). We also return the
         BarDistribution here, since it is vital for computing the standardized
         target variable in the DatasetCollectionWithPreprocessing class.
         Sets self.inferred_categorical_indices_.
         """
-        return _initialize_dataset_preprocessing_helper(
-            self,
+        if self.differentiable_input:
+            raise ValueError(
+                "Differentiable input is not supported for regressors yet."
+            )
+
+        X, y, feature_names_in, n_features_in = validate_Xy_fit(
             X,
             y,
-            rng,
-            model_type="regressor",
+            estimator=self,
+            ensure_y_numeric=False,
+            max_num_samples=self.interface_config_.MAX_NUMBER_OF_SAMPLES,
+            max_num_features=self.interface_config_.MAX_NUMBER_OF_FEATURES,
+            ignore_pretraining_limits=self.ignore_pretraining_limits,
         )
+
+        assert isinstance(X, np.ndarray)
+        check_cpu_warning(self.device, X)
+
+        if feature_names_in is not None:
+            self.feature_names_in_ = feature_names_in
+        self.n_features_in_ = n_features_in
+
+        # Will convert specified categorical indices to category dtype, as well
+        # as handle `np.object` arrays or otherwise `object` dtype pandas columns.
+        X = _fix_dtypes(X, cat_indices=self.categorical_features_indices)
+
+        # Ensure categories are ordinally encoded
+        ord_encoder = _get_ordinal_encoder()
+        X = _process_text_na_dataframe(
+            X,
+            ord_encoder=ord_encoder,
+            fit_encoder=True,  # type: ignore
+        )
+        self.preprocessor_ = ord_encoder
+
+        self.inferred_categorical_indices_ = infer_categorical_features(
+            X=X,
+            provided=self.categorical_features_indices,
+            min_samples_for_inference=self.interface_config_.MIN_NUMBER_SAMPLES_FOR_CATEGORICAL_INFERENCE,
+            max_unique_for_category=self.interface_config_.MAX_UNIQUE_FOR_CATEGORICAL_FEATURES,
+            min_unique_for_numerical=self.interface_config_.MIN_UNIQUE_FOR_NUMERICAL_FEATURES,
+        )
+
+        possible_target_transforms = (
+            ReshapeFeatureDistributionsStep.get_all_preprocessors(
+                num_examples=y.shape[0],  # Use length of validated y
+                random_state=rng,  # Use the provided rng
+            )
+        )
+        target_preprocessors: list[TransformerMixin | Pipeline | None] = []
+        for (
+            y_target_preprocessor
+        ) in self.interface_config_.REGRESSION_Y_PREPROCESS_TRANSFORMS:
+            if y_target_preprocessor is not None:
+                preprocessor = possible_target_transforms[y_target_preprocessor]
+            else:
+                preprocessor = None
+            target_preprocessors.append(preprocessor)
+        preprocess_transforms = self.interface_config_.PREPROCESS_TRANSFORMS
+
+        ensemble_configs = EnsembleConfig.generate_for_regression(
+            n=self.n_estimators,
+            subsample_size=self.interface_config_.SUBSAMPLE_SAMPLES,
+            add_fingerprint_feature=self.interface_config_.FINGERPRINT_FEATURE,
+            feature_shift_decoder=self.interface_config_.FEATURE_SHIFT_METHOD,
+            polynomial_features=self.interface_config_.POLYNOMIAL_FEATURES,
+            max_index=len(X),
+            preprocessor_configs=typing.cast(
+                "Sequence[PreprocessorConfig]",
+                preprocess_transforms
+                if preprocess_transforms is not None
+                else default_regressor_preprocessor_configs(),
+            ),
+            target_transforms=target_preprocessors,
+            random_state=rng,
+        )
+
+        self.bardist_ = self.bardist_.to(self.device_)
+
+        assert len(ensemble_configs) == self.n_estimators
+        return ensemble_configs, X, y, self.bardist_
 
     def fit_from_preprocessed(
         self,
@@ -752,7 +834,7 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
         return logit_to_output(output_type=output_type)
 
     # TODO: reduce complexity to remove noqa C901
-    def forward(  # noqa: C901
+    def forward(
         self,
         X: list[torch.Tensor] | XType,
         *,
@@ -774,36 +856,38 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
         Returns:
             Averaged logits (for fine-tuning), outputs, borders.
         """
-        assert (
-            # Condition 1: X is XType and executor is NOT the specific batched one
-            # and we are NOT doing inference
-            (
-                use_inference_mode
-                and not isinstance(
-                    self.executor_, InferenceEngineBatchedNoPreprocessing
-                )
-            )
-            # Condition 2: X is a list of Tensors and executor IS the specific batched
-            # one and we are doing inference
-            or (
-                not use_inference_mode
-                and isinstance(X, list)
-                and isinstance(X[0], torch.Tensor)
-                and isinstance(self.executor_, InferenceEngineBatchedNoPreprocessing)
-            )
-        ), "Input type X does not match the executor type"
+        # Scenario 1: Standard inference path
+        is_standard_inference = use_inference_mode and not isinstance(
+            self.executor_, InferenceEngineBatchedNoPreprocessing
+        )
+
+        # Scenario 2: Batched path, typically for fine-tuning with gradients
+        is_batched_for_grads = (
+            not use_inference_mode
+            and isinstance(self.executor_, InferenceEngineBatchedNoPreprocessing)
+            and isinstance(X, list)
+            and (not X or isinstance(X[0], torch.Tensor))
+        )
+
+        assert is_standard_inference or is_batched_for_grads, (
+            "Invalid forward pass: Bad combination of inference mode, input X, "
+            "or executor type. Ensure call is from standard predict or a "
+            "batched fine-tuning context."
+        )
+
+        # Specific check for float64 incompatibility if the batched engine is being
+        # used, now framed as an assertion that the problematic condition is NOT met.
+        assert not (
+            isinstance(self.executor_, InferenceEngineBatchedNoPreprocessing)
+            and self.forced_inference_dtype_ == torch.float64
+        ), (
+            "Batched engine error: float64 precision is not supported for the "
+            "fine-tuning workflow (requires float32 for backpropagation)."
+        )
 
         # Ensure torch.inference_mode is OFF to allow gradients
         if self.fit_mode in ["fit_preprocessors", "batched"]:
             self.executor_.use_torch_inference_mode(use_inference=use_inference_mode)
-
-        if self.fit_mode == "batched" and self.forced_inference_dtype_ == torch.float64:
-            raise ValueError(
-                "inference_precision=torch.float64 is not currently supported "
-                "for the forward() (fine-tuning) workflow. with batched fit_mode "
-                "This workflow typically requires float32 for compatibility with "
-                "default model parameter dtypes during backpropagation."
-            )
 
         check_is_fitted(self)
 
