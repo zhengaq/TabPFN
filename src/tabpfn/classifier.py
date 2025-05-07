@@ -588,7 +588,7 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
 
     # TODO: reduce complexity to remove noqa C901, PLR0912
     # TODO: Merge into one function
-    def forward(
+    def forward(  # noqa: C901, PLR0912
         self,
         X: list[torch.Tensor] | torch.Tensor,
         *,
@@ -610,9 +610,6 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
             use_inference_mode: Flag for inference mode., default at False since
             it is called within predict. During FineTuning forward() is called
             directly by user, so default should be False here.
-
-        Args:
-            X: The input data.
 
         Returns:
             The predicted probabilities of the classes.
@@ -654,82 +651,40 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
         if self.fit_mode in ["fit_preprocessors", "batched"]:
             self.executor_.use_torch_inference_mode(use_inference=False)
 
-        if use_inference_mode:
-            return self.forward_use_inference_mode(X)
-        return self.forward_fine_tuning(X)
-
-    def forward_use_inference_mode(
-        self,
-        X: list[torch.Tensor] | torch.Tensor,
-    ) -> torch.Tensor:
-        """Helper function to make forward() ONNX compatible
-        Handles the inference forward() pass with the
-        InferenceEngine executor for the normal predict()
-        call.
-        """
         outputs = []
         for output, config in self.executor_.iter_outputs(
             X,
             device=self.device_,
             autocast=self.use_autocast_,
         ):
-            assert output.ndim == 2
-            if self.softmax_temperature != 1:
-                output = (  # noqa: PLW2901
-                    output[:, : self.n_classes_].float() / self.softmax_temperature
+            original_ndim = output.ndim
+
+            if original_ndim == 2:
+                # Shape is [Nsamples, NClasses] -> [Nsamples, 1,  NClasses]
+                processed_output = output.unsqueeze(0)
+                processed_output = processed_output.transpose(0, 1)
+                config_list = [config]
+            elif original_ndim == 3:
+                # Shape is [Nsamples, batch_size, NClasses] noqa ERA001
+                processed_output = output
+                config_list = config
+            else:
+                raise ValueError(
+                    f"Output tensor must be 2d or 3d, got {original_ndim}d"
                 )
 
-            # Reverse class permutation if exists
-            if config.class_permutation is not None:
-                output = output[..., config.class_permutation]  # noqa: PLW2901
+            num_target_classes = processed_output.shape[-1]
 
-            output_all = output
-
-            outputs.append(output_all)
-
-        soft_max_dim = 1
-
-        if self.average_before_softmax:
-            output = torch.stack(outputs).mean(dim=0)
-            output = torch.nn.functional.softmax(output, dim=soft_max_dim)
-        else:
-            outputs = [
-                torch.nn.functional.softmax(o, dim=soft_max_dim) for o in outputs
-            ]
-            output = torch.stack(outputs).mean(dim=0)
-
-        if self.balance_probabilities:
-            class_prob_in_train = self.class_counts_ / self.class_counts_.sum()
-            output = output / torch.Tensor(class_prob_in_train).to(self.device_)
-            output = output / output.sum(dim=-1, keepdim=True)
-
-        return output
-
-    def forward_fine_tuning(
-        self,
-        X: list[torch.Tensor] | torch.Tensor,
-    ) -> torch.Tensor:
-        """Helper function to make forward() ONNX compatible
-        Handles the FineTuning forward() pass with the
-        InferenceEngineBatchedNoPreprocessing executor.
-        """
-        outputs = []
-        for output, config in self.executor_.iter_outputs(
-            X,
-            device=self.device_,
-            autocast=self.use_autocast_,
-        ):
-            assert output.ndim == 3  # [Batch, Nsamples, NClasses]
-            n_classes = output.size(-1)
             if self.softmax_temperature != 1:
-                output = (  # noqa: PLW2901
-                    output[:, :, :n_classes].float() / self.softmax_temperature
+                processed_output = (
+                    processed_output[:, :, :num_target_classes].float()
+                    / self.softmax_temperature
                 )
 
-            if config is not None:
+            if config_list is not None:
                 output_batch = []
-                for i, batch_config in enumerate(config):
-                    # make sure the output num_classes are the same.
+                for i, batch_config in enumerate(config_list):
+                    # make sure the processed_output num_classes are the same.
                     if len(batch_config.class_permutation) != self.n_classes_:
                         use_perm = np.arange(self.n_classes_)
                         use_perm[: len(batch_config.class_permutation)] = (
@@ -737,20 +692,17 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
                         )
                     else:
                         use_perm = batch_config.class_permutation
-                    output_batch.append(output[:, i, use_perm])
+                    output_batch.append(processed_output[:, i, use_perm])
+
                 output_all = torch.stack(output_batch, dim=1)
 
             outputs.append(output_all)
 
-        soft_max_dim = -1
-
         if self.average_before_softmax:
             output = torch.stack(outputs).mean(dim=0)
-            output = torch.nn.functional.softmax(output, dim=soft_max_dim)
+            output = torch.nn.functional.softmax(output, dim=-1)
         else:
-            outputs = [
-                torch.nn.functional.softmax(o, dim=soft_max_dim) for o in outputs
-            ]
+            outputs = [torch.nn.functional.softmax(o, dim=-1) for o in outputs]
             output = torch.stack(outputs).mean(dim=0)
 
         if self.balance_probabilities:
@@ -758,7 +710,12 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
             output = output / torch.Tensor(class_prob_in_train).to(self.device_)
             output = output / output.sum(dim=-1, keepdim=True)
 
-        return output.transpose(0, 1).transpose(1, 2)  # for NLLLoss [B, C, D1]
+        if use_inference_mode:
+            output = output.squeeze(1)  # [N, B, C] -> [N, C]
+        else:
+            output = output.transpose(0, 1).transpose(1, 2)  # for NLLLoss [B, C, N]
+
+        return output
 
     def get_embeddings(
         self,

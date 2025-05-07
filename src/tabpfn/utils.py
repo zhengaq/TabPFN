@@ -612,8 +612,7 @@ def translate_probs_across_borders(
     return (prob_left[..., 1:] - prob_left[..., :-1]).clamp_min(0.0)
 
 
-# TODO: change regressor to replace this with update_encoder_params
-# in regressor
+# Deprecated
 def update_encoder_outlier_params(
     model: nn.Module,
     remove_outliers_std: float | None,
