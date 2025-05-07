@@ -136,8 +136,8 @@ if __name__ == "__main__":
             # TabPFN Regressor standardises the label
             # distribution with a Z-Transform. When
             # optimizing for FineTuning we can choose
-            # to optomizer the difference in Binning
-            # distributions in this standardised (prepreocessed)
+            # to optimize the difference in standardised
+            # distributions in this standardised (preprocessed)
             # space or the raw label space.
 
             lossfn = None

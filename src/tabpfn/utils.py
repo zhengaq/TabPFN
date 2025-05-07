@@ -354,6 +354,10 @@ def validate_Xy_fit(
 ) -> tuple[np.ndarray, np.ndarray, npt.NDArray[Any] | None, int]:
     """Validate the input data for fitting."""
     # Calls `validate_data()` with specification
+
+    # Checks that we do not call validate_data() in case
+    # the Prompttuning is enabled, since it is not differentiable.
+    # TODO: update then Prompttuning is enabled for diffable models
     if not is_classifier(estimator) or (
         is_classifier(estimator) and not estimator.differentiable_input
     ):

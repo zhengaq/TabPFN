@@ -418,8 +418,8 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
         split_fn,
         max_data_size: None | int = 10000,
     ) -> DatasetCollectionWithPreprocessing:
-        """Takes raw data -> outputs DatasetCollectionWithPreprocessing class
-            that preprocessed them.
+        """Takes raw data and returns the DatasetCollectionWithPreprocessing
+        class that preprocessed them.
 
         Args:
             X_raw: individual or list of input dataset features
@@ -447,10 +447,10 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
         self, X: XType, y: YType, rng
     ) -> tuple[list[RegressorEnsembleConfig], XType, YType, float, float]:
         """Prepare ensemble configs and validate X, y for one dataset/chunk.
-        handle the preprocessing of the input (X and y) We also return the
-        BarDistrbution here, since it is vital for computing the
-        standardized target variable in the DatasetCollectionWithPreprocessing
-        class.
+        Handle the preprocessing of the input (X and y). We also return the
+        BarDistribution here, since it is vital for computing the standardized
+        target variable in the DatasetCollectionWithPreprocessing class.
+        Sets self.inferred_categorical_indices_.
         """
         return _initialize_dataset_preprocessing_helper(
             self,
@@ -827,9 +827,6 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
                 single_config = config[0]
                 config_for_ensemble = single_config
 
-            # TODO: This block is a bit long and complex.
-            # Consider refactoring in the future.
-            # For now, we'll just add a comment to acknowledge the complexity.
             if isinstance(config_for_ensemble, RegressorEnsembleConfig):
                 borders_t: np.ndarray
                 logit_cancel_mask: np.ndarray | None
@@ -865,7 +862,6 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
                     output = output.clone()  # noqa: PLW2901
                     output[..., logit_cancel_mask] = float("-inf")
 
-            # TODO (Klemens) Fix what happens when we get a list here.
             else:
                 raise ValueError(
                     "Unexpected config format "

@@ -395,13 +395,14 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
         split_fn,
         max_data_size: None | int = 10000,
     ) -> DatasetCollectionWithPreprocessing:
-        """Get the torch.utils.data.Dataset DatasetCollectionWithPreprocessing
-        class which contains many datasets or splits of one
-        or more datasets.
+        """Takes raw data and returns the DatasetCollectionWithPreprocessing
+        class that preprocessed them.
 
         Args:
-            X_raw: list of input dataset features
-            y_raw: list of input dataset labels
+            X_raw: single or list of input dataset features, in case of single it
+            is converted to list inside get_preprocessed_datasets_helper()
+            y_raw: single or list of input dataset labels, in case of single it
+            is converted to list inside get_preprocessed_datasets_helper()
             split_fn: A function to dissect a dataset into train and test partition.
             max_data_size: Maximum allowed number of samples in one dataset.
             If None, datasets are not splitted.
@@ -424,7 +425,7 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
     def _initialize_dataset_preprocessing(
         self, X: XType, y: YType, rng
     ) -> tuple[list[ClassifierEnsembleConfig], list[int], XType, YType]:
-        """Internal preprocessing method for input arguemtns.
+        """Internal preprocessing method for input arguments.
         Returns ClassifierEnsembleConfigs, inferred categorical indices,
         and modelfied features X and labels y.
         Sets self.inferred_categorical_indices_.
@@ -587,7 +588,6 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
         return output / output.sum(axis=1, keepdims=True)  # type: ignore
 
     # TODO: reduce complexity to remove noqa C901, PLR0912
-    # TODO: Merge into one function
     def forward(  # noqa: C901, PLR0912
         self,
         X: list[torch.Tensor] | torch.Tensor,
