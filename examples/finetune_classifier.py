@@ -104,7 +104,7 @@ if __name__ == "__main__":
         "random_state": 2,
         "inference_precision": torch.float32,
     }
-    clf = TabPFNClassifier(**classifier_args, fit_mode="batched")
+    clf = TabPFNClassifier(**classifier_args, fit_mode="batched", differentiable_input=False)
 
     datasets_list = clf.get_preprocessed_datasets(X_train, y_train, splitfn, 1000)
     datasets_list_test = clf.get_preprocessed_datasets(X_test, y_test, splitfn, 1000)
@@ -134,7 +134,7 @@ if __name__ == "__main__":
             optim_impl.zero_grad()
             X_trains, X_tests, y_trains, y_tests, cat_ixs, confs = data_batch
             clf.fit_from_preprocessed(X_trains, y_trains, cat_ixs, confs)
-            preds = clf.predict_proba_from_preprocessed(X_tests)
+            preds = clf.forward(X_tests)
             loss = lossfn(torch.log(preds), y_tests.to(device))
             loss.backward()
             optim_impl.step()

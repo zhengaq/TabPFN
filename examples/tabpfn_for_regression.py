@@ -5,7 +5,6 @@ This example demonstrates how to use TabPFNRegressor on a regression task
 using the diabetes dataset from scikit-learn.
 """
 
-import numpy as np
 from sklearn.datasets import load_diabetes
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.model_selection import train_test_split

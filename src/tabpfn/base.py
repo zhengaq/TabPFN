@@ -5,16 +5,31 @@
 from __future__ import annotations
 
 import os
+import typing
 import warnings
+from collections.abc import Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, Union, overload
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Literal,
+    Union,
+    overload,
+)
 
+import numpy as np
 import torch
+from sklearn.preprocessing import LabelEncoder
+
+from tabpfn.config import ModelInterfaceConfig
 
 # --- TabPFN imports ---
 from tabpfn.constants import (
     AUTOCAST_DTYPE_BYTE_SIZE,
     DEFAULT_DTYPE_BYTE_SIZE,
+    XType,
+    YType,
 )
 from tabpfn.inference import (
     InferenceEngine,
@@ -23,12 +38,38 @@ from tabpfn.inference import (
     InferenceEngineCachePreprocessing,
     InferenceEngineOnDemand,
 )
+from tabpfn.model.bar_distribution import FullSupportBarDistribution
 from tabpfn.model.loading import load_model_criterion_config
-from tabpfn.utils import infer_device_and_type, infer_fp16_inference_mode
+from tabpfn.preprocessing import (
+    BaseDatasetConfig,
+    ClassifierDatasetConfig,
+    ClassifierEnsembleConfig,
+    DatasetCollectionWithPreprocessing,
+    EnsembleConfig,
+    PreprocessorConfig,
+    RegressorDatasetConfig,
+    RegressorEnsembleConfig,
+    ReshapeFeatureDistributionsStep,
+    default_classifier_preprocessor_configs,
+    default_regressor_preprocessor_configs,
+)
+from tabpfn.utils import (
+    _fix_dtypes,
+    _get_ordinal_encoder,
+    _process_text_na_dataframe,
+    infer_categorical_features,
+    infer_device_and_type,
+    infer_fp16_inference_mode,
+    infer_random_state,
+    split_large_data,
+    update_encoder_params,
+    validate_Xy_fit,
+)
 
 if TYPE_CHECKING:
-    import numpy as np
     import pandas as pd
+    from sklearn.base import TransformerMixin
+    from sklearn.pipeline import Pipeline
 
     from tabpfn.model.bar_distribution import FullSupportBarDistribution
     from tabpfn.model.config import InferenceConfig
@@ -129,7 +170,7 @@ def initialize_tabpfn_model(
     # (after processing 'auto')
     download = True
     if isinstance(model_path, str) and model_path == "auto":
-        model_path = None
+        model_path = None  # type: ignore
 
     # Load model with potential caching
     if which == "classifier":
@@ -346,3 +387,304 @@ def check_cpu_warning(
                 "https://github.com/PriorLabs/tabpfn-client",
                 stacklevel=2,
             )
+
+
+def get_preprocessed_datasets_helper(
+    calling_instance: Any,  # Union[TabPFNClassifier, TabPFNRegressor],
+    X_raw: XType | list[XType],
+    y_raw: YType | list[YType],
+    split_fn: Callable,
+    max_data_size: int | None,
+    model_type: Literal["regressor", "classifier"],
+) -> DatasetCollectionWithPreprocessing:
+    """Helper function to create a DatasetCollectionWithPreprocessing.
+    Relies on methods from the calling_instance for specific initializations.
+    Modularises Code for both Regressor and Classifier.
+
+    Args:
+        calling_instance: The instance of the TabPFNRegressor or TabPFNClassifier.
+        X_raw: individual or list of input dataset features
+        y_raw: individual or list of input dataset labels
+        split_fn: A function to dissect a dataset into train and test partition.
+        max_data_size: Maximum allowed number of samples within one dataset.
+        If None, datasets are not splitted.
+        model_type: The type of the model.
+    """
+    if not isinstance(X_raw, list):
+        X_raw = [X_raw]
+    if not isinstance(y_raw, list):
+        y_raw = [y_raw]
+    assert len(X_raw) == len(y_raw), "X and y lists must have the same length."
+
+    if not hasattr(calling_instance, "model_") or calling_instance.model_ is None:
+        _, rng = calling_instance._initialize_model_variables()
+    else:
+        static_seed, rng = infer_random_state(calling_instance.random_state)
+
+    X_split, y_split = [], []
+    for X_item, y_item in zip(X_raw, y_raw):
+        if max_data_size is not None:
+            Xparts, yparts = split_large_data(X_item, y_item, max_data_size)
+        else:
+            Xparts, yparts = [X_item], [y_item]
+        X_split.extend(Xparts)
+        y_split.extend(yparts)
+
+    dataset_config_collection: list[BaseDatasetConfig] = []
+    for X_item, y_item in zip(X_split, y_split):
+        if model_type == "classifier":
+            ensemble_configs, X_mod, y_mod = (
+                calling_instance._initialize_dataset_preprocessing(X_item, y_item, rng)
+            )
+            current_cat_ix = calling_instance.inferred_categorical_indices_
+
+            dataset_config = ClassifierDatasetConfig(
+                config=ensemble_configs,
+                X_raw=X_mod,
+                y_raw=y_mod,
+                cat_ix=current_cat_ix,
+            )
+        elif model_type == "regressor":
+            ensemble_configs, X_mod, y_mod, bardist_ = (
+                calling_instance._initialize_dataset_preprocessing(X_item, y_item, rng)
+            )
+            current_cat_ix = calling_instance.inferred_categorical_indices_
+            dataset_config = RegressorDatasetConfig(
+                config=ensemble_configs,
+                X_raw=X_mod,
+                y_raw=y_mod,
+                cat_ix=current_cat_ix,
+                bardist_=bardist_,
+            )
+        else:
+            raise ValueError(f"Invalid model_type: {model_type}")
+
+        dataset_config_collection.append(dataset_config)
+
+    return DatasetCollectionWithPreprocessing(split_fn, rng, dataset_config_collection)
+
+
+def _initialize_model_variables_helper(
+    calling_instance: Any,
+    model_type: Literal["regressor", "classifier"],
+) -> tuple[int, np.random.Generator]:
+    """Helper function to perform initialization
+    of the model, return determined byte_size
+    and RNG object.
+    """
+    static_seed, rng = infer_random_state(calling_instance.random_state)
+
+    if model_type == "regressor":
+        (
+            calling_instance.model_,
+            calling_instance.config_,
+            calling_instance.bardist_,
+        ) = initialize_tabpfn_model(
+            model_path=calling_instance.model_path,
+            which="regressor",
+            fit_mode=calling_instance.fit_mode,  # Use the instance's fit_mode
+            static_seed=static_seed,
+        )
+    elif model_type == "classifier":
+        (calling_instance.model_, calling_instance.config_, _) = (
+            initialize_tabpfn_model(
+                model_path=calling_instance.model_path,
+                which="classifier",
+                fit_mode=calling_instance.fit_mode,  # Use the instance's fit_mode
+                static_seed=static_seed,
+            )
+        )
+    else:
+        raise ValueError(f"Invalid model_type: {model_type}")
+
+    calling_instance.device_ = infer_device_and_type(calling_instance.device)
+    (
+        calling_instance.use_autocast_,
+        calling_instance.forced_inference_dtype_,
+        byte_size,
+    ) = determine_precision(
+        calling_instance.inference_precision, calling_instance.device_
+    )
+    calling_instance.model_.to(calling_instance.device_)
+
+    # Build the interface_config
+    calling_instance.interface_config_ = ModelInterfaceConfig.from_user_input(
+        inference_config=calling_instance.inference_config,
+    )
+
+    outlier_removal_std = calling_instance.interface_config_.OUTLIER_REMOVAL_STD
+    if outlier_removal_std == "auto":
+        outlier_removal_std = (
+            calling_instance.interface_config_._REGRESSION_DEFAULT_OUTLIER_REMOVAL_STD
+        )
+    update_encoder_params(  # Use the renamed function if available, or original one
+        model=calling_instance.model_,
+        remove_outliers_std=outlier_removal_std,
+        seed=static_seed,
+        inplace=True,
+        differentiable_input=calling_instance.differentiable_input,
+    )
+    return byte_size, rng
+
+
+# TODO(Klemens) reduce complexity of this function
+def _initialize_dataset_preprocessing_helper(  # noqa: C901, PLR0912
+    calling_instance: Any,
+    X: XType,
+    y: YType,
+    rng: np.random.Generator,
+    model_type: Literal["regressor", "classifier"],
+) -> (
+    tuple[list[ClassifierEnsembleConfig], XType, YType]
+    | tuple[list[RegressorEnsembleConfig], XType, YType, FullSupportBarDistribution]
+):
+    """Internal helper preprocessing method for input arguments.
+    that modularises Code between Regressor and Classifier.
+
+    Args:
+        calling_instance: The instance of the TabPFNRegressor or TabPFNClassifier.
+        X: The input features.
+        y: The target values.
+        rng: The random number generator.
+        model_type: The type of the model.
+    """
+    X, y, feature_names_in, n_features_in = validate_Xy_fit(
+        X,
+        y,
+        estimator=calling_instance,
+        ensure_y_numeric=False,
+        max_num_samples=calling_instance.interface_config_.MAX_NUMBER_OF_SAMPLES,
+        max_num_features=calling_instance.interface_config_.MAX_NUMBER_OF_FEATURES,
+        ignore_pretraining_limits=calling_instance.ignore_pretraining_limits,
+    )
+
+    check_cpu_warning(calling_instance.device, X)
+
+    if feature_names_in is not None:
+        calling_instance.feature_names_in_ = feature_names_in
+    calling_instance.n_features_in_ = n_features_in
+
+    if calling_instance.differentiable_input and model_type == "regressor":
+        raise ValueError("Differentiable input is not supported for regressors yet.")
+
+    if model_type == "classifier":
+        # Ensure that the y values are ordinally encoded
+        # TODO(eddiebergman): Ensure the counts here line up with
+        #   the actual classes after label encoder.
+        if not calling_instance.differentiable_input:
+            _, counts = np.unique(y, return_counts=True)
+            calling_instance.class_counts_ = counts
+            calling_instance.label_encoder_ = LabelEncoder()
+            y = calling_instance.label_encoder_.fit_transform(y)
+            calling_instance.classes_ = calling_instance.label_encoder_.classes_  # type: ignore
+            calling_instance.n_classes_ = len(calling_instance.classes_)
+        else:
+            # if pt_diffable, it is a convention that the class
+            # labels are [0, ..., n-1].
+            calling_instance.label_encoder_ = None
+            if not hasattr(calling_instance, "n_classes_"):
+                calling_instance.n_classes_ = int(torch.max(y).item()) + 1
+            calling_instance.classes_ = torch.arange(calling_instance.n_classes_)
+
+        if (
+            model_type == "classifier"
+            and calling_instance.n_classes_
+            > calling_instance.interface_config_.MAX_NUMBER_OF_CLASSES
+        ):
+            # TODO: Support more classes with a fallback strategy.
+            raise ValueError(
+                f"Number of classes {calling_instance.n_classes_} exceeds "
+                "the maximal number of classes supported by TabPFN. Consider "
+                "using a strategy to reduce the number of classes. For code see "
+                "https://github.com/PriorLabs/tabpfn-extensions/blob/main/src/"
+                "tabpfn_extensions/many_class/many_class_classifier.py",
+            )
+
+    if not calling_instance.differentiable_input:
+        # Will convert specified categorical indices to category dtype, as well
+        # as handle `np.object` arrays or otherwise `object` dtype pandas columns.
+        X = _fix_dtypes(X, cat_indices=calling_instance.categorical_features_indices)
+
+        # Ensure categories are ordinally encoded
+        ord_encoder = _get_ordinal_encoder()
+        X = _process_text_na_dataframe(
+            X,
+            ord_encoder=ord_encoder,
+            fit_encoder=True,  # type: ignore
+        )
+        calling_instance.preprocessor_ = ord_encoder
+
+        calling_instance.inferred_categorical_indices_ = infer_categorical_features(
+            X=X,
+            provided=calling_instance.categorical_features_indices,
+            min_samples_for_inference=calling_instance.interface_config_.MIN_NUMBER_SAMPLES_FOR_CATEGORICAL_INFERENCE,
+            max_unique_for_category=calling_instance.interface_config_.MAX_UNIQUE_FOR_CATEGORICAL_FEATURES,
+            min_unique_for_numerical=calling_instance.interface_config_.MIN_UNIQUE_FOR_NUMERICAL_FEATURES,
+        )
+
+        if model_type == "regressor":
+            possible_target_transforms = (
+                ReshapeFeatureDistributionsStep.get_all_preprocessors(
+                    num_examples=y.shape[0],  # Use length of validated y
+                    random_state=rng,  # Use the provided rng
+                )
+            )
+            target_preprocessors: list[TransformerMixin | Pipeline | None] = []
+            for (
+                y_target_preprocessor
+            ) in calling_instance.interface_config_.REGRESSION_Y_PREPROCESS_TRANSFORMS:
+                if y_target_preprocessor is not None:
+                    preprocessor = possible_target_transforms[y_target_preprocessor]
+                else:
+                    preprocessor = None
+                target_preprocessors.append(preprocessor)
+        preprocess_transforms = calling_instance.interface_config_.PREPROCESS_TRANSFORMS
+
+    else:  # Minimal preprocessing for prompt tuning
+        calling_instance.inferred_categorical_indices_ = []
+        calling_instance.preprocessor_ = None
+        preprocess_transforms = [PreprocessorConfig("none", differentiable=True)]
+
+    return_variables = None
+    if model_type == "regressor":
+        ensemble_configs = EnsembleConfig.generate_for_regression(
+            n=calling_instance.n_estimators,
+            subsample_size=calling_instance.interface_config_.SUBSAMPLE_SAMPLES,
+            add_fingerprint_feature=calling_instance.interface_config_.FINGERPRINT_FEATURE,
+            feature_shift_decoder=calling_instance.interface_config_.FEATURE_SHIFT_METHOD,
+            polynomial_features=calling_instance.interface_config_.POLYNOMIAL_FEATURES,
+            max_index=len(X),  # Use length of validated X
+            preprocessor_configs=typing.cast(
+                "Sequence[PreprocessorConfig]",
+                preprocess_transforms
+                if preprocess_transforms is not None
+                else default_regressor_preprocessor_configs(),
+            ),
+            target_transforms=target_preprocessors,
+            random_state=rng,
+        )
+        return_variables = (ensemble_configs, X, y, calling_instance.bardist_)
+    else:
+        ensemble_configs = EnsembleConfig.generate_for_classification(
+            n=calling_instance.n_estimators,
+            subsample_size=calling_instance.interface_config_.SUBSAMPLE_SAMPLES,
+            add_fingerprint_feature=calling_instance.interface_config_.FINGERPRINT_FEATURE,
+            feature_shift_decoder=calling_instance.interface_config_.FEATURE_SHIFT_METHOD,
+            polynomial_features=calling_instance.interface_config_.POLYNOMIAL_FEATURES,
+            max_index=len(X),
+            preprocessor_configs=typing.cast(
+                "Sequence[PreprocessorConfig]",
+                preprocess_transforms
+                if preprocess_transforms is not None
+                else default_classifier_preprocessor_configs(),
+            ),
+            class_shift_method=calling_instance.interface_config_.CLASS_SHIFT_METHOD
+            if not calling_instance.differentiable_input
+            else None,
+            n_classes=calling_instance.n_classes_,
+            random_state=rng,
+        )
+        return_variables = (ensemble_configs, X, y)
+
+    assert len(ensemble_configs) == calling_instance.n_estimators
+    return return_variables

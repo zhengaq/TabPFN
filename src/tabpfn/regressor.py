@@ -30,56 +30,42 @@ from sklearn import config_context
 from sklearn.base import (
     BaseEstimator,
     RegressorMixin,
-    TransformerMixin,
     check_is_fitted,
 )
 
 from tabpfn.base import (
     RegressorModelSpecs,
-    check_cpu_warning,
+    _initialize_dataset_preprocessing_helper,
+    _initialize_model_variables_helper,
     create_inference_engine,
     determine_precision,
-    initialize_tabpfn_model,
+    get_preprocessed_datasets_helper,
 )
-from tabpfn.config import ModelInterfaceConfig
 
 # NEW: Import the specialized inference engine
 from tabpfn.inference import InferenceEngineBatchedNoPreprocessing
 from tabpfn.model.bar_distribution import FullSupportBarDistribution
-from tabpfn.model.preprocessing import (
-    ReshapeFeatureDistributionsStep,
-)
 from tabpfn.preprocessing import (
-    DatasetCollectionWithPreprocessing,  # To be used by get_preprocessed_datasets
+    DatasetCollectionWithPreprocessing,
     EnsembleConfig,
-    PreprocessorConfig,
-    RegressorDatasetConfig,
     RegressorEnsembleConfig,
-    default_regressor_preprocessor_configs,
 )
 from tabpfn.utils import (
     _fix_dtypes,
     _get_embeddings,
-    _get_ordinal_encoder,
     _process_text_na_dataframe,
     _transform_borders_one,
-    infer_categorical_features,
-    infer_device_and_type,
     infer_random_state,
-    split_large_data,  # Used in get_preprocessed_datasets
     translate_probs_across_borders,
-    update_encoder_outlier_params,  # Renamed from update_encoder_outlier_params
-    update_encoder_params,
     validate_X_predict,
-    validate_Xy_fit,
 )
 
 if TYPE_CHECKING:
     import numpy.typing as npt
     from sklearn.compose import ColumnTransformer
-    from sklearn.pipeline import Pipeline
     from torch.types import _dtype
 
+    from tabpfn.config import ModelInterfaceConfig
     from tabpfn.constants import (
         XType,
         YType,
@@ -442,90 +428,23 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
             max_data_size: Maximum allowed number of samples within one dataset.
             If None, datasets are not splitted.
         """
-        if not isinstance(X_raw, list):
-            X_raw = [X_raw]
-
-        if not isinstance(y_raw, list):
-            y_raw = [y_raw]
-        assert len(X_raw) == len(y_raw), "X and y lists must have the same length."
-
-        if not hasattr(self, "model_") or self.model_ is None:
-            byte_size, rng = self._initialize_model_variables()
-        else:
-            _, rng = infer_random_state(self.random_state)
-
-        X_split, y_split = [], []
-        for X_item, y_item in zip(X_raw, y_raw):
-            if max_data_size is not None:
-                Xparts, yparts = split_large_data(X_item, y_item, max_data_size)
-            else:
-                Xparts, yparts = [X_item], [y_item]
-            X_split.extend(Xparts)
-            y_split.extend(yparts)
-        X, y = X_split, y_split
-        dataset_config_collection = []
-        for X_item, y_item in zip(X, y):
-            (configs, X_mod_raw, y_mod_raw, bardist_) = (
-                self._initialize_dataset_preprocessing(X_item, y_item, rng)
-            )
-            dataset_config_collection.append(
-                RegressorDatasetConfig(
-                    config=configs,
-                    X_raw=X_mod_raw,
-                    y_raw=y_mod_raw,
-                    cat_ix=self.inferred_categorical_indices_,
-                    bardist_=bardist_,
-                )
-            )
-        return DatasetCollectionWithPreprocessing(
-            split_fn, rng, dataset_config_collection
+        return get_preprocessed_datasets_helper(
+            self,
+            X_raw,
+            y_raw,
+            split_fn,
+            max_data_size,
+            model_type="regressor",
         )
 
     def _initialize_model_variables(self) -> tuple[int, np.random.Generator]:
         """Perform initialization of the model, return determined byte_size
         and RNG object.
         """
-        static_seed, rng = infer_random_state(self.random_state)
-
-        # Load the model and config
-        self.model_, self.config_, self.bardist_ = initialize_tabpfn_model(
-            model_path=self.model_path,
-            which="regressor",
-            fit_mode=self.fit_mode,  # Use the instance's fit_mode
-            static_seed=static_seed,
-        )
-
-        # Determine device and precision
-        self.device_ = infer_device_and_type(self.device)
-        (self.use_autocast_, self.forced_inference_dtype_, byte_size) = (
-            determine_precision(self.inference_precision, self.device_)
-        )
-
-        # TODO: double check this
-        self.model_.to(self.device_)
-        self.bardist_.to(self.device_)
-
-        # Build the interface_config
-        self.interface_config_ = ModelInterfaceConfig.from_user_input(
-            inference_config=self.inference_config,
-        )
-
-        outlier_removal_std = self.interface_config_.OUTLIER_REMOVAL_STD
-        if outlier_removal_std == "auto":
-            outlier_removal_std = (
-                self.interface_config_._REGRESSION_DEFAULT_OUTLIER_REMOVAL_STD
-            )
-        update_encoder_params(  # Use the renamed function if available, or original one
-            model=self.model_,
-            remove_outliers_std=outlier_removal_std,
-            seed=static_seed,
-            inplace=True,
-            differentiable_input=self.differentiable_input,
-        )
-        return byte_size, rng
+        return _initialize_model_variables_helper(self, "regressor")
 
     def _initialize_dataset_preprocessing(
-        self, X_raw: XType, y_raw: YType, rng
+        self, X: XType, y: YType, rng
     ) -> tuple[list[RegressorEnsembleConfig], XType, YType, float, float]:
         """Prepare ensemble configs and validate X, y for one dataset/chunk.
         handle the preprocessing of the input (X and y) We also return the
@@ -533,88 +452,13 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
         standardized target variable in the DatasetCollectionWithPreprocessing
         class.
         """
-        # Validate input data (similar to fit, but no need to set all attributes yet)
-
-        ##assume it leaves them unchaged -> I think it does
-        X_raw, y_raw, feature_names_in, n_features_in = validate_Xy_fit(
-            X_raw,
-            y_raw,
-            estimator=self,
-            ensure_y_numeric=True,  # Ensure y is numeric for regression
-            max_num_samples=self.interface_config_.MAX_NUMBER_OF_SAMPLES,
-            max_num_features=self.interface_config_.MAX_NUMBER_OF_FEATURES,
-            ignore_pretraining_limits=self.ignore_pretraining_limits,
+        return _initialize_dataset_preprocessing_helper(
+            self,
+            X,
+            y,
+            rng,
+            model_type="regressor",
         )
-
-        check_cpu_warning(self.device, X_raw)
-
-        if feature_names_in is not None:
-            self.feature_names_in_ = feature_names_in
-        self.n_features_in_ = n_features_in
-
-        # TODO: check how this interplays with if not self.differentiable_input
-        # TODO: Prompt tuning differentiation
-
-        # Handle categorical features (same as in fit)
-        X_raw = _fix_dtypes(X_raw, cat_indices=self.categorical_features_indices)
-
-        # The actual preprocessing happens inside the Dataset __getitem__
-
-        # Ensure categories are ordinally encoded
-        ord_encoder = _get_ordinal_encoder()
-        X_raw = _process_text_na_dataframe(
-            X_raw,
-            ord_encoder=ord_encoder,
-            fit_encoder=True,  # type: ignore
-        )
-        self.preprocessor_ = ord_encoder
-
-        # Infer categorical features based on the processed data
-        # Store on self, as it's assumed consistent across datasets in a fine-tuning run
-        self.inferred_categorical_indices_ = infer_categorical_features(
-            X=X_raw,
-            provided=self.categorical_features_indices,
-            min_samples_for_inference=self.interface_config_.MIN_NUMBER_SAMPLES_FOR_CATEGORICAL_INFERENCE,
-            max_unique_for_category=self.interface_config_.MAX_UNIQUE_FOR_CATEGORICAL_FEATURES,
-            min_unique_for_numerical=self.interface_config_.MIN_UNIQUE_FOR_NUMERICAL_FEATURES,
-        )
-
-        possible_target_transforms = (
-            ReshapeFeatureDistributionsStep.get_all_preprocessors(
-                num_examples=len(y_raw),  # Use length of validated y
-                random_state=rng,  # Use the provided rng
-            )
-        )
-        target_preprocessors: list[TransformerMixin | Pipeline | None] = []
-        for (
-            y_target_preprocessor
-        ) in self.interface_config_.REGRESSION_Y_PREPROCESS_TRANSFORMS:
-            if y_target_preprocessor is not None:
-                preprocessor = possible_target_transforms[y_target_preprocessor]
-            else:
-                preprocessor = None
-            target_preprocessors.append(preprocessor)
-        preprocess_transforms = self.interface_config_.PREPROCESS_TRANSFORMS
-
-        ensemble_configs = EnsembleConfig.generate_for_regression(
-            n=self.n_estimators,
-            subsample_size=self.interface_config_.SUBSAMPLE_SAMPLES,
-            add_fingerprint_feature=self.interface_config_.FINGERPRINT_FEATURE,
-            feature_shift_decoder=self.interface_config_.FEATURE_SHIFT_METHOD,
-            polynomial_features=self.interface_config_.POLYNOMIAL_FEATURES,
-            max_index=len(X_raw),  # Use length of validated X
-            preprocessor_configs=typing.cast(
-                "Sequence[PreprocessorConfig]",
-                preprocess_transforms
-                if preprocess_transforms is not None
-                else default_regressor_preprocessor_configs(),
-            ),
-            target_transforms=target_preprocessors,
-            random_state=rng,
-        )
-        assert len(ensemble_configs) == self.n_estimators
-
-        return ensemble_configs, X_raw, y_raw, self.bardist_
 
     def fit_from_preprocessed(
         self,
@@ -649,7 +493,6 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
             _, _, byte_size = determine_precision(
                 self.inference_precision, self.device_
             )
-            # TODO: not sure about rng here
             rng = None
 
         if not self.fit_mode == "batched":
@@ -669,7 +512,7 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
             cat_ix=cat_ix,
             fit_mode="batched",
             device_=self.device_,
-            rng=rng,  # Pass None if model already initialized
+            rng=rng,
             n_jobs=self.n_jobs,
             byte_size=byte_size,
             forced_inference_dtype_=self.forced_inference_dtype_,
@@ -692,7 +535,16 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
         Returns:
             self
         """
-        static_seed, rng = infer_random_state(self.random_state)
+        if not hasattr(self, "model_") or not self.differentiable_input:
+            byte_size, rng = self._initialize_model_variables()
+            ensemble_configs, X, y, self.bardist_ = (
+                self._initialize_dataset_preprocessing(X, y, rng)
+            )
+        else:  # already fitted and prompt_tuning mode: no cat. features
+            _, rng = infer_random_state(self.random_state)
+            _, _, byte_size = determine_precision(
+                self.inference_precision, self.device_
+            )
 
         if self.fit_mode == "batched":
             raise ValueError(
@@ -700,104 +552,6 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
                 " not supported in the batched fit_mode."
             )
 
-        # Load the model and config
-        self.model_, self.config_, self.bardist_ = initialize_tabpfn_model(
-            model_path=self.model_path,
-            which="regressor",
-            fit_mode=self.fit_mode,
-            static_seed=static_seed,
-        )
-
-        # Determine device and precision
-        self.device_ = infer_device_and_type(self.device)
-        (self.use_autocast_, self.forced_inference_dtype_, byte_size) = (
-            determine_precision(self.inference_precision, self.device_)
-        )
-
-        # Build the interface_config
-        self.interface_config_ = ModelInterfaceConfig.from_user_input(
-            inference_config=self.inference_config,
-        )
-
-        outlier_removal_std = self.interface_config_.OUTLIER_REMOVAL_STD
-        if outlier_removal_std == "auto":
-            outlier_removal_std = (
-                self.interface_config_._REGRESSION_DEFAULT_OUTLIER_REMOVAL_STD
-            )
-        update_encoder_outlier_params(
-            model=self.model_,
-            remove_outliers_std=outlier_removal_std,
-            seed=static_seed,
-            inplace=True,
-        )
-
-        X, y, feature_names_in, n_features_in = validate_Xy_fit(
-            X,
-            y,
-            estimator=self,
-            ensure_y_numeric=False,
-            max_num_samples=self.interface_config_.MAX_NUMBER_OF_SAMPLES,
-            max_num_features=self.interface_config_.MAX_NUMBER_OF_FEATURES,
-            ignore_pretraining_limits=self.ignore_pretraining_limits,
-        )
-        assert isinstance(X, np.ndarray)
-        check_cpu_warning(self.device, X)
-
-        if feature_names_in is not None:
-            self.feature_names_in_ = feature_names_in
-        self.n_features_in_ = n_features_in
-
-        # Will convert specified categorical indices to category dtype, as well
-        # as handle `np.object` arrays or otherwise `object` dtype pandas columns.
-        X = _fix_dtypes(X, cat_indices=self.categorical_features_indices)
-
-        # Ensure categories are ordinally encoded
-        ord_encoder = _get_ordinal_encoder()
-        X = _process_text_na_dataframe(X, ord_encoder=ord_encoder, fit_encoder=True)  # type: ignore
-        self.preprocessor_ = ord_encoder
-
-        self.inferred_categorical_indices_ = infer_categorical_features(
-            X=X,
-            provided=self.categorical_features_indices,
-            min_samples_for_inference=self.interface_config_.MIN_NUMBER_SAMPLES_FOR_CATEGORICAL_INFERENCE,
-            max_unique_for_category=self.interface_config_.MAX_UNIQUE_FOR_CATEGORICAL_FEATURES,
-            min_unique_for_numerical=self.interface_config_.MIN_UNIQUE_FOR_NUMERICAL_FEATURES,
-        )
-
-        possible_target_transforms = (
-            ReshapeFeatureDistributionsStep.get_all_preprocessors(
-                num_examples=y.shape[0],
-                random_state=static_seed,
-            )
-        )
-        target_preprocessors: list[TransformerMixin | Pipeline | None] = []
-        for (
-            y_target_preprocessor
-        ) in self.interface_config_.REGRESSION_Y_PREPROCESS_TRANSFORMS:
-            if y_target_preprocessor is not None:
-                preprocessor = possible_target_transforms[y_target_preprocessor]
-            else:
-                preprocessor = None
-
-            target_preprocessors.append(preprocessor)
-        preprocess_transforms = self.interface_config_.PREPROCESS_TRANSFORMS
-
-        ensemble_configs = EnsembleConfig.generate_for_regression(
-            n=self.n_estimators,
-            subsample_size=self.interface_config_.SUBSAMPLE_SAMPLES,
-            add_fingerprint_feature=self.interface_config_.FINGERPRINT_FEATURE,
-            feature_shift_decoder=self.interface_config_.FEATURE_SHIFT_METHOD,
-            polynomial_features=self.interface_config_.POLYNOMIAL_FEATURES,
-            max_index=len(X),
-            preprocessor_configs=typing.cast(
-                "Sequence[PreprocessorConfig]",
-                preprocess_transforms
-                if preprocess_transforms is not None
-                else default_regressor_preprocessor_configs(),
-            ),
-            target_transforms=target_preprocessors,
-            random_state=rng,
-        )
         assert len(ensemble_configs) == self.n_estimators
 
         # Standardize y
