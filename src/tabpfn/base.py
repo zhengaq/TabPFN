@@ -130,7 +130,6 @@ def initialize_tabpfn_model(
         config: The configuration object associated with the loaded model.
         bar_distribution: The BarDistribution for regression (`None` if classifier).
     """
-    # --- 1. Handle Pre-loaded ModelSpecs ---
     if isinstance(model_path, RegressorModelSpecs) and which == "regressor":
         return model_path.model, model_path.config, model_path.norm_criterion
     if isinstance(model_path, ClassifierModelSpecs) and which == "classifier":
@@ -168,7 +167,6 @@ def initialize_tabpfn_model(
             )
             bar_distribution = bardist
         return model, config_, bar_distribution
-
     raise TypeError(
         "Received ModelSpecs via 'model_path', but 'which' parameter is set to '"
         + which
