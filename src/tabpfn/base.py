@@ -130,11 +130,15 @@ def initialize_tabpfn_model(
         config: The configuration object associated with the loaded model.
         bar_distribution: The BarDistribution for regression (`None` if classifier).
     """
+    model, config, norm_criterion = None, None, None
     if isinstance(model_path, RegressorModelSpecs) and which == "regressor":
-        return model_path.model, model_path.config, model_path.norm_criterion
-    if isinstance(model_path, ClassifierModelSpecs) and which == "classifier":
-        return model_path.model, model_path.config, None
-    if model_path is None or isinstance(model_path, (str, Path)):
+        model = model_path.model
+        config = model_path.config
+        norm_criterion = model_path.norm_criterion
+    elif isinstance(model_path, ClassifierModelSpecs) and which == "classifier":
+        model = model_path.model
+        config = model_path.config
+    elif model_path is None or isinstance(model_path, (str, Path)):
         # (after processing 'auto')
         download = True
         if isinstance(model_path, str) and model_path == "auto":
@@ -153,7 +157,7 @@ def initialize_tabpfn_model(
                 download=download,
                 model_seed=static_seed,
             )
-            bar_distribution = None
+            norm_criterion = None
         else:
             # The regressor's bar distribution is required
             model, bardist, config_ = load_model_criterion_config(
@@ -165,15 +169,17 @@ def initialize_tabpfn_model(
                 download=download,
                 model_seed=static_seed,
             )
-            bar_distribution = bardist
-        return model, config_, bar_distribution
-    raise TypeError(
-        "Received ModelSpecs via 'model_path', but 'which' parameter is set to '"
-        + which
-        + "'. Expected 'classifier' or 'regressor'. and model_path"
-        + "is of of type"
-        + str(type(model_path))
-    )
+            norm_criterion = bardist
+    else:
+        raise TypeError(
+            "Received ModelSpecs via 'model_path', but 'which' parameter is set to '"
+            + which
+            + "'. Expected 'classifier' or 'regressor'. and model_path"
+            + "is of of type"
+            + str(type(model_path))
+        )
+
+    return model, config, norm_criterion
 
 
 def determine_precision(
