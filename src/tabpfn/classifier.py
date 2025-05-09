@@ -405,8 +405,14 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
         split_fn,
         max_data_size: None | int = 10000,
     ) -> DatasetCollectionWithPreprocessing:
-        """Takes raw data and returns the DatasetCollectionWithPreprocessing
-        class that preprocessed them.
+        """Transforms raw input data into a collection of datasets,
+        with varying preprocessings.
+
+        The helper function initializes an RNG. This RNG is passed to the
+        `DatasetCollectionWithPreprocessing` class. When an item (dataset)
+        is retrieved, the collection's preprocessing routine uses this stored
+        RNG to generate seeds for its individual workers/pipelines, ensuring
+        reproducible stochastic transformations from a fixed initial state.
 
         Args:
             X_raw: single or list of input dataset features, in case of single it
@@ -750,8 +756,7 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
 
             if original_ndim == 2:
                 # Shape is [Nsamples, NClasses] -> [Nsamples, 1,  NClasses]
-                processed_output = output.unsqueeze(0)
-                processed_output = processed_output.transpose(0, 1)
+                processed_output = output.unsqueeze(1)
                 config_list = [config]
             elif original_ndim == 3:
                 # Shape is [Nsamples, batch_size, NClasses] noqa ERA001

@@ -616,20 +616,6 @@ def translate_probs_across_borders(
     return (prob_left[..., 1:] - prob_left[..., :-1]).clamp_min(0.0)
 
 
-# Deprecated
-def update_encoder_outlier_params(
-    model: nn.Module,
-    remove_outliers_std: float | None,
-    seed: int | None,
-    *,
-    inplace: Literal[True],
-) -> None:
-    """Deprecated legacy in Classifier, now used in regression,
-    remove in next update and replace with function below.
-    """
-    return update_encoder_params(model, remove_outliers_std, seed, inplace=inplace)
-
-
 def update_encoder_params(
     model: nn.Module,
     remove_outliers_std: float | None,

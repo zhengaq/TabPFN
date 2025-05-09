@@ -140,7 +140,7 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
     bardist_: FullSupportBarDistribution
     """The bar distribution of the target variable, used by the model."""
 
-    renormalized_criterion_: FullSupportBarDistribution
+    normalized_bardist_: FullSupportBarDistribution
     """The normalized bar distribution used for computing the predictions."""
 
     use_autocast_: bool
@@ -426,12 +426,20 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
         split_fn,
         max_data_size: None | int = 10000,
     ) -> DatasetCollectionWithPreprocessing:
-        """Takes raw data and returns the DatasetCollectionWithPreprocessing
-        class that preprocessed them.
+        """Transforms raw input data into a collection of datasets,
+        with varying preprocessings.
+
+        The helper function initializes an RNG. This RNG is passed to the
+        `DatasetCollectionWithPreprocessing` class. When an item (dataset)
+        is retrieved, the collection's preprocessing routine uses this stored
+        RNG to generate seeds for its individual workers/pipelines, ensuring
+        reproducible stochastic transformations from a fixed initial state.
 
         Args:
-            X_raw: individual or list of input dataset features
-            y_raw: individual or list of input dataset labels
+            X_raw: single or list of input dataset features, in case of single it
+            is converted to list inside get_preprocessed_datasets_helper()
+            y_raw: single or list of input dataset labels, in case of single it
+            is converted to list inside get_preprocessed_datasets_helper()
             split_fn: A function to dissect a dataset into train and test partition.
             max_data_size: Maximum allowed number of samples within one dataset.
             If None, datasets are not splitted.
@@ -642,7 +650,7 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
         self.y_train_std_ = std.item() + 1e-20
         self.y_train_mean_ = mean.item()
         y = (y - self.y_train_mean_) / self.y_train_std_
-        self.renormalized_criterion_ = FullSupportBarDistribution(
+        self.normalized_bardist_ = FullSupportBarDistribution(
             self.bardist_.borders * self.y_train_std_ + self.y_train_mean_,
         ).float()
 
@@ -702,7 +710,6 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
         quantiles: list[float] | None = None,
     ) -> FullOutputDict: ...
 
-    # FIXME: improve to not have noqa C901, PLR0912
     @config_context(transform_output="default")  # type: ignore
     def predict(
         self,
@@ -797,7 +804,7 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
         logit_to_output = partial(
             _logits_to_output,
             logits=logits,
-            criterion=self.renormalized_criterion_,
+            criterion=self.normalized_bardist_,
             quantiles=quantiles,
         )
         if output_type in ["full", "main"]:
@@ -825,7 +832,7 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
                 # Return full output with criterion and logits
                 return FullOutputDict(
                     **main_outputs,
-                    criterion=self.renormalized_criterion_,
+                    criterion=self.normalized_bardist_,
                     logits=logits,
                 )
 
@@ -833,7 +840,6 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
 
         return logit_to_output(output_type=output_type)
 
-    # TODO: reduce complexity to remove noqa C901
     def forward(
         self,
         X: list[torch.Tensor] | XType,

@@ -136,10 +136,7 @@ def initialize_tabpfn_model(
     if isinstance(model_path, ClassifierModelSpecs) and which == "classifier":
         return model_path.model, model_path.config, None
     if model_path is None or isinstance(model_path, (str, Path)):
-        # This 'elif' block is intentionally left empty (or could have a 'pass').
-        # Its purpose is to identify the valid path types and allow execution
-        # to continue to the loading logic below, preventing these types
-        # from falling into the final 'else' block.
+        # Intentionally left empty, code below will handle this case
         pass
     else:
         raise TypeError(

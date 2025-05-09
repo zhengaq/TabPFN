@@ -50,7 +50,7 @@ def eval_test_regression_standard(
 if __name__ == "__main__":
     device = "cpu"
     n_use = 100
-    do_epochs = 10
+    do_epochs = 1
     test_set_size = 0.2
 
     data_frame_x, data_frame_y = sklearn.datasets.fetch_california_housing(
@@ -116,14 +116,13 @@ if __name__ == "__main__":
                 y_test_standardized,
                 cat_ixs,
                 confs,
-                renormalized_criterion_,
+                normalized_bardist_,
                 bardist_,
                 batch_x_test_raw,
                 batch_y_test_raw,
             ) = data_batch
 
-
-            reg.renormalized_criterion_ = renormalized_criterion_
+            reg.normalized_bardist_ = normalized_bardist_[0]
 
             reg.fit_from_preprocessed(
                 X_trains_preprocessed, y_trains_preprocessed, cat_ixs, confs
@@ -146,7 +145,7 @@ if __name__ == "__main__":
                 y_test = batch_y_test_raw
 
             elif hyperparams["optimization_space"] == "preprocessed":
-                lossfn = renormalized_criterion_[0]
+                lossfn = normalized_bardist_[0]
                 y_test = y_test_standardized
             else:
                 raise ValueError("Need to define optimization space")
