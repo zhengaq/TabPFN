@@ -136,50 +136,46 @@ def initialize_tabpfn_model(
     if isinstance(model_path, ClassifierModelSpecs) and which == "classifier":
         return model_path.model, model_path.config, None
     if model_path is None or isinstance(model_path, (str, Path)):
-        # Intentionally left empty, code below will handle this case
-        pass
-    else:
-        raise TypeError(
-            "Received ModelSpecs via 'model_path', but 'which' parameter is set to '"
-            + which
-            + "'. Expected 'classifier' or 'regressor'. and model_path"
-            + "is of of type"
-            + str(type(model_path))
-        )
+        # (after processing 'auto')
+        download = True
+        if isinstance(model_path, str) and model_path == "auto":
+            model_path = None  # type: ignore
 
-    # (after processing 'auto')
-    download = True
-    if isinstance(model_path, str) and model_path == "auto":
-        model_path = None  # type: ignore
+        # Load model with potential caching
+        if which == "classifier":
+            # The classifier's bar distribution is not used;
+            # pass check_bar_distribution_criterion=False
+            model, _, config_ = load_model_criterion_config(
+                model_path=model_path,
+                check_bar_distribution_criterion=False,
+                cache_trainset_representation=(fit_mode == "fit_with_cache"),
+                which="classifier",
+                version="v2",
+                download=download,
+                model_seed=static_seed,
+            )
+            bar_distribution = None
+        else:
+            # The regressor's bar distribution is required
+            model, bardist, config_ = load_model_criterion_config(
+                model_path=model_path,
+                check_bar_distribution_criterion=True,
+                cache_trainset_representation=(fit_mode == "fit_with_cache"),
+                which="regressor",
+                version="v2",
+                download=download,
+                model_seed=static_seed,
+            )
+            bar_distribution = bardist
+        return model, config_, bar_distribution
 
-    # Load model with potential caching
-    if which == "classifier":
-        # The classifier's bar distribution is not used;
-        # pass check_bar_distribution_criterion=False
-        model, _, config_ = load_model_criterion_config(
-            model_path=model_path,
-            check_bar_distribution_criterion=False,
-            cache_trainset_representation=(fit_mode == "fit_with_cache"),
-            which="classifier",
-            version="v2",
-            download=download,
-            model_seed=static_seed,
-        )
-        bar_distribution = None
-    else:
-        # The regressor's bar distribution is required
-        model, bardist, config_ = load_model_criterion_config(
-            model_path=model_path,
-            check_bar_distribution_criterion=True,
-            cache_trainset_representation=(fit_mode == "fit_with_cache"),
-            which="regressor",
-            version="v2",
-            download=download,
-            model_seed=static_seed,
-        )
-        bar_distribution = bardist
-
-    return model, config_, bar_distribution
+    raise TypeError(
+        "Received ModelSpecs via 'model_path', but 'which' parameter is set to '"
+        + which
+        + "'. Expected 'classifier' or 'regressor'. and model_path"
+        + "is of of type"
+        + str(type(model_path))
+    )
 
 
 def determine_precision(
