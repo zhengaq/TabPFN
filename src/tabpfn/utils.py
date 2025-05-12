@@ -354,6 +354,10 @@ def validate_Xy_fit(
 ) -> tuple[np.ndarray, np.ndarray, npt.NDArray[Any] | None, int]:
     """Validate the input data for fitting."""
     # Calls `validate_data()` with specification
+
+    # Checks that we do not call validate_data() in case
+    # the Prompttuning is enabled, since it is not differentiable.
+    # TODO: update then Prompttuning is enabled for diffable models
     if not is_classifier(estimator) or (
         is_classifier(estimator) and not estimator.differentiable_input
     ):
@@ -612,17 +616,6 @@ def translate_probs_across_borders(
     return (prob_left[..., 1:] - prob_left[..., :-1]).clamp_min(0.0)
 
 
-def update_encoder_outlier_params(
-    model: nn.Module,
-    remove_outliers_std: float | None,
-    seed: int | None,
-    *,
-    inplace: Literal[True],
-) -> None:
-    """Deprecated legacy, remove in next update and repace with function below."""
-    return update_encoder_params(model, remove_outliers_std, seed, inplace=inplace)
-
-
 def update_encoder_params(
     model: nn.Module,
     remove_outliers_std: float | None,
@@ -661,6 +654,8 @@ def update_encoder_params(
         return
 
     encoder = model.encoder
+
+    # TODO: maybe check that norm_layer even exists
     norm_layer = next(
         e for e in encoder if "InputNormalizationEncoderStep" in str(e.__class__)
     )
@@ -788,6 +783,10 @@ def split_large_data(largeX: XType, largey: YType, max_data_size: int):
             max_data_size.
     """
     tot_size = len(largeX)
+    if max_data_size <= 0:
+        raise ValueError("max_data_size must be positive")
+    if tot_size == 0:
+        return [], []
     num_chunks = ((tot_size - 1) // max_data_size) + 1
     basechunk_size = tot_size // num_chunks
     remainder = tot_size % num_chunks
@@ -829,13 +828,37 @@ def pad_tensors(tensor_list, padding_val=0, *, labels=False):
     return ret_list
 
 
-def collate_for_tabpfn_dataset(batch, padding_val=0.0):
-    """Collate function dataset items returned from
-    TabPFNClassfier.get_preprocessed_datasets, when
-    creating a torch.utils.data.DataLoader.
-    Inputs are a three-dimesional collections.
+def meta_dataset_collator(batch, padding_val=0.0):
+    """Collate function for torch.utils.data.DataLoader.
+
+    Designed for batches from DatasetCollectionWithPreprocessing.
+    Takes a list of dataset samples (the batch) and structures them
+    into a single tuple suitable for model input, often for fine-tuning
+    using `fit_from_preprocessed`.
+
+    Handles samples containing nested lists (e.g., for ensemble members)
+    and tensors. Pads tensors to consistent shapes using `pad_tensors`
+    before stacking. Non-tensor items are grouped into lists.
+
+    Args:
+        batch (list): A list where each element is one sample from the
+            Dataset. Samples often contain multiple components like
+            features, labels, configs, etc., potentially nested in lists.
+        padding_val (float): Value used for padding tensors to allow
+            stacking across the batch dimension.
+
+    Returns:
+        tuple: A tuple where each element is a collated component from the
+            input batch (e.g., stacked tensors, lists of configs).
+            The structure matches the input required by methods like
+            `fit_from_preprocessed`.
+
+    Note:
+        Currently only implemented and tested for `batch_size = 1`,
+        as enforced by an internal assertion.
     """
     batch_sz = len(batch)
+    assert batch_sz == 1, "Only Implemented and tested for batch size of 1"
     num_estim = len(batch[0][0])
     items_list = []
     for item_idx in range(len(batch[0])):
