@@ -799,7 +799,12 @@ class DatasetCollectionWithPreprocessing(Dataset):
                 `dataset_config_collection` to process.
 
         Returns:
-            Tuple: A tuple containing the processed data and metadata.
+            Tuple: A tuple containing the processed data and metadata. Each
+                element in the tuple is a list whose length equals the number
+                of estimators in the TabPFN ensemble. As such each element
+                in the list corresponds to the preprocessed data/configs for a
+                single ensemble member.
+
                 The structure depends on the task type derived from the dataset
                 configuration object (`RegressorDatasetConfig` or
                 `ClassifierDatasetConfig`):
