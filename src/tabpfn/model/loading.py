@@ -629,7 +629,7 @@ def get_y_encoder(
 def load_model_from_config(
     *,
     config, #type can be InferenceConfig or a simpler ModelConfig
-    loss_criterion: nn.BCEWithLogitsLoss | nn.CrossEntropyLoss | FullSupportBarDistribution,
+    n_out: int,
     model_seed: int,
     load_for_inference: bool = True,
 ) -> PerFeatureTransformer:
@@ -643,30 +643,6 @@ def load_model_from_config(
             the model is set to evaluation mode and whether the trainset representation
             is cached.
     """
-    # Old decision tree for n_out, made equivalent:
-    # > if config.max_num_classes == 2:
-    # >   loss = Losses.bce           (n_out -> 1)
-    # > elif config.max_num_classes > 2:
-    # >   loss = Losses.ce            (n_out -> config.max_num_classes)
-    # > else:
-    # >   create_bar_distribution ... (n_out -> loss.num_bars)
-    #
-    # > if loss is bardist:
-    # >   n_out = loss.num_bars
-    # > elif loss is CrossEntropyLoss:
-    # >   n_out = config.max_num_classes
-    # > else:
-    # >  n_out = 1
-    n_out: int
-    if config.max_num_classes == 2:
-        n_out = 1
-    elif config.max_num_classes > 2:
-        n_out = config.max_num_classes
-    else:
-        assert config.max_num_classes == 0
-        assert isinstance(loss_criterion, FullSupportBarDistribution)
-        n_out = loss_criterion.num_bars
-
     model = PerFeatureTransformer(
         seed=model_seed,
         # Things that were explicitly passed inside `build_model()`
@@ -778,8 +754,30 @@ def load_model(
         loss_criterion.load_state_dict(criterion_state)
     else:
         assert len(criterion_state_keys) == 0, criterion_state_keys
-
-    model = load_model_from_config(config=config, loss_criterion=loss_criterion, model_seed=model_seed)
+    # Old decision tree for n_out, made equivalent:
+    # > if config.max_num_classes == 2:
+    # >   loss = Losses.bce           (n_out -> 1)
+    # > elif config.max_num_classes > 2:
+    # >   loss = Losses.ce            (n_out -> config.max_num_classes)
+    # > else:
+    # >   create_bar_distribution ... (n_out -> loss.num_bars)
+    #
+    # > if loss is bardist:
+    # >   n_out = loss.num_bars
+    # > elif loss is CrossEntropyLoss:
+    # >   n_out = config.max_num_classes
+    # > else:
+    # >  n_out = 1
+    n_out: int
+    if config.max_num_classes == 2:
+        n_out = 1
+    elif config.max_num_classes > 2:
+        n_out = config.max_num_classes
+    else:
+        assert config.max_num_classes == 0
+        assert isinstance(loss_criterion, FullSupportBarDistribution)
+        n_out = loss_criterion.num_bars
+    model = load_model_from_config(config=config, n_out=n_out, model_seed=model_seed)
     model.load_state_dict(state_dict)
     model.eval()
 
