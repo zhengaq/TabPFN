@@ -626,47 +626,23 @@ def get_y_encoder(
     return SequentialEncoder(*steps, output_key="output")
 
 
-def load_model(
+def load_model_from_config(
     *,
-    path: Path,
+    config, #type can be InferenceConfig or a simpler ModelConfig
+    loss_criterion: nn.BCEWithLogitsLoss | nn.CrossEntropyLoss | FullSupportBarDistribution,
     model_seed: int,
-) -> tuple[
-    PerFeatureTransformer,
-    nn.BCEWithLogitsLoss | nn.CrossEntropyLoss | FullSupportBarDistribution,
-    InferenceConfig,
-]:
-    """Loads a model from a given path.
+    load_for_inference: bool = True,
+) -> PerFeatureTransformer:
+    """Loads a model from a given config.
 
     Args:
-        path: Path to the checkpoint
-        model_seed: The seed to use for the model
+        config: The config to load the model from.
+        loss_criterion: The loss criterion to use.
+        model_seed: The seed to use for the model.
+        load_for_inference: Whether to load the model for inference. Controls whether
+            the model is set to evaluation mode and whether the trainset representation
+            is cached.
     """
-    # Catch the `FutureWarning` that torch raises. This should be dealt with!
-    # The warning is raised due to `torch.load`, which advises against ckpt
-    # files that contain non-tensor data.
-    # This `weightes_only=None` is the default value. In the future this will default to
-    # `True`, dissallowing loading of arbitrary objects.
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", category=FutureWarning)
-        checkpoint = torch.load(path, map_location="cpu", weights_only=None)
-
-    assert "state_dict" in checkpoint
-    assert "config" in checkpoint
-
-    state_dict = checkpoint["state_dict"]
-    config = _preprocess_config(checkpoint["config"])
-
-    criterion_state_keys = [k for k in state_dict if "criterion." in k]
-    loss_criterion = get_loss_criterion(config)
-    if isinstance(loss_criterion, FullSupportBarDistribution):
-        # Remove from state dict
-        criterion_state = {
-            k.replace("criterion.", ""): state_dict.pop(k) for k in criterion_state_keys
-        }
-        loss_criterion.load_state_dict(criterion_state)
-    else:
-        assert len(criterion_state_keys) == 0, criterion_state_keys
-
     # Old decision tree for n_out, made equivalent:
     # > if config.max_num_classes == 2:
     # >   loss = Losses.bce           (n_out -> 1)
@@ -718,7 +694,7 @@ def load_model(
         nhid_factor=config.nhid_factor,
         nlayers=config.nlayers,
         features_per_group=config.features_per_group,
-        cache_trainset_representation=True,
+        cache_trainset_representation=load_for_inference,
         #
         # Based on not being present in config or otherwise, these were default values
         init_method=None,
@@ -757,9 +733,56 @@ def load_model(
             else False
         ),
     )
+    if load_for_inference:
+        model.eval()
+    return model
 
+
+def load_model(
+    *,
+    path: Path,
+    model_seed: int,
+) -> tuple[
+    PerFeatureTransformer,
+    nn.BCEWithLogitsLoss | nn.CrossEntropyLoss | FullSupportBarDistribution,
+    InferenceConfig,
+]:
+    """Loads a model from a given path. Only for inference.
+
+    Args:
+        path: Path to the checkpoint
+        model_seed: The seed to use for the model
+    """
+    # Catch the `FutureWarning` that torch raises. This should be dealt with!
+    # The warning is raised due to `torch.load`, which advises against ckpt
+    # files that contain non-tensor data.
+    # This `weightes_only=None` is the default value. In the future this will default to
+    # `True`, dissallowing loading of arbitrary objects.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=FutureWarning)
+        checkpoint = torch.load(path, map_location="cpu", weights_only=None)
+
+    assert "state_dict" in checkpoint
+    assert "config" in checkpoint
+
+    state_dict = checkpoint["state_dict"]
+    config = _preprocess_config(checkpoint["config"])
+
+    criterion_state_keys = [k for k in state_dict if "criterion." in k]
+    loss_criterion = get_loss_criterion(config)
+    if isinstance(loss_criterion, FullSupportBarDistribution):
+        # Remove from state dict
+        criterion_state = {
+            k.replace("criterion.", ""): state_dict.pop(k) for k in criterion_state_keys
+        }
+        loss_criterion.load_state_dict(criterion_state)
+    else:
+        assert len(criterion_state_keys) == 0, criterion_state_keys
+
+    model = load_model_from_config(config=config, loss_criterion=loss_criterion, model_seed=model_seed)
     model.load_state_dict(state_dict)
     model.eval()
+
     return model, loss_criterion, config
 
 
