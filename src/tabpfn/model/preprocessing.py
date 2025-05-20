@@ -82,6 +82,57 @@ class KDITransformerWithNaN(KDITransformer):
         return X  # type: ignore
 
 
+class AdaptiveQuantileTransformer(QuantileTransformer):
+    """A QuantileTransformer that automatically adapts the 'n_quantiles' parameter
+    based on the number of samples provided during the 'fit' method.
+
+    This prevents errors that occur when the requested 'n_quantiles' is
+    greater than the number of available samples in the input data (X).
+    This situation can arises because we first initialize the transformer
+    based on total samples and then subsample.
+    """
+
+    def __init__(self, *, n_quantiles: int = 1000, **kwargs: Any) -> None:
+        # Store the user's desired n_quantiles to use as an upper bound
+        self._user_n_quantiles = n_quantiles
+        # Initialize parent with this, but it will be adapted in fit
+        super().__init__(n_quantiles=n_quantiles, **kwargs)
+
+    def fit(
+        self, X: np.ndarray, y: np.ndarray | None = None
+    ) -> AdaptiveQuantileTransformer:
+        X = self._validate_data(
+            X, copy=self.copy, estimator=self, dtype=float, force_all_finite="allow-nan"
+        )
+        n_samples = X.shape[0]
+
+        # Adapt n_quantiles for this fit: min of user's preference and available samples
+        # Ensure n_quantiles is at least 1
+        effective_n_quantiles = max(1, min(self._user_n_quantiles, n_samples))
+
+        # Set self.n_quantiles to the effective value BEFORE calling super().fit()
+        # This ensures the parent class uses the adapted value for fitting
+        # and self.n_quantiles will reflect the value used for the fit.
+        self.n_quantiles = effective_n_quantiles
+
+        return super().fit(X, y)
+
+    # For completeness and scikit-learn compatibility, allow getting params
+    # to show the original user setting if desired, though self.n_quantiles
+    # will show the fitted effective value.
+    def get_params(self, *, deep: bool = True) -> dict:
+        params = super().get_params(deep)
+        # Report the original user_n_quantiles if it's in params
+        if "_user_n_quantiles" in self.__dict__:  # Check if it was set
+            params["n_quantiles"] = self._user_n_quantiles
+        return params
+
+    def set_params(self, **params: Any) -> AdaptiveQuantileTransformer:
+        if "n_quantiles" in params:
+            self._user_n_quantiles = params["n_quantiles"]
+        return super().set_params(**params)
+
+
 ALPHAS = (
     0.05,
     0.1,
@@ -656,9 +707,9 @@ class ReshapeFeatureDistributionsStep(FeaturePreprocessingTransformerStep):
                     ),
                     (
                         "other",
-                        QuantileTransformer(
+                        AdaptiveQuantileTransformer(
                             output_distribution="normal",
-                            n_quantiles=num_examples // 10,
+                            n_quantiles=max(num_examples // 10, 2),
                             random_state=random_state,
                         ),
                         # "other" or "ordinal"
