@@ -338,7 +338,7 @@ def test_onnx_exportable_cpu(X_y: tuple[np.ndarray, np.ndarray]) -> None:
         patch_layernorm_no_affine(classifier.model_)
         torch.onnx.export(
             ModelWrapper(classifier.model_).eval(),
-            (X, y, y.shape[0], True, []),
+            (X, y, y.shape[0], True, [[]]),
             io.BytesIO(),
             input_names=[
                 "X",

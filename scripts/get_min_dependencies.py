@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 
 
+
 def main() -> None:
     """Extract minimum dependency versions and write to requirements.txt."""
     with Path("pyproject.toml").open() as f:

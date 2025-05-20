@@ -389,7 +389,8 @@ class SeqEncStep(nn.Module):
             # TODO: I think nothing is using _forward now
 
         assert isinstance(
-            out, tuple
+            out,
+            tuple,
         ), f"out is not a tuple: {out}, type: {type(out)}, class: {self.__class__.__name__}"
         assert len(out) == len(self.out_keys)
         state.update({out_key: out[i] for i, out_key in enumerate(self.out_keys)})

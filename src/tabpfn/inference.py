@@ -635,6 +635,7 @@ class InferenceEngineCacheKV(InferenceEngine):
             X_test = preprocessor.transform(X).X
             X_test = torch.as_tensor(X_test, dtype=torch.float32, device=device)
             X_test = X_test.unsqueeze(1)
+            batched_cat_ix = [cat_ix]
 
             MemoryUsageEstimator.reset_peak_memory_if_required(
                 save_peak_mem=self.save_peak_mem,
@@ -661,7 +662,7 @@ class InferenceEngineCacheKV(InferenceEngine):
                 output = model(
                     *(style, X_test, None),
                     only_return_standard_out=only_return_standard_out,
-                    categorical_inds=cat_ix,
+                    categorical_inds=batched_cat_ix,
                     single_eval_pos=None,
                 )
 

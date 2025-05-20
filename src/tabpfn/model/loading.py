@@ -628,7 +628,7 @@ def get_y_encoder(
 
 def load_model_from_config(
     *,
-    config, #type can be InferenceConfig or a simpler ModelConfig
+    config,  # type can be InferenceConfig or a simpler ModelConfig
     n_out: int,
     model_seed: int,
     load_for_inference: bool = True,
@@ -637,7 +637,7 @@ def load_model_from_config(
 
     Args:
         config: The config to load the model from.
-        loss_criterion: The loss criterion to use.
+        n_out: The number of outputs of the model.
         model_seed: The seed to use for the model.
         load_for_inference: Whether to load the model for inference. Controls whether
             the model is set to evaluation mode and whether the trainset representation
