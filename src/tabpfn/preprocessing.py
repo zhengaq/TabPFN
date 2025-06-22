@@ -83,7 +83,10 @@ class PreprocessorConfig:
         categorical_name:
             Name of the categorical encoding method.
             Options: "none", "numeric", "onehot", "ordinal", "ordinal_shuffled", "none".
-        append_original: Whether to append original features to the transformed features
+        append_to_original: If True, the transformed features are appended
+            to the original features. If set to "auto", this is dynamically set to
+            True if the number of features is less than 500, and False otherwise.
+            Defaults to False.
         subsample_features: Fraction of features to subsample. -1 means no subsampling.
         global_transformer_name: Name of the global transformer to use.
     """
@@ -144,7 +147,7 @@ class PreprocessorConfig:
         "ordinal_shuffled",
         "ordinal_very_common_categories_shuffled",
     ] = "none"
-    append_original: bool = False
+    append_original: bool | Literal["auto"] = False
     subsample_features: float = -1
     global_transformer_name: str | None = None
     differentiable: bool = False
@@ -206,7 +209,7 @@ def default_classifier_preprocessor_configs() -> list[PreprocessorConfig]:
     return [
         PreprocessorConfig(
             "quantile_uni_coarse",
-            append_original=True,
+            append_original="auto",
             categorical_name="ordinal_very_common_categories_shuffled",
             global_transformer_name="svd",
             subsample_features=-1,
@@ -224,7 +227,7 @@ def default_regressor_preprocessor_configs() -> list[PreprocessorConfig]:
     return [
         PreprocessorConfig(
             "quantile_uni",
-            append_original=True,
+            append_original="auto",
             categorical_name="ordinal_very_common_categories_shuffled",
             global_transformer_name="svd",
         ),

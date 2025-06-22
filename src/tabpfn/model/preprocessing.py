@@ -660,6 +660,8 @@ class NoneTransformer(FunctionTransformer):
 class ReshapeFeatureDistributionsStep(FeaturePreprocessingTransformerStep):
     """Reshape the feature distributions using different transformations."""
 
+    APPEND_TO_ORIGINAL_THRESHOLD = 500
+
     @staticmethod
     def get_column_types(X: np.ndarray) -> list[str]:
         """Returns a list of column types for the given data, that indicate how
@@ -907,7 +909,7 @@ class ReshapeFeatureDistributionsStep(FeaturePreprocessingTransformerStep):
         *,
         transform_name: str = "safepower",
         apply_to_categorical: bool = False,
-        append_to_original: bool = False,
+        append_to_original: bool | Literal["auto"] = False,
         subsample_features: float = -1,
         global_transformer_name: str | None = None,
         random_state: int | np.random.Generator | None = None,
@@ -971,6 +973,13 @@ class ReshapeFeatureDistributionsStep(FeaturePreprocessingTransformerStep):
         transformers = []
 
         numerical_ix = [i for i in range(n_features) if i not in categorical_features]
+
+        append_decision = n_features < self.APPEND_TO_ORIGINAL_THRESHOLD
+        self.append_to_original = (
+            append_decision
+            if self.append_to_original == "auto"
+            else self.append_to_original
+        )
 
         # -------- Append to original ------
         # If we append to original, all the categorical indices are kept in place
