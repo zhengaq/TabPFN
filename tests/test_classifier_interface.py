@@ -22,10 +22,13 @@ from torch import nn
 from tabpfn import TabPFNClassifier
 from tabpfn.preprocessing import PreprocessorConfig
 
+from .utils import check_cpu_float16_support
+
 devices = ["cpu"]
 if torch.cuda.is_available():
     devices.append("cuda")
 
+is_cpu_float16_supported = check_cpu_float16_support()
 
 # TODO: test "batched" mode
 
@@ -36,7 +39,7 @@ fit_modes = [
     "fit_preprocessors",
     "fit_with_cache",
 ]
-inference_precision_methods = ["auto", "autocast", torch.float64]
+inference_precision_methods = ["auto", "autocast", torch.float64, torch.float16]
 remove_remove_outliers_stds = [None, 12]
 estimators = [1, 2]
 
@@ -83,8 +86,16 @@ def test_fit(
     remove_outliers_std: int | None,
     X_y: tuple[np.ndarray, np.ndarray],
 ) -> None:
-    if device == "cpu" and inference_precision == "autocast":
-        pytest.skip("Only GPU supports inference_precision")
+    if device == "cpu" and inference_precision in ["autocast"]:
+        pytest.skip("CPU device does not support 'autocast' inference.")
+
+    # Use the environment-aware check to skip only if necessary
+    if (
+        device == "cpu"
+        and inference_precision == torch.float16
+        and not is_cpu_float16_supported
+    ):
+        pytest.skip("CPU float16 matmul not supported in this PyTorch version.")
 
     model = TabPFNClassifier(
         n_estimators=n_estimators,
