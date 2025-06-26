@@ -18,6 +18,9 @@
 
 from __future__ import annotations
 
+import json
+import shutil
+import tempfile
 import typing
 from collections.abc import Sequence
 from pathlib import Path
@@ -586,6 +589,12 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
                 " is done as part of the inference engine"
             )
 
+        # Keep the processed training data so ``save_fit_state`` can persist a
+        # fitted model. These arrays are also stored in the inference engine but
+        # we keep a reference here for easy serialization.
+        self._fit_X_ = X_preprocessed
+        self._fit_y_ = y_preprocessed
+
         # Create the inference engine
         self.executor_ = create_inference_engine(
             X_train=X_preprocessed,
@@ -627,6 +636,11 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
             raise ValueError(
                 "The fit() function is currently not supported in the batched fit_mode."
             )
+
+        # Keep the processed training data so ``save_fit_state`` can persist
+        # a fitted model. scikit-learn does not retain ``X`` and ``y``.
+        self._fit_X_ = X
+        self._fit_y_ = y
 
         # Create the inference engine
         self.executor_ = create_inference_engine(
@@ -828,3 +842,86 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
             np.ndarray: The computed embeddings for each fitted estimator.
         """
         return _get_embeddings(self, X, data_source)
+
+    def save_fit_state(self, path: Path | str) -> None:
+        """Save the fitted model state to ``path``.
+
+        The resulting file does not contain the large foundation model weights.
+        Instead it stores the training data and configuration so the model can
+        be reconstructed on another machine.
+        """
+        if not hasattr(self, "executor_"):
+            raise RuntimeError("Estimator must be fitted before saving.")
+
+        path = Path(path)
+        if path.suffix != ".tabpfn_fit":
+            raise ValueError("Path must end with .tabpfn_fit")
+
+        if not hasattr(self, "_fit_X_"):
+            raise RuntimeError("Training data not stored; cannot save state.")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            params = self.get_params(deep=False)
+            params = {
+                k: (str(v) if isinstance(v, torch.dtype) else v)
+                for k, v in params.items()
+            }
+            params["__class_name__"] = self.__class__.__name__
+            with (tmp / "init_params.json").open("w") as f:
+                json.dump(params, f)
+
+            state = {
+                "inferred_categorical_indices": self.inferred_categorical_indices_,
+                "classes": self.classes_.tolist(),
+                "class_counts": self.class_counts_.tolist(),
+            }
+            with (tmp / "preprocessor_state.json").open("w") as f:
+                json.dump(state, f)
+
+            np.save(tmp / "X_train.npy", np.asarray(self._fit_X_))
+            np.save(tmp / "y_train.npy", np.asarray(self._fit_y_))
+
+            shutil.make_archive(str(path).replace(".tabpfn_fit", ""), "zip", tmp)
+            shutil.move(str(path).replace(".tabpfn_fit", "") + ".zip", path)
+
+    @classmethod
+    def load_from_fit_state(
+        cls, path: Path | str, *, device: str | torch.device = "cpu"
+    ) -> TabPFNClassifier:
+        """Restore a fitted model saved with :meth:`save_fit_state`."""
+        path = Path(path)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            shutil.unpack_archive(path, tmpdir, "zip")
+            tmp = Path(tmpdir)
+
+            with (tmp / "init_params.json").open() as f:
+                params = json.load(f)
+
+            saved_cls = params.pop("__class_name__")
+            if saved_cls != cls.__name__:
+                raise TypeError(
+                    f"Attempting to load a '{saved_cls}' as '{cls.__name__}'"
+                )
+
+            if isinstance(params.get("inference_precision"), str) and params[
+                "inference_precision"
+            ].startswith("torch."):
+                dtype_name = params["inference_precision"].split(".")[1]
+                params["inference_precision"] = getattr(torch, dtype_name)
+
+            params["device"] = device
+            est = cls(**params)
+
+            X_train = np.load(tmp / "X_train.npy")
+            y_train = np.load(tmp / "y_train.npy")
+
+            with (tmp / "preprocessor_state.json").open() as f:
+                state = json.load(f)
+            est.fit(X_train, y_train)
+            est.inferred_categorical_indices_ = state["inferred_categorical_indices"]
+            est.classes_ = np.array(state["classes"])
+            est.class_counts_ = np.array(state["class_counts"])
+            est.n_classes_ = len(est.classes_)
+
+            return est

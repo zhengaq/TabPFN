@@ -708,6 +708,20 @@ def get_n_out(
 
 # NOTE: This function doesn't seem to be used anywhere.
 def save_tabpfn_model(model: nn.Module, save_path: Path | str) -> None:
+    """Save the underlying TabPFN foundation model to ``save_path``.
+
+    This writes only the base pre-trained weights and configuration. It does
+    **not** store a fitted :class:`TabPFNRegressor`/``Classifier`` instance.
+    The resulting file is merely a checkpoint consumed by
+    :func:`load_model_criterion_config` to build a new estimator.
+
+    Parameters
+    ----------
+    model:
+        The internal model object of a ``TabPFN`` estimator.
+    save_path:
+        Path to save the checkpoint to.
+    """
     # Get model state dict
     model_state = model.model_.state_dict()
 
