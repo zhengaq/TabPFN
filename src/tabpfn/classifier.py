@@ -18,13 +18,13 @@
 
 from __future__ import annotations
 
-import typing
-from collections.abc import Sequence
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 from typing_extensions import Self
 
-from tabpfn.inference import InferenceEngine, InferenceEngineBatchedNoPreprocessing
+from tabpfn.model.loading import (
+    load_fitted_tabpfn_model,
+    save_fitted_tabpfn_model,
+)
 from tabpfn.model.loading import (
     load_fitted_tabpfn_model,
     save_fitted_tabpfn_model,
@@ -825,7 +825,6 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
         """Save the fitted model state to ``path``.
 
         This is a thin wrapper around :func:`save_fitted_tabpfn_model`.
-        """
         save_fitted_tabpfn_model(self, path)
         est = load_fitted_tabpfn_model(path, device=device)
         if not isinstance(est, cls):
@@ -833,19 +832,3 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
                 f"Attempting to load a '{est.__class__.__name__}' as '{cls.__name__}'"
             )
         return est
-            est.n_classes_ = len(est.classes_)
-
-            est.preprocessor_ = joblib.load(tmp / "preprocessor.joblib")
-            est.label_encoder_ = joblib.load(tmp / "label_encoder.joblib")
-
-            est.executor_ = InferenceEngine.load_state(tmp / "executor.joblib")
-            if hasattr(est.executor_, "model"):
-                est.model_ = est.executor_.model
-
-            est.device_ = torch.device(device)
-            if hasattr(est.executor_, "model"):
-                est.executor_.model = est.executor_.model.to(est.device_)
-            if hasattr(est.executor_, "models"):
-                est.executor_.models = [m.to(est.device_) for m in est.executor_.models]
-
-            return est

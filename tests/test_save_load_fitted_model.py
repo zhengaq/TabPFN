@@ -14,6 +14,12 @@ from tabpfn.model.loading import (
     load_fitted_tabpfn_model,
     save_fitted_tabpfn_model,
 )
+    preds_before = reg.predict(X[:5])
+    save_fitted_tabpfn_model(reg, path)
+    loaded = load_fitted_tabpfn_model(path, device="cpu")
+
+    np.testing.assert_allclose(preds_before, loaded.predict(X[:5]))
+)
 
 
 def test_save_and_load_fitted_model(tmp_path):

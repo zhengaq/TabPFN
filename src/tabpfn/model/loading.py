@@ -4,6 +4,15 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import shutil
+import tempfile
+from typing import TYPE_CHECKING, Any, Literal, cast, overload
+import joblib
+import numpy as np
+from tabpfn.inference import InferenceEngine
+if TYPE_CHECKING:
+    from sklearn.base import BaseEstimator
+
 import logging
 import os
 import shutil
@@ -719,6 +728,134 @@ def get_n_out(
 def save_tabpfn_model(model: nn.Module, save_path: Path | str) -> None:
     """Save the underlying TabPFN foundation model to ``save_path``.
 
+
+
+def save_fitted_tabpfn_model(estimator: BaseEstimator, path: Path | str) -> None:
+    """Persist a fitted TabPFN estimator to ``path``.
+
+    This stores the initialization parameters, fitted preprocessors and the
+    prepared :class:`InferenceEngine` so the model can be reloaded without
+    refitting. The heavy foundation weights are not included.
+    """
+    from pathlib import Path
+
+    if not hasattr(estimator, "executor_"):
+        raise RuntimeError("Estimator must be fitted before saving.")
+
+    path = Path(path)
+    if path.suffix != ".tabpfn_fit":
+        raise ValueError("Path must end with .tabpfn_fit")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp = Path(tmpdir)
+
+        params = estimator.get_params(deep=False)
+        params = {
+            k: (str(v) if isinstance(v, torch.dtype) else v) for k, v in params.items()
+        }
+        params["__class_name__"] = estimator.__class__.__name__
+        with (tmp / "init_params.json").open("w") as f:
+            json.dump(params, f)
+
+        state: dict[str, Any] = {
+            "inferred_categorical_indices": estimator.inferred_categorical_indices_,
+        }
+        if hasattr(estimator, "classes_"):
+            state["classes"] = estimator.classes_.tolist()
+            state["class_counts"] = estimator.class_counts_.tolist()
+        else:
+            state["y_train_mean"] = getattr(estimator, "y_train_mean_", 0.0)
+            state["y_train_std"] = getattr(estimator, "y_train_std_", 1.0)
+
+        with (tmp / "preprocessor_state.json").open("w") as f:
+            json.dump(state, f)
+
+        joblib.dump(estimator.preprocessor_, tmp / "preprocessor.joblib")
+
+        if hasattr(estimator, "label_encoder_"):
+            joblib.dump(estimator.label_encoder_, tmp / "label_encoder.joblib")
+        if hasattr(estimator, "bardist_"):
+            joblib.dump(estimator.bardist_, tmp / "bardist.joblib")
+        if hasattr(estimator, "normalized_bardist_"):
+            joblib.dump(
+                estimator.normalized_bardist_, tmp / "normalized_bardist.joblib"
+            )
+
+        estimator.executor_.save_state(tmp / "executor.joblib")
+
+        shutil.make_archive(str(path).replace(".tabpfn_fit", ""), "zip", tmp)
+        shutil.move(str(path).replace(".tabpfn_fit", "") + ".zip", path)
+
+
+def load_fitted_tabpfn_model(  # noqa: PLR0912,C901
+    path: Path | str, *, device: str | torch.device = "cpu"
+) -> BaseEstimator:
+    """Load a fitted TabPFN estimator saved with ``save_fitted_tabpfn_model``."""
+    from importlib import import_module
+    from pathlib import Path
+
+    path = Path(path)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        shutil.unpack_archive(path, tmpdir, "zip")
+        tmp = Path(tmpdir)
+
+        with (tmp / "init_params.json").open() as f:
+            params = json.load(f)
+
+        saved_cls = params.pop("__class_name__")
+        if isinstance(params.get("inference_precision"), str) and params[
+            "inference_precision"
+        ].startswith("torch."):
+            dtype_name = params["inference_precision"].split(".")[1]
+            params["inference_precision"] = getattr(torch, dtype_name)
+
+        params["device"] = device
+
+        if saved_cls == "TabPFNClassifier":
+            cls = import_module("tabpfn.classifier").TabPFNClassifier
+        elif saved_cls == "TabPFNRegressor":
+            cls = import_module("tabpfn.regressor").TabPFNRegressor
+        else:
+            raise TypeError(f"Unknown estimator class '{saved_cls}'")
+
+        est = cls(**params)
+        est._initialize_model_variables()
+
+        with (tmp / "preprocessor_state.json").open() as f:
+            state = json.load(f)
+
+        est.inferred_categorical_indices_ = state["inferred_categorical_indices"]
+        if saved_cls == "TabPFNClassifier":
+            est.classes_ = np.array(state["classes"])
+            est.class_counts_ = np.array(state["class_counts"])
+            est.n_classes_ = len(est.classes_)
+        else:
+            est.y_train_mean_ = state["y_train_mean"]
+            est.y_train_std_ = state["y_train_std"]
+
+        est.preprocessor_ = joblib.load(tmp / "preprocessor.joblib")
+        if (tmp / "label_encoder.joblib").exists():
+            est.label_encoder_ = joblib.load(tmp / "label_encoder.joblib")
+        if (tmp / "bardist.joblib").exists():
+            est.bardist_ = joblib.load(tmp / "bardist.joblib")
+        if (tmp / "normalized_bardist.joblib").exists():
+            est.normalized_bardist_ = joblib.load(tmp / "normalized_bardist.joblib")
+
+        est.executor_ = InferenceEngine.load_state(tmp / "executor.joblib")
+        if hasattr(est.executor_, "model"):
+            est.model_ = est.executor_.model
+
+        est.device_ = torch.device(device)
+        if hasattr(est.executor_, "model"):
+            est.executor_.model = est.executor_.model.to(est.device_)
+        if hasattr(est.executor_, "models"):
+            est.executor_.models = [m.to(est.device_) for m in est.executor_.models]
+        if hasattr(est, "bardist_") and est.bardist_ is not None:
+            est.bardist_ = est.bardist_.to(est.device_)
+        if hasattr(est, "normalized_bardist_") and est.normalized_bardist_ is not None:
+            est.normalized_bardist_ = est.normalized_bardist_.to(est.device_)
+
+        return est
     This writes only the base pre-trained weights and configuration. It does
     **not** store a fitted :class:`TabPFNRegressor`/``Classifier`` instance.
     The resulting file is merely a checkpoint consumed by

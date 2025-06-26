@@ -14,6 +14,10 @@ from tabpfn.model.loading import (
     load_fitted_tabpfn_model,
     save_fitted_tabpfn_model,
 )
+save_fitted_tabpfn_model(reg, Path("trained_reg.tabpfn_fit"))
+reg_cpu = load_fitted_tabpfn_model(Path("trained_reg.tabpfn_fit"), device="cpu")
+    save_fitted_tabpfn_model,
+)
 
 # Train a regressor on GPU
 X, y = load_diabetes(return_X_y=True)

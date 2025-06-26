@@ -17,14 +17,14 @@
 
 from __future__ import annotations
 
-import typing
-from collections.abc import Callable, Sequence
-from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Union
 from typing_extensions import Self, TypedDict, overload
 
-from tabpfn.inference import InferenceEngine, InferenceEngineBatchedNoPreprocessing
+from tabpfn.model.loading import (
+    load_fitted_tabpfn_model,
+    save_fitted_tabpfn_model,
+)
 from tabpfn.model.loading import (
     load_fitted_tabpfn_model,
     save_fitted_tabpfn_model,
@@ -1017,54 +1017,3 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
                 f"Attempting to load a '{est.__class__.__name__}' as '{cls.__name__}'"
             )
         return est
-            est.y_train_mean_ = state["y_train_mean"]
-            est.y_train_std_ = state["y_train_std"]
-
-            est.preprocessor_ = joblib.load(tmp / "preprocessor.joblib")
-            est.bardist_ = joblib.load(tmp / "bardist.joblib")
-            est.normalized_bardist_ = joblib.load(tmp / "normalized_bardist.joblib")
-
-            est.executor_ = InferenceEngine.load_state(tmp / "executor.joblib")
-            if hasattr(est.executor_, "model"):
-                est.model_ = est.executor_.model
-
-            est.device_ = torch.device(device)
-            if hasattr(est.executor_, "model"):
-                est.executor_.model = est.executor_.model.to(est.device_)
-            if hasattr(est.executor_, "models"):
-                est.executor_.models = [m.to(est.device_) for m in est.executor_.models]
-            if hasattr(est, "bardist_") and est.bardist_ is not None:
-                est.bardist_ = est.bardist_.to(est.device_)
-            if (
-                hasattr(est, "normalized_bardist_")
-                and est.normalized_bardist_ is not None
-            ):
-                est.normalized_bardist_ = est.normalized_bardist_.to(est.device_)
-
-            return est
-
-
-def _logits_to_output(
-    *,
-    output_type: str,
-    logits: torch.Tensor,
-    criterion: FullSupportBarDistribution,
-    quantiles: list[float],
-) -> np.ndarray | list[np.ndarray]:
-    """Converts raw model logits to the desired prediction format."""
-    if output_type == "quantiles":
-        return [criterion.icdf(logits, q).cpu().detach().numpy() for q in quantiles]
-
-    # TODO: support
-    #   "pi": criterion.pi(logits, np.max(self.y)),
-    #   "ei": criterion.ei(logits),
-    if output_type == "mean":
-        output = criterion.mean(logits)
-    elif output_type == "median":
-        output = criterion.median(logits)
-    elif output_type == "mode":
-        output = criterion.mode(logits)
-    else:
-        raise ValueError(f"Invalid output type: {output_type}")
-
-    return output.cpu().detach().numpy()

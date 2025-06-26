@@ -6,6 +6,12 @@ from tabpfn.model.loading import (
     load_fitted_tabpfn_model,
     save_fitted_tabpfn_model,
 )
+    "load_fitted_tabpfn_model",
+    "save_fitted_tabpfn_model",
+from tabpfn.model.loading import (
+    load_fitted_tabpfn_model,
+    save_fitted_tabpfn_model,
+)
 from tabpfn.regressor import TabPFNRegressor
 
 try:

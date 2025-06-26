@@ -249,8 +249,13 @@ A: Try the following:
 A: Use :func:`save_fitted_tabpfn_model` to persist a fitted estimator and reload
 it later with :func:`load_fitted_tabpfn_model` (or the corresponding
 ``load_from_fit_state`` class methods).
+from tabpfn.model.loading import (
+    load_fitted_tabpfn_model,
+    save_fitted_tabpfn_model,
+)
+save_fitted_tabpfn_model(reg, "my_reg.tabpfn_fit")
 
-```python
+reg_cpu = load_fitted_tabpfn_model("my_reg.tabpfn_fit", device="cpu")
 from tabpfn import TabPFNRegressor
 from tabpfn.model.loading import (
     load_fitted_tabpfn_model,
