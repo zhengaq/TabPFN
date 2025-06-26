@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import copy
 import dataclasses
 import logging
 import os
@@ -13,11 +12,10 @@ import warnings
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, cast, overload
+from typing import Literal, cast, overload
 from urllib.error import URLError
 
 import torch
-from sklearn.utils.validation import joblib
 from torch import nn
 
 from tabpfn.model.bar_distribution import BarDistribution, FullSupportBarDistribution
@@ -33,9 +31,6 @@ from tabpfn.model.encoders import (
     VariableNumFeaturesEncoderStep,
 )
 from tabpfn.model.transformer import PerFeatureTransformer
-
-if TYPE_CHECKING:
-    from sklearn.base import BaseEstimator
 
 logger = logging.getLogger(__name__)
 
@@ -746,55 +741,3 @@ def save_tabpfn_model(model: nn.Module, save_path: Path | str) -> None:
 
     # Save the checkpoint
     torch.save(checkpoint, save_path)
-
-
-def save_fitted_tabpfn_model(estimator: BaseEstimator, save_path: Path | str) -> None:
-    """Serialize a trained TabPFN estimator with :mod:`joblib`.
-
-    The estimator is deep-copied and moved to CPU before dumping so the
-    resulting file can be loaded on machines without a GPU. ``joblib`` is used
-    under the hood to avoid relying on raw :mod:`pickle`.
-    """
-    est = copy.deepcopy(estimator)
-    est.model_.to("cpu")
-    if hasattr(est, "bardist_") and est.bardist_ is not None:
-        est.bardist_ = est.bardist_.cpu()
-    if hasattr(est, "normalized_bardist_") and est.normalized_bardist_ is not None:
-        est.normalized_bardist_ = est.normalized_bardist_.cpu()
-    if hasattr(est, "executor_") and hasattr(est.executor_, "model"):
-        est.executor_.model = est.executor_.model.cpu()
-        if hasattr(est.executor_, "X_trains"):
-            est.executor_.X_trains = [
-                x.cpu() if isinstance(x, torch.Tensor) else x
-                for x in est.executor_.X_trains
-            ]
-        if hasattr(est.executor_, "y_trains"):
-            est.executor_.y_trains = [
-                y.cpu() if isinstance(y, torch.Tensor) else y
-                for y in est.executor_.y_trains
-            ]
-
-    est.device_ = torch.device("cpu")
-    est.device = "cpu"
-
-    joblib.dump(est, save_path, compress=3)
-
-
-def load_fitted_tabpfn_model(
-    load_path: Path | str, device: str | torch.device = "cpu"
-) -> BaseEstimator:
-    """Load a fitted TabPFN estimator saved with ``save_fitted_tabpfn_model``.
-
-    Uses :func:`joblib.load` under the hood.
-    """
-    est = joblib.load(load_path)
-    est.device = device
-    est.device_ = torch.device(device)
-    est.model_.to(est.device_)
-    if hasattr(est, "bardist_") and est.bardist_ is not None:
-        est.bardist_ = est.bardist_.to(est.device_)
-    if hasattr(est, "normalized_bardist_") and est.normalized_bardist_ is not None:
-        est.normalized_bardist_ = est.normalized_bardist_.to(est.device_)
-    if hasattr(est, "executor_") and hasattr(est.executor_, "model"):
-        est.executor_.model = est.executor_.model.to(est.device_)
-    return est

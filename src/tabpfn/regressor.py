@@ -17,6 +17,9 @@
 
 from __future__ import annotations
 
+import json
+import shutil
+import tempfile
 import typing
 from collections.abc import Callable, Sequence
 from functools import partial
@@ -594,6 +597,9 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
                 " is done as part of the inference engine"
             )
 
+        self._fit_X_ = X_preprocessed
+        self._fit_y_ = y_preprocessed
+
         # Create the inference engine
         self.executor_ = create_inference_engine(
             X_train=X_preprocessed,
@@ -644,6 +650,10 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
             )
 
         assert len(ensemble_configs) == self.n_estimators
+
+        # Keep processed training data for potential persistence
+        self._fit_X_ = X
+        self._fit_y_ = y
 
         self.is_constant_target_ = np.unique(y).size == 1
         self.constant_value_ = y[0] if self.is_constant_target_ else None
@@ -1014,6 +1024,82 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
     ) -> np.ndarray:
         """Gets the embeddings for the input data `X`."""
         return _get_embeddings(self, X, data_source)
+
+    def save_fit_state(self, path: Path | str) -> None:
+        """Save the fitted model state to ``path`` without foundation weights."""
+        if not hasattr(self, "executor_"):
+            raise RuntimeError("Estimator must be fitted before saving.")
+
+        path = Path(path)
+        if path.suffix != ".tabpfn_fit":
+            raise ValueError("Path must end with .tabpfn_fit")
+
+        if not hasattr(self, "_fit_X_"):
+            raise RuntimeError("Training data not stored; cannot save state.")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            params = self.get_params(deep=False)
+            params = {
+                k: (str(v) if isinstance(v, torch.dtype) else v)
+                for k, v in params.items()
+            }
+            params["__class_name__"] = self.__class__.__name__
+            with (tmp / "init_params.json").open("w") as f:
+                json.dump(params, f)
+
+            state = {
+                "inferred_categorical_indices": self.inferred_categorical_indices_,
+                "y_train_mean": getattr(self, "y_train_mean_", 0.0),
+                "y_train_std": getattr(self, "y_train_std_", 1.0),
+            }
+            with (tmp / "preprocessor_state.json").open("w") as f:
+                json.dump(state, f)
+
+            np.save(tmp / "X_train.npy", np.asarray(self._fit_X_))
+            np.save(tmp / "y_train.npy", np.asarray(self._fit_y_))
+
+            shutil.make_archive(str(path).replace(".tabpfn_fit", ""), "zip", tmp)
+            shutil.move(str(path).replace(".tabpfn_fit", "") + ".zip", path)
+
+    @classmethod
+    def load_from_fit_state(
+        cls, path: Path | str, *, device: str | torch.device = "cpu"
+    ) -> TabPFNRegressor:
+        """Restore a fitted regressor saved with :meth:`save_fit_state`."""
+        path = Path(path)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            shutil.unpack_archive(path, tmpdir, "zip")
+            tmp = Path(tmpdir)
+
+            with (tmp / "init_params.json").open() as f:
+                params = json.load(f)
+            saved_cls = params.pop("__class_name__")
+            if saved_cls != cls.__name__:
+                raise TypeError(
+                    f"Attempting to load a '{saved_cls}' as '{cls.__name__}'"
+                )
+
+            if isinstance(params.get("inference_precision"), str) and params[
+                "inference_precision"
+            ].startswith("torch."):
+                dtype_name = params["inference_precision"].split(".")[1]
+                params["inference_precision"] = getattr(torch, dtype_name)
+
+            params["device"] = device
+            est = cls(**params)
+
+            X_train = np.load(tmp / "X_train.npy")
+            y_train = np.load(tmp / "y_train.npy")
+
+            with (tmp / "preprocessor_state.json").open() as f:
+                state = json.load(f)
+            est.fit(X_train, y_train)
+            est.inferred_categorical_indices_ = state["inferred_categorical_indices"]
+            est.y_train_mean_ = state["y_train_mean"]
+            est.y_train_std_ = state["y_train_std"]
+
+            return est
 
 
 def _logits_to_output(

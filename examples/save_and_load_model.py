@@ -10,10 +10,6 @@ from sklearn.datasets import load_diabetes
 from sklearn.model_selection import train_test_split
 
 from tabpfn import TabPFNRegressor
-from tabpfn.model.loading import (
-    load_fitted_tabpfn_model,
-    save_fitted_tabpfn_model,
-)
 
 # Train a regressor on GPU
 X, y = load_diabetes(return_X_y=True)
@@ -22,8 +18,8 @@ reg = TabPFNRegressor(device="cuda")
 reg.fit(X_train, y_train)
 
 # Save the fitted estimator
-save_fitted_tabpfn_model(reg, Path("trained_reg.pkl"))
+reg.save_fit_state(Path("trained_reg.tabpfn_fit"))
 
 # Load on CPU for inference
-reg_cpu = load_fitted_tabpfn_model(Path("trained_reg.pkl"), device="cpu")
+reg_cpu = TabPFNRegressor.load_from_fit_state(Path("trained_reg.tabpfn_fit"), device="cpu")
 print(reg_cpu.predict(X_test)[:5])
