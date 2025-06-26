@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING, Any, Literal, Union
 from typing_extensions import Self, TypedDict, overload
 
 import joblib
-import numpy as np
+from tabpfn.inference import InferenceEngine, InferenceEngineBatchedNoPreprocessing
 import torch
 from sklearn import config_context
 from sklearn.base import (
@@ -597,12 +597,6 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
                 " is done as part of the inference engine"
             )
 
-        # Create the inference engine
-        self.executor_ = create_inference_engine(
-            X_train=X_preprocessed,
-            y_train=y_preprocessed,
-            model=self.model_,
-            ensemble_configs=configs,
             cat_ix=cat_ix,
             fit_mode="batched",
             device_=self.device_,
@@ -648,11 +642,6 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
 
         assert len(ensemble_configs) == self.n_estimators
 
-        self.is_constant_target_ = np.unique(y).size == 1
-        self.constant_value_ = y[0] if self.is_constant_target_ else None
-
-        if self.is_constant_target_:
-            self.bardist_ = FullSupportBarDistribution(
                 borders=torch.tensor(
                     [self.constant_value_ - 1e-5, self.constant_value_ + 1e-5]
                 )
@@ -1027,9 +1016,6 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
         if path.suffix != ".tabpfn_fit":
             raise ValueError("Path must end with .tabpfn_fit")
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmp = Path(tmpdir)
-            params = self.get_params(deep=False)
             params = {
                 k: (str(v) if isinstance(v, torch.dtype) else v)
                 for k, v in params.items()
@@ -1051,6 +1037,29 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
             joblib.dump(self.normalized_bardist_, tmp / "normalized_bardist.joblib")
 
             self.executor_.save_state(tmp / "executor.joblib")
+            est._initialize_model_variables()
+
+
+            est.preprocessor_ = joblib.load(tmp / "preprocessor.joblib")
+            est.bardist_ = joblib.load(tmp / "bardist.joblib")
+            est.normalized_bardist_ = joblib.load(tmp / "normalized_bardist.joblib")
+
+            est.executor_ = InferenceEngine.load_state(tmp / "executor.joblib")
+            if hasattr(est.executor_, "model"):
+                est.model_ = est.executor_.model
+
+            est.device_ = torch.device(device)
+            if hasattr(est.executor_, "model"):
+                est.executor_.model = est.executor_.model.to(est.device_)
+            if hasattr(est.executor_, "models"):
+                est.executor_.models = [m.to(est.device_) for m in est.executor_.models]
+            if hasattr(est, "bardist_") and est.bardist_ is not None:
+                est.bardist_ = est.bardist_.to(est.device_)
+            if (
+                hasattr(est, "normalized_bardist_")
+                and est.normalized_bardist_ is not None
+            ):
+                est.normalized_bardist_ = est.normalized_bardist_.to(est.device_)
 
             shutil.make_archive(str(path).replace(".tabpfn_fit", ""), "zip", tmp)
             shutil.move(str(path).replace(".tabpfn_fit", "") + ".zip", path)

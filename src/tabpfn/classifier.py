@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from typing_extensions import Self
 
 import joblib
-import numpy as np
+from tabpfn.inference import InferenceEngine, InferenceEngineBatchedNoPreprocessing
 import torch
 from sklearn import config_context
 from sklearn.base import BaseEstimator, ClassifierMixin, check_is_fitted
@@ -589,12 +589,6 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
                 " is done as part of the inference engine"
             )
 
-        # Create the inference engine
-        self.executor_ = create_inference_engine(
-            X_train=X_preprocessed,
-            y_train=y_preprocessed,
-            model=self.model_,
-            ensemble_configs=configs,
             cat_ix=cat_ix,
             fit_mode="batched",
             device_=self.device_,
@@ -631,11 +625,6 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
                 "The fit() function is currently not supported in the batched fit_mode."
             )
 
-        # Create the inference engine
-        self.executor_ = create_inference_engine(
-            X_train=X,
-            y_train=y,
-            model=self.model_,
             ensemble_configs=ensemble_configs,
             cat_ix=self.inferred_categorical_indices_,
             fit_mode=self.fit_mode,
@@ -846,9 +835,6 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
         if path.suffix != ".tabpfn_fit":
             raise ValueError("Path must end with .tabpfn_fit")
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmp = Path(tmpdir)
-            params = self.get_params(deep=False)
             params = {
                 k: (str(v) if isinstance(v, torch.dtype) else v)
                 for k, v in params.items()
@@ -870,7 +856,20 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
 
             self.executor_.save_state(tmp / "executor.joblib")
 
-            shutil.make_archive(str(path).replace(".tabpfn_fit", ""), "zip", tmp)
+            est._initialize_model_variables()
+            est.preprocessor_ = joblib.load(tmp / "preprocessor.joblib")
+            est.label_encoder_ = joblib.load(tmp / "label_encoder.joblib")
+
+            est.executor_ = InferenceEngine.load_state(tmp / "executor.joblib")
+            if hasattr(est.executor_, "model"):
+                est.model_ = est.executor_.model
+
+            est.device_ = torch.device(device)
+            if hasattr(est.executor_, "model"):
+                est.executor_.model = est.executor_.model.to(est.device_)
+            if hasattr(est.executor_, "models"):
+                est.executor_.models = [m.to(est.device_) for m in est.executor_.models]
+
             shutil.move(str(path).replace(".tabpfn_fit", "") + ".zip", path)
 
     @classmethod
