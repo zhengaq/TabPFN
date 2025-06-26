@@ -246,19 +246,24 @@ A: Try the following:
 - Ensure model files downloaded correctly (re-download if needed)
 
 **Q: How do I save and load a trained TabPFN model?**
-A: Call :meth:`save_fit_state` on the fitted estimator and restore it with
-``TabPFNClassifier.load_from_fit_state`` or ``TabPFNRegressor.load_from_fit_state``.
+A: Use :func:`save_fitted_tabpfn_model` to persist a fitted estimator and reload
+it later with :func:`load_fitted_tabpfn_model` (or the corresponding
+``load_from_fit_state`` class methods).
 
 ```python
 from tabpfn import TabPFNRegressor
+from tabpfn.model.loading import (
+    load_fitted_tabpfn_model,
+    save_fitted_tabpfn_model,
+)
 
 # Train the regressor on GPU
 reg = TabPFNRegressor(device="cuda")
 reg.fit(X_train, y_train)
-reg.save_fit_state("my_reg.tabpfn_fit")
+save_fitted_tabpfn_model(reg, "my_reg.tabpfn_fit")
 
 # Later or on a CPU-only machine
-reg_cpu = TabPFNRegressor.load_from_fit_state("my_reg.tabpfn_fit", device="cpu")
+reg_cpu = load_fitted_tabpfn_model("my_reg.tabpfn_fit", device="cpu")
 ```
 
 To store just the foundation model weights (without a fitted estimator) use

@@ -17,9 +17,6 @@
 
 from __future__ import annotations
 
-import json
-import shutil
-import tempfile
 import typing
 from collections.abc import Callable, Sequence
 from functools import partial
@@ -27,8 +24,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Union
 from typing_extensions import Self, TypedDict, overload
 
-import joblib
 from tabpfn.inference import InferenceEngine, InferenceEngineBatchedNoPreprocessing
+from tabpfn.model.loading import (
+    load_fitted_tabpfn_model,
+    save_fitted_tabpfn_model,
+)
 import torch
 from sklearn import config_context
 from sklearn.base import (
@@ -1009,94 +1009,14 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
 
     def save_fit_state(self, path: Path | str) -> None:
         """Save the fitted model state to ``path`` without foundation weights."""
-        if not hasattr(self, "executor_"):
-            raise RuntimeError("Estimator must be fitted before saving.")
+        save_fitted_tabpfn_model(self, path)
 
-        path = Path(path)
-        if path.suffix != ".tabpfn_fit":
-            raise ValueError("Path must end with .tabpfn_fit")
-
-            params = {
-                k: (str(v) if isinstance(v, torch.dtype) else v)
-                for k, v in params.items()
-            }
-            params["__class_name__"] = self.__class__.__name__
-            with (tmp / "init_params.json").open("w") as f:
-                json.dump(params, f)
-
-            state = {
-                "inferred_categorical_indices": self.inferred_categorical_indices_,
-                "y_train_mean": getattr(self, "y_train_mean_", 0.0),
-                "y_train_std": getattr(self, "y_train_std_", 1.0),
-            }
-            with (tmp / "preprocessor_state.json").open("w") as f:
-                json.dump(state, f)
-
-            joblib.dump(self.preprocessor_, tmp / "preprocessor.joblib")
-            joblib.dump(self.bardist_, tmp / "bardist.joblib")
-            joblib.dump(self.normalized_bardist_, tmp / "normalized_bardist.joblib")
-
-            self.executor_.save_state(tmp / "executor.joblib")
-            est._initialize_model_variables()
-
-
-            est.preprocessor_ = joblib.load(tmp / "preprocessor.joblib")
-            est.bardist_ = joblib.load(tmp / "bardist.joblib")
-            est.normalized_bardist_ = joblib.load(tmp / "normalized_bardist.joblib")
-
-            est.executor_ = InferenceEngine.load_state(tmp / "executor.joblib")
-            if hasattr(est.executor_, "model"):
-                est.model_ = est.executor_.model
-
-            est.device_ = torch.device(device)
-            if hasattr(est.executor_, "model"):
-                est.executor_.model = est.executor_.model.to(est.device_)
-            if hasattr(est.executor_, "models"):
-                est.executor_.models = [m.to(est.device_) for m in est.executor_.models]
-            if hasattr(est, "bardist_") and est.bardist_ is not None:
-                est.bardist_ = est.bardist_.to(est.device_)
-            if (
-                hasattr(est, "normalized_bardist_")
-                and est.normalized_bardist_ is not None
-            ):
-                est.normalized_bardist_ = est.normalized_bardist_.to(est.device_)
-
-            shutil.make_archive(str(path).replace(".tabpfn_fit", ""), "zip", tmp)
-            shutil.move(str(path).replace(".tabpfn_fit", "") + ".zip", path)
-
-    @classmethod
-    def load_from_fit_state(
-        cls, path: Path | str, *, device: str | torch.device = "cpu"
-    ) -> TabPFNRegressor:
-        """Restore a fitted regressor saved with :meth:`save_fit_state`."""
-        path = Path(path)
-        with tempfile.TemporaryDirectory() as tmpdir:
-            shutil.unpack_archive(path, tmpdir, "zip")
-            tmp = Path(tmpdir)
-
-            with (tmp / "init_params.json").open() as f:
-                params = json.load(f)
-            saved_cls = params.pop("__class_name__")
-            if saved_cls != cls.__name__:
-                raise TypeError(
-                    f"Attempting to load a '{saved_cls}' as '{cls.__name__}'"
-                )
-
-            if isinstance(params.get("inference_precision"), str) and params[
-                "inference_precision"
-            ].startswith("torch."):
-                dtype_name = params["inference_precision"].split(".")[1]
-                params["inference_precision"] = getattr(torch, dtype_name)
-
-            params["device"] = device
-            est = cls(**params)
-
-            est._initialize_model_variables()
-
-            with (tmp / "preprocessor_state.json").open() as f:
-                state = json.load(f)
-
-            est.inferred_categorical_indices_ = state["inferred_categorical_indices"]
+        est = load_fitted_tabpfn_model(path, device=device)
+        if not isinstance(est, cls):
+            raise TypeError(
+                f"Attempting to load a '{est.__class__.__name__}' as '{cls.__name__}'"
+            )
+        return est
             est.y_train_mean_ = state["y_train_mean"]
             est.y_train_std_ = state["y_train_std"]
 
