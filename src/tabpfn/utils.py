@@ -47,14 +47,30 @@ def _get_embeddings(
     X: XType,
     data_source: Literal["train", "test"] = "test",
 ) -> np.ndarray:
-    """Get the embeddings for the input data `X`.
+    """Extract embeddings from a fitted TabPFN model.
 
-    Parameters:
-        model TabPFNClassifier | TabPFNRegressor: The fitted classifier or regressor.
-        X (XType): The input data.
-        data_source str: Extract either the train or test embeddings
+    Parameters
+    ----------
+    model : TabPFNClassifier | TabPFNRegressor
+        The fitted classifier or regressor.
+    X : XType
+        The input data.
+    data_source : {"train", "test"}, default="test"
+        Select the transformer output to return. Use ``"train"`` to obtain
+        embeddings from the training tokens and ``"test"`` for the test tokens.
+
+        When ``n_estimators > 1`` the returned array has shape
+        ``(n_estimators, n_samples, embedding_dim)``. You can average over the
+        first axis or reshape to concatenate the estimators, e.g.::
+
+            emb = _get_embeddings(model, X)
+            emb_avg = emb.mean(axis=0)
+            emb_concat = emb.reshape(emb.shape[1], -1)
+
     Returns:
-        np.ndarray: The computed embeddings for each fitted estimator.
+    -------
+    np.ndarray
+        The computed embeddings for each fitted estimator.
     """
     check_is_fitted(model)
 
