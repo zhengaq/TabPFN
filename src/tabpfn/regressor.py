@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Union
 from typing_extensions import Self, TypedDict, overload
 
+import joblib
 import numpy as np
 import torch
 from sklearn import config_context
@@ -45,7 +46,7 @@ from tabpfn.base import (
     determine_precision,
     get_preprocessed_datasets_helper,
 )
-from tabpfn.inference import InferenceEngineBatchedNoPreprocessing
+from tabpfn.inference import InferenceEngine, InferenceEngineBatchedNoPreprocessing
 from tabpfn.model.bar_distribution import FullSupportBarDistribution
 from tabpfn.preprocessing import (
     DatasetCollectionWithPreprocessing,
@@ -76,7 +77,6 @@ if TYPE_CHECKING:
 
     from tabpfn.config import ModelInterfaceConfig
     from tabpfn.constants import XType, YType
-    from tabpfn.inference import InferenceEngine
     from tabpfn.model.config import ModelConfig
 
     try:
@@ -597,12 +597,6 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
                 " is done as part of the inference engine"
             )
 
-        # Keep the processed training data so ``save_fit_state`` can persist a
-        # fitted model. These arrays are also stored in the inference engine but
-        # we keep a reference here for easy serialization.
-        self._fit_X_ = X_preprocessed
-        self._fit_y_ = y_preprocessed
-
         # Create the inference engine
         self.executor_ = create_inference_engine(
             X_train=X_preprocessed,
@@ -653,11 +647,6 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
             )
 
         assert len(ensemble_configs) == self.n_estimators
-
-        # Keep the processed training data so ``save_fit_state`` can persist
-        # a fitted model. scikit-learn does not retain ``X`` and ``y``.
-        self._fit_X_ = X
-        self._fit_y_ = y
 
         self.is_constant_target_ = np.unique(y).size == 1
         self.constant_value_ = y[0] if self.is_constant_target_ else None
@@ -1038,9 +1027,6 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
         if path.suffix != ".tabpfn_fit":
             raise ValueError("Path must end with .tabpfn_fit")
 
-        if not hasattr(self, "_fit_X_"):
-            raise RuntimeError("Training data not stored; cannot save state.")
-
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp = Path(tmpdir)
             params = self.get_params(deep=False)
@@ -1060,8 +1046,11 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
             with (tmp / "preprocessor_state.json").open("w") as f:
                 json.dump(state, f)
 
-            np.save(tmp / "X_train.npy", np.asarray(self._fit_X_))
-            np.save(tmp / "y_train.npy", np.asarray(self._fit_y_))
+            joblib.dump(self.preprocessor_, tmp / "preprocessor.joblib")
+            joblib.dump(self.bardist_, tmp / "bardist.joblib")
+            joblib.dump(self.normalized_bardist_, tmp / "normalized_bardist.joblib")
+
+            self.executor_.save_state(tmp / "executor.joblib")
 
             shutil.make_archive(str(path).replace(".tabpfn_fit", ""), "zip", tmp)
             shutil.move(str(path).replace(".tabpfn_fit", "") + ".zip", path)
@@ -1093,15 +1082,35 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
             params["device"] = device
             est = cls(**params)
 
-            X_train = np.load(tmp / "X_train.npy")
-            y_train = np.load(tmp / "y_train.npy")
+            est._initialize_model_variables()
 
             with (tmp / "preprocessor_state.json").open() as f:
                 state = json.load(f)
-            est.fit(X_train, y_train)
+
             est.inferred_categorical_indices_ = state["inferred_categorical_indices"]
             est.y_train_mean_ = state["y_train_mean"]
             est.y_train_std_ = state["y_train_std"]
+
+            est.preprocessor_ = joblib.load(tmp / "preprocessor.joblib")
+            est.bardist_ = joblib.load(tmp / "bardist.joblib")
+            est.normalized_bardist_ = joblib.load(tmp / "normalized_bardist.joblib")
+
+            est.executor_ = InferenceEngine.load_state(tmp / "executor.joblib")
+            if hasattr(est.executor_, "model"):
+                est.model_ = est.executor_.model
+
+            est.device_ = torch.device(device)
+            if hasattr(est.executor_, "model"):
+                est.executor_.model = est.executor_.model.to(est.device_)
+            if hasattr(est.executor_, "models"):
+                est.executor_.models = [m.to(est.device_) for m in est.executor_.models]
+            if hasattr(est, "bardist_") and est.bardist_ is not None:
+                est.bardist_ = est.bardist_.to(est.device_)
+            if (
+                hasattr(est, "normalized_bardist_")
+                and est.normalized_bardist_ is not None
+            ):
+                est.normalized_bardist_ = est.normalized_bardist_.to(est.device_)
 
             return est
 
