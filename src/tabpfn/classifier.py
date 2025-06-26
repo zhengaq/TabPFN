@@ -43,7 +43,11 @@ from tabpfn.constants import (
     XType,
     YType,
 )
-from tabpfn.inference import InferenceEngineBatchedNoPreprocessing
+from tabpfn.inference import InferenceEngine, InferenceEngineBatchedNoPreprocessing
+from tabpfn.model.loading import (
+    load_fitted_tabpfn_model,
+    save_fitted_tabpfn_model,
+)
 from tabpfn.preprocessing import (
     ClassifierEnsembleConfig,
     DatasetCollectionWithPreprocessing,
@@ -68,7 +72,6 @@ if TYPE_CHECKING:
     from torch.types import _dtype
 
     from tabpfn.config import ModelInterfaceConfig
-    from tabpfn.inference import InferenceEngine
     from tabpfn.model.config import ModelConfig
     from tabpfn.preprocessing import (
         ClassifierEnsembleConfig,
@@ -828,3 +831,22 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
             np.ndarray: The computed embeddings for each fitted estimator.
         """
         return _get_embeddings(self, X, data_source)
+
+    def save_fit_state(self, path: Path | str) -> None:
+        """Save the fitted model state to ``path``.
+
+        This is a thin wrapper around :func:`save_fitted_tabpfn_model`.
+        """
+        save_fitted_tabpfn_model(self, path)
+
+    @classmethod
+    def load_from_fit_state(
+        cls, path: Path | str, *, device: str | torch.device = "cpu"
+    ) -> TabPFNClassifier:
+        """Restore a fitted model saved with :meth:`save_fit_state`."""
+        est = load_fitted_tabpfn_model(path, device=device)
+        if not isinstance(est, cls):
+            raise TypeError(
+                f"Attempting to load a '{est.__class__.__name__}' as '{cls.__name__}'"
+            )
+        return est
