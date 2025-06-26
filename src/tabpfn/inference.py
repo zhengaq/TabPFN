@@ -9,6 +9,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Iterator, Sequence
 from copy import deepcopy
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 from typing_extensions import override
 
@@ -99,6 +100,35 @@ class InferenceEngine(ABC):
         raise NotImplementedError(
             "This inference engine does not support torch.inference_mode changes."
         )
+
+    def save_state(self, path: str | Path) -> None:
+        """Persist the executor to ``path`` using ``joblib``.
+
+        The executor is first moved to CPU so the resulting file can be loaded
+        on machines without a GPU.
+        """
+        from copy import deepcopy
+        from pathlib import Path
+
+        import joblib
+
+        path = Path(path)
+        cpu_copy = deepcopy(self)
+        if hasattr(cpu_copy, "model") and cpu_copy.model is not None:
+            cpu_copy.model = cpu_copy.model.cpu()
+        if hasattr(cpu_copy, "models"):
+            cpu_copy.models = [m.cpu() for m in cpu_copy.models]
+
+        joblib.dump(cpu_copy, path)
+
+    @staticmethod
+    def load_state(path: str | Path) -> InferenceEngine:
+        """Load an executor saved with :meth:`save_state`."""
+        from pathlib import Path
+
+        import joblib
+
+        return joblib.load(Path(path))
 
 
 @dataclass
