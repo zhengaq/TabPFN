@@ -240,10 +240,31 @@ This script will download the main classifier and regressor models, as well as a
      - macOS: `~/Library/Caches/tabpfn/`
      - Linux: `~/.cache/tabpfn/`
 
-**Q: I'm getting a `pickle` error when loading the model. What should I do?**  
+**Q: I'm getting a `pickle` error when loading the model. What should I do?**
 A: Try the following:
 - Download the newest version of tabpfn `pip install tabpfn --upgrade`
 - Ensure model files downloaded correctly (re-download if needed)
+
+**Q: How do I save and load a trained TabPFN model?**
+A: Use the utilities from `tabpfn.model.loading`:
+
+```python
+from tabpfn.model.loading import (
+    save_fitted_tabpfn_model,
+    load_fitted_tabpfn_model,
+)
+from tabpfn import TabPFNRegressor
+
+# After fitting `reg` on GPU
+save_fitted_tabpfn_model(reg, "my_reg.pkl")
+
+# Later or on a CPU-only machine
+reg_cpu = load_fitted_tabpfn_model("my_reg.pkl", device="cpu")
+```
+
+To store just the foundation model weights (without a fitted estimator) use
+`save_tabpfn_model(reg.model_, "my_tabpfn.ckpt")` and reload them with
+`load_model_criterion_config`.
 
 ### **Performance & Limitations**
 
