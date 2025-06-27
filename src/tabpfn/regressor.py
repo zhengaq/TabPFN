@@ -1043,6 +1043,8 @@ def _logits_to_output(
     quantiles: list[float],
 ) -> np.ndarray | list[np.ndarray]:
     """Converts raw model logits to the desired prediction format."""
+    logits = logits.to(criterion.borders.device)
+
     if output_type == "quantiles":
         return [criterion.icdf(logits, q).cpu().detach().numpy() for q in quantiles]
 
