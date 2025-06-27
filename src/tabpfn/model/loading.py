@@ -777,7 +777,9 @@ def save_fitted_tabpfn_model(estimator: BaseEstimator, path: Path | str) -> None
         joblib.dump(fitted_attrs, tmp / "fitted_attrs.joblib")
 
         # 3. Save the InferenceEngine state without the model weights
-        estimator.executor_.save_state(tmp / "executor_state.joblib")
+        estimator.executor_.save_state_expect_model_weights(
+            tmp / "executor_state.joblib"
+        )
 
         # 4. Create the final zip archive
         shutil.make_archive(str(path).replace(".tabpfn_fit", ""), "zip", tmp)
@@ -838,7 +840,9 @@ def load_fitted_tabpfn_model(
             setattr(est, key, value)
 
         # 3. Load the InferenceEngine state
-        est.executor_ = InferenceEngine.load_state(tmp / "executor_state.joblib")
+        est.executor_ = InferenceEngine.load_state_expect_model_weights(
+            tmp / "executor_state.joblib"
+        )
 
         # 4. Re-link the foundation model with the loaded engine
         if hasattr(est.executor_, "model") and est.executor_.model is None:

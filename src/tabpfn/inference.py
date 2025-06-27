@@ -102,7 +102,7 @@ class InferenceEngine(ABC):
             "This inference engine does not support torch.inference_mode changes."
         )
 
-    def save_state(self, path: str | Path) -> None:
+    def save_state_expect_model_weights(self, path: str | Path) -> None:
         """Persist the executor state to ``path`` without the model weights.
 
         The state is first moved to CPU so the resulting file can be loaded
@@ -120,7 +120,7 @@ class InferenceEngine(ABC):
         joblib.dump(state_copy, path)
 
     @staticmethod
-    def load_state(path: str | Path) -> InferenceEngine:
+    def load_state_expect_model_weights(path: str | Path) -> InferenceEngine:
         """Load an executor saved with :meth:`save_state`."""
         return joblib.load(Path(path))
 
