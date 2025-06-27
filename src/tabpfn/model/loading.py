@@ -724,12 +724,11 @@ def save_tabpfn_model(model: nn.Module, save_path: Path | str) -> None:
     The resulting file is merely a checkpoint consumed by
     :func:`load_model_criterion_config` to build a new estimator.
 
-    Parameters
-    ----------
-    model:
-        The internal model object of a ``TabPFN`` estimator.
-    save_path:
-        Path to save the checkpoint to.
+    Args:
+        model:
+            The internal model object of a ``TabPFN`` estimator.
+        save_path:
+            Path to save the checkpoint to.
     """
     # Get model state dict
     model_state = model.model_.state_dict()
