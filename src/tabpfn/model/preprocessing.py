@@ -104,9 +104,6 @@ class AdaptiveQuantileTransformer(QuantileTransformer):
     def fit(
         self, X: np.ndarray, y: np.ndarray | None = None
     ) -> AdaptiveQuantileTransformer:
-        X = self._validate_data(
-            X, copy=self.copy, estimator=self, dtype=float, force_all_finite="allow-nan"
-        )
         n_samples = X.shape[0]
 
         # Adapt n_quantiles for this fit: min of user's preference and available samples
