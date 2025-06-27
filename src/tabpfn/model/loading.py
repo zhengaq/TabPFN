@@ -819,14 +819,15 @@ def load_fitted_tabpfn_model(  # noqa: PLR0912,C901
 
     path = Path(path)
     with tempfile.TemporaryDirectory() as tmpdir:
-        import zipfile
-        with zipfile.ZipFile(path, 'r') as archive:
-            for member in archive.namelist():
-                member_path = os.path.join(tmpdir, member)
-                if not os.path.commonpath([tmpdir, member_path]).startswith(tmpdir):
-                    raise ValueError(f"Unsafe file path detected: {member}")
-                archive.extract(member, tmpdir)
         tmp = Path(tmpdir)
+        import zipfile
+
+        with zipfile.ZipFile(path, "r") as archive:
+            for member in archive.namelist():
+                member_path = (tmp / member).resolve()
+                if not str(member_path).startswith(str(tmp.resolve())):
+                    raise ValueError(f"Unsafe file path detected: {member}")
+                archive.extract(member, tmp)
 
         with (tmp / "init_params.json").open() as f:
             params = json.load(f)
