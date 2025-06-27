@@ -3,21 +3,26 @@
 from __future__ import annotations
 
 import dataclasses
+import json
 import logging
 import os
+import shutil
 import sys
+import tempfile
 import urllib.request
 import urllib.response
 import warnings
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Literal, cast, overload
+from typing import TYPE_CHECKING, Literal, cast, overload
 from urllib.error import URLError
 
+import joblib
 import torch
 from torch import nn
 
+from tabpfn.inference import InferenceEngine
 from tabpfn.model.bar_distribution import BarDistribution, FullSupportBarDistribution
 from tabpfn.model.config import ModelConfig
 from tabpfn.model.encoders import (
@@ -31,6 +36,9 @@ from tabpfn.model.encoders import (
     VariableNumFeaturesEncoderStep,
 )
 from tabpfn.model.transformer import PerFeatureTransformer
+
+if TYPE_CHECKING:
+    from sklearn.base import BaseEstimator
 
 logger = logging.getLogger(__name__)
 
@@ -695,8 +703,20 @@ def get_n_out(
     )
 
 
-# NOTE: This function doesn't seem to be used anywhere.
 def save_tabpfn_model(model: nn.Module, save_path: Path | str) -> None:
+    """Save the underlying TabPFN foundation model to ``save_path``.
+
+    This writes only the base pre-trained weights and configuration. It does
+    **not** store a fitted :class:`TabPFNRegressor`/``Classifier`` instance.
+    The resulting file is merely a checkpoint consumed by
+    :func:`load_model_criterion_config` to build a new estimator.
+
+    Args:
+        model:
+            The internal model object of a ``TabPFN`` estimator.
+        save_path:
+            Path to save the checkpoint to.
+    """
     # Get model state dict
     model_state = model.model_.state_dict()
 
@@ -718,3 +738,129 @@ def save_tabpfn_model(model: nn.Module, save_path: Path | str) -> None:
 
     # Save the checkpoint
     torch.save(checkpoint, save_path)
+
+
+def save_fitted_tabpfn_model(estimator: BaseEstimator, path: Path | str) -> None:
+    """Persist a fitted TabPFN estimator to ``path``.
+
+    This stores the initialization parameters and the fitted state, but crucially
+    omits the large foundation model weights for efficiency.
+    """
+    if not hasattr(estimator, "executor_"):
+        raise RuntimeError("Estimator must be fitted before saving.")
+
+    path = Path(path)
+    if path.suffix != ".tabpfn_fit":
+        raise ValueError("Path must end with .tabpfn_fit")
+
+    # Attributes that are handled separately or should not be saved.
+    blacklist = {"model_", "executor_", "config_", "device_"}
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp = Path(tmpdir)
+
+        # 1. Save init parameters to JSON
+        params = estimator.get_params(deep=False)
+        params = {
+            k: (str(v) if isinstance(v, torch.dtype) else v) for k, v in params.items()
+        }
+        params["__class_name__"] = estimator.__class__.__name__
+        with (tmp / "init_params.json").open("w") as f:
+            json.dump(params, f)
+
+        # 2. Automatically save all scikit-learn fitted attributes
+        fitted_attrs = {
+            key: value
+            for key, value in vars(estimator).items()
+            if key.endswith("_") and key not in blacklist
+        }
+        joblib.dump(fitted_attrs, tmp / "fitted_attrs.joblib")
+
+        # 3. Save the InferenceEngine state without the model weights
+        estimator.executor_.save_state_expect_model_weights(
+            tmp / "executor_state.joblib"
+        )
+
+        # 4. Create the final zip archive
+        shutil.make_archive(str(path).replace(".tabpfn_fit", ""), "zip", tmp)
+        shutil.move(str(path).replace(".tabpfn_fit", "") + ".zip", path)
+
+
+def _extract_archive(path: Path, tmp: Path) -> None:
+    import zipfile
+
+    with zipfile.ZipFile(path, "r") as archive:
+        for member in archive.namelist():
+            member_path = (tmp / member).resolve()
+            if not str(member_path).startswith(str(tmp.resolve())):
+                raise ValueError(f"Unsafe file path detected: {member}")
+            archive.extract(member, tmp)
+
+
+def load_fitted_tabpfn_model(
+    path: Path | str, *, device: str | torch.device = "cpu"
+) -> BaseEstimator:
+    """Load a fitted TabPFN estimator saved with ``save_fitted_tabpfn_model``."""
+    from copy import deepcopy
+    from importlib import import_module
+
+    path = Path(path)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp = Path(tmpdir)
+
+        # Extract the archive to a temporary directory
+        _extract_archive(path, tmp)
+
+        # 1. Load init params and create a fresh estimator instance
+        with (tmp / "init_params.json").open() as f:
+            params = json.load(f)
+
+        saved_cls_name = params.pop("__class_name__")
+        if isinstance(params.get("inference_precision"), str) and params[
+            "inference_precision"
+        ].startswith("torch."):
+            dtype_name = params["inference_precision"].split(".")[1]
+            params["inference_precision"] = getattr(torch, dtype_name)
+        params["device"] = device
+
+        if saved_cls_name == "TabPFNClassifier":
+            cls = import_module("tabpfn.classifier").TabPFNClassifier
+        elif saved_cls_name == "TabPFNRegressor":
+            cls = import_module("tabpfn.regressor").TabPFNRegressor
+        else:
+            raise TypeError(f"Unknown estimator class '{saved_cls_name}'")
+
+        est = cls(**params)
+        # This is critical: it loads the base model weights into `est.model_`
+        est._initialize_model_variables()
+
+        # 2. Restore all other fitted attributes
+        fitted_attrs = joblib.load(tmp / "fitted_attrs.joblib")
+        for key, value in fitted_attrs.items():
+            setattr(est, key, value)
+
+        # 3. Load the InferenceEngine state
+        est.executor_ = InferenceEngine.load_state(tmp / "executor_state.joblib")
+
+        # 4. Re-link the foundation model with the loaded engine
+        if hasattr(est.executor_, "model") and est.executor_.model is None:
+            est.executor_.model = est.model_
+
+        if hasattr(est.executor_, "models") and est.executor_.models is None:
+            est.executor_.models = [
+                deepcopy(est.model_) for _ in range(len(est.executor_.ensemble_configs))
+            ]
+
+        # 5. Move all torch components to the target device
+        est.device_ = torch.device(device)
+        if hasattr(est.executor_, "model") and est.executor_.model is not None:
+            est.executor_.model.to(est.device_)
+        if hasattr(est.executor_, "models"):
+            est.executor_.models = [m.to(est.device_) for m in est.executor_.models]
+
+        # Restore other potential torch objects from fitted_attrs
+        for key, value in vars(est).items():
+            if key.endswith("_") and hasattr(value, "to"):
+                setattr(est, key, value.to(est.device_))
+
+        return est

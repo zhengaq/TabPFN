@@ -9,9 +9,11 @@ from abc import ABC, abstractmethod
 from collections.abc import Iterator, Sequence
 from copy import deepcopy
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 from typing_extensions import override
 
+import joblib
 import numpy as np
 import torch
 
@@ -59,6 +61,7 @@ class InferenceEngine(ABC):
 
     save_peak_mem: bool | Literal["auto"] | float | int
     dtype_byte_size: int
+    ensemble_configs: Sequence[EnsembleConfig]
 
     @abstractmethod
     def iter_outputs(
@@ -99,6 +102,28 @@ class InferenceEngine(ABC):
         raise NotImplementedError(
             "This inference engine does not support torch.inference_mode changes."
         )
+
+    def save_state_expect_model_weights(self, path: str | Path) -> None:
+        """Persist the executor state to ``path`` without the model weights.
+
+        The state is first moved to CPU so the resulting file can be loaded
+        on machines without a GPU. The large model weights are explicitly
+        excluded to keep the file small and efficient.
+        """
+        state_copy = deepcopy(self)
+
+        # Decouple the large model weights before serialization
+        if hasattr(state_copy, "model"):
+            state_copy.model = None
+        if hasattr(state_copy, "models"):
+            state_copy.models = None  # For KV cache engine
+
+        joblib.dump(state_copy, path)
+
+    @staticmethod
+    def load_state(path: str | Path) -> InferenceEngine:
+        """Load an executor saved with :meth:`save_state`."""
+        return joblib.load(Path(path))
 
 
 @dataclass
@@ -513,7 +538,7 @@ class InferenceEngineCacheKV(InferenceEngine):
     """
 
     preprocessors: list[SequentialFeatureTransformer]
-    configs: list[EnsembleConfig]
+    ensemble_configs: list[EnsembleConfig]
     cat_ixs: Sequence[list[int]]
     models: list[PerFeatureTransformer]
     n_train_samples: list[int]
@@ -607,7 +632,7 @@ class InferenceEngineCacheKV(InferenceEngine):
 
         return InferenceEngineCacheKV(
             preprocessors=preprocessors,
-            configs=correct_order_configs,
+            ensemble_configs=correct_order_configs,
             cat_ixs=cat_ixs,
             n_train_samples=n_train_samples,
             models=models,
@@ -628,7 +653,7 @@ class InferenceEngineCacheKV(InferenceEngine):
         for preprocessor, model, config, cat_ix, X_train_len in zip(
             self.preprocessors,
             self.models,
-            self.configs,
+            self.ensemble_configs,
             self.cat_ixs,
             self.n_train_samples,
         ):

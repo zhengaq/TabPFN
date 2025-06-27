@@ -238,6 +238,9 @@ exclude = [
   "FBT002",
   "A001",
 ]
+"src/tabpfn/model/loading.py" = [
+  "C901"
+]
 "src/tabpfn/*.py" = [
   "D107",
 ]

@@ -42,8 +42,12 @@ from tabpfn.base import (
     determine_precision,
     get_preprocessed_datasets_helper,
 )
-from tabpfn.inference import InferenceEngineBatchedNoPreprocessing
+from tabpfn.inference import InferenceEngine, InferenceEngineBatchedNoPreprocessing
 from tabpfn.model.bar_distribution import FullSupportBarDistribution
+from tabpfn.model.loading import (
+    load_fitted_tabpfn_model,
+    save_fitted_tabpfn_model,
+)
 from tabpfn.preprocessing import (
     DatasetCollectionWithPreprocessing,
     EnsembleConfig,
@@ -73,7 +77,6 @@ if TYPE_CHECKING:
 
     from tabpfn.config import ModelInterfaceConfig
     from tabpfn.constants import XType, YType
-    from tabpfn.inference import InferenceEngine
     from tabpfn.model.config import ModelConfig
 
     try:
@@ -577,7 +580,7 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
             no_refit: if True, the classifier will not be reinitialized when calling
                 fit multiple times.
         """
-        # If there isa model, and we are lazy, we skip reinitialization
+        # If there is a model, and we are lazy, we skip reinitialization
         if not hasattr(self, "model_") or not no_refit:
             byte_size, rng = self._initialize_model_variables()
         else:
@@ -654,7 +657,7 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
                     [self.constant_value_ - 1e-5, self.constant_value_ + 1e-5]
                 )
             )
-
+            # No need to create an inference engine for a constant prediction
             return self
 
         mean, std = np.mean(y), np.std(y)
@@ -855,7 +858,7 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
         *,
         use_inference_mode: bool = False,
     ) -> tuple[torch.Tensor | None, list[torch.Tensor], list[np.ndarray]]:
-        """Forward pass for TabPFNRegressor Infernce Engine.
+        """Forward pass for TabPFNRegressor Inference Engine.
         Used in fine-tuning and prediction. Called directly
         in FineTuning training loop or by predict() function
         with the use_inference_mode flag explicitly set to True.
@@ -1028,6 +1031,22 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
                 The computed embeddings for each fitted estimator.
         """
         return _get_embeddings(self, X, data_source)
+
+    def save_fit_state(self, path: Path | str) -> None:
+        """Save a fitted regressor, light wrapper around save_fitted_tabpfn_model."""
+        save_fitted_tabpfn_model(self, path)
+
+    @classmethod
+    def load_from_fit_state(
+        cls, path: Path | str, *, device: str | torch.device = "cpu"
+    ) -> TabPFNRegressor:
+        """Restore a fitted regressor, light wrapper around load_fitted_tabpfn_model."""
+        est = load_fitted_tabpfn_model(path, device=device)
+        if not isinstance(est, cls):
+            raise TypeError(
+                f"Attempting to load a '{est.__class__.__name__}' as '{cls.__name__}'"
+            )
+        return est
 
 
 def _logits_to_output(
