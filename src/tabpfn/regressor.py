@@ -1012,7 +1012,21 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
         X: XType,
         data_source: Literal["train", "test"] = "test",
     ) -> np.ndarray:
-        """Gets the embeddings for the input data `X`."""
+        """Gets the embeddings for the input data `X`.
+
+        Args:
+            X : XType
+                The input data.
+            data_source : {"train", "test"}, default="test"
+                Select the transformer output to return. Use ``"train"`` to obtain
+                embeddings from the training tokens and ``"test"`` for the test
+                tokens. When ``n_estimators > 1`` the returned array has shape
+                ``(n_estimators, n_samples, embedding_dim)``.
+
+        Returns:
+            np.ndarray
+                The computed embeddings for each fitted estimator.
+        """
         return _get_embeddings(self, X, data_source)
 
 

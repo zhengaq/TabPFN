@@ -64,7 +64,7 @@ def _get_embeddings(
             When ``n_estimators > 1`` the returned array has shape
             ``(n_estimators, n_samples, embedding_dim)``. You can average over the
             first axis or reshape to concatenate the estimators, e.g.:
-    
+
                 emb = _get_embeddings(model, X)
                 emb_avg = emb.mean(axis=0)
                 emb_concat = emb.reshape(emb.shape[1], -1)
