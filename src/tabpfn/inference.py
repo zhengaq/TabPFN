@@ -537,7 +537,7 @@ class InferenceEngineCacheKV(InferenceEngine):
     """
 
     preprocessors: list[SequentialFeatureTransformer]
-    configs: list[EnsembleConfig]
+    ensemble_configs: list[EnsembleConfig]
     cat_ixs: Sequence[list[int]]
     models: list[PerFeatureTransformer]
     n_train_samples: list[int]
@@ -631,7 +631,7 @@ class InferenceEngineCacheKV(InferenceEngine):
 
         return InferenceEngineCacheKV(
             preprocessors=preprocessors,
-            configs=correct_order_configs,
+            ensemble_configs=correct_order_configs,
             cat_ixs=cat_ixs,
             n_train_samples=n_train_samples,
             models=models,
@@ -652,7 +652,7 @@ class InferenceEngineCacheKV(InferenceEngine):
         for preprocessor, model, config, cat_ix, X_train_len in zip(
             self.preprocessors,
             self.models,
-            self.configs,
+            self.ensemble_configs,
             self.cat_ixs,
             self.n_train_samples,
         ):
