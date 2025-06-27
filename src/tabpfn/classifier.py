@@ -828,36 +828,14 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
         return _get_embeddings(self, X, data_source)
 
     def save_fit_state(self, path: Path | str) -> None:
-        """Save the fitted model state to ``path``.
-
-        This method saves the complete state of the fitted estimator, including
-        all learned parameters and preprocessors, but excludes the large, static
-        foundation model weights for efficiency. The resulting file can be loaded
-        using :meth:`load_from_fit_state`.
-
-        Args:
-            path: The path to save the fitted model state file
-                (e.g., "my_model.tabpfn_fit").
-        """
+        """Save a fitted classifier, light wrapper around save_fitted_tabpfn_model."""
         save_fitted_tabpfn_model(self, path)
 
     @classmethod
     def load_from_fit_state(
         cls, path: Path | str, *, device: str | torch.device = "cpu"
     ) -> TabPFNClassifier:
-        """Restore a fitted classifier saved with :meth:`save_fit_state`.
-
-        This method reconstructs the estimator from a saved state file,
-        re-initializing the foundation model and linking it with the saved
-        fitted state.
-
-        Args:
-            path: The path to the saved model state file.
-            device: The device to load the model onto (e.g., "cpu" or "cuda").
-
-        Returns:
-            The loaded, fitted TabPFNClassifier instance.
-        """
+        """Restore a fitted clf, light wrapper around load_fitted_tabpfn_model."""
         est = load_fitted_tabpfn_model(path, device=device)
         if not isinstance(est, cls):
             raise TypeError(
