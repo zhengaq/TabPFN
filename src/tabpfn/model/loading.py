@@ -407,16 +407,7 @@ def load_model_criterion_config(
                 f"\nmodel path: {model_path}",
             )
 
-        # NOTE: We use warnings as:
-        # * Logging is only visible if the user has logging enabled,
-        #   which for the majority of people using Python, this is not
-        #   the case.
-        # * `print` has no way to easily be disabled from the outside.
-        warnings.warn(
-            f"Downloading model to {model_path}.",
-            UserWarning,
-            stacklevel=2,
-        )
+        logger.info(f"Downloading model to {model_path}.")
         res = download_model(
             model_path,
             version=version,
