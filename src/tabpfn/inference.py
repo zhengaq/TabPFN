@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 from typing_extensions import override
 
+import joblib
 import numpy as np
 import torch
 
@@ -102,32 +103,25 @@ class InferenceEngine(ABC):
         )
 
     def save_state(self, path: str | Path) -> None:
-        """Persist the executor to ``path`` using ``joblib``.
+        """Persist the executor state to ``path`` without the model weights.
 
-        The executor is first moved to CPU so the resulting file can be loaded
-        on machines without a GPU.
+        The state is first moved to CPU so the resulting file can be loaded
+        on machines without a GPU. The large model weights are explicitly
+        excluded to keep the file small and efficient.
         """
-        from copy import deepcopy
-        from pathlib import Path
+        state_copy = deepcopy(self)
 
-        import joblib
+        # Decouple the large model weights before serialization
+        if hasattr(state_copy, "model"):
+            state_copy.model = None
+        if hasattr(state_copy, "models"):
+            state_copy.models = None  # For KV cache engine
 
-        path = Path(path)
-        cpu_copy = deepcopy(self)
-        if hasattr(cpu_copy, "model") and cpu_copy.model is not None:
-            cpu_copy.model = cpu_copy.model.cpu()
-        if hasattr(cpu_copy, "models"):
-            cpu_copy.models = [m.cpu() for m in cpu_copy.models]
-
-        joblib.dump(cpu_copy, path)
+        joblib.dump(state_copy, path)
 
     @staticmethod
     def load_state(path: str | Path) -> InferenceEngine:
         """Load an executor saved with :meth:`save_state`."""
-        from pathlib import Path
-
-        import joblib
-
         return joblib.load(Path(path))
 
 

@@ -580,7 +580,7 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
             no_refit: if True, the classifier will not be reinitialized when calling
                 fit multiple times.
         """
-        # If there isa model, and we are lazy, we skip reinitialization
+        # If there is a model, and we are lazy, we skip reinitialization
         if not hasattr(self, "model_") or not no_refit:
             byte_size, rng = self._initialize_model_variables()
         else:
@@ -657,7 +657,7 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
                     [self.constant_value_ - 1e-5, self.constant_value_ + 1e-5]
                 )
             )
-
+            # No need to create an inference engine for a constant prediction
             return self
 
         mean, std = np.mean(y), np.std(y)
@@ -858,7 +858,7 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
         *,
         use_inference_mode: bool = False,
     ) -> tuple[torch.Tensor | None, list[torch.Tensor], list[np.ndarray]]:
-        """Forward pass for TabPFNRegressor Infernce Engine.
+        """Forward pass for TabPFNRegressor Inference Engine.
         Used in fine-tuning and prediction. Called directly
         in FineTuning training loop or by predict() function
         with the use_inference_mode flag explicitly set to True.
@@ -1019,14 +1019,36 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
         return _get_embeddings(self, X, data_source)
 
     def save_fit_state(self, path: Path | str) -> None:
-        """Save the fitted model state to ``path`` without foundation weights."""
+        """Save the fitted model state to ``path``.
+
+        This method saves the complete state of the fitted estimator, including
+        all learned parameters and preprocessors, but excludes the large, static
+        foundation model weights for efficiency. The resulting file can be loaded
+        using :meth:`load_from_fit_state`.
+
+        Args:
+            path: The path to save the fitted model state file
+                (e.g., "my_model.tabpfn_fit").
+        """
         save_fitted_tabpfn_model(self, path)
 
     @classmethod
     def load_from_fit_state(
         cls, path: Path | str, *, device: str | torch.device = "cpu"
     ) -> TabPFNRegressor:
-        """Restore a fitted regressor saved with :meth:`save_fit_state`."""
+        """Restore a fitted regressor saved with :meth:`save_fit_state`.
+
+        This method reconstructs the estimator from a saved state file,
+        re-initializing the foundation model and linking it with the saved
+        fitted state.
+
+        Args:
+            path: The path to the saved model state file.
+            device: The device to load the model onto (e.g., "cpu" or "cuda").
+
+        Returns:
+            The loaded, fitted TabPFNRegressor instance.
+        """
         est = load_fitted_tabpfn_model(path, device=device)
         if not isinstance(est, cls):
             raise TypeError(

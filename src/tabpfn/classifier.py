@@ -73,10 +73,6 @@ if TYPE_CHECKING:
 
     from tabpfn.config import ModelInterfaceConfig
     from tabpfn.model.config import ModelConfig
-    from tabpfn.preprocessing import (
-        ClassifierEnsembleConfig,
-        DatasetCollectionWithPreprocessing,
-    )
 
     try:
         from sklearn.base import Tags
@@ -270,8 +266,7 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
                 Determine how the TabPFN model is "fitted". The mode determines how the
                 data is preprocessed and cached for inference. This is unique to an
                 in-context learning foundation model like TabPFN, as the "fitting" is
-                technically the
-                forward pass of the model. The options are:
+                technically the forward pass of the model. The options are:
 
                 - If `"low_memory"`, the data is preprocessed on-demand during inference
                   when calling `.predict()` or `.predict_proba()`. This is the most
@@ -572,7 +567,7 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
             no_refit: if True, the classifier will not be reinitialized when calling
                 fit multiple times.
         """
-        # If there isa model, and we are lazy, we skip reinitialization
+        # If there is a model, and we are lazy, we skip reinitialization
         if not hasattr(self, "model_") or not no_refit:
             byte_size, rng = self._initialize_model_variables()
         else:
@@ -661,11 +656,11 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
             The predicted class labels.
         """
         proba = self.predict_proba(X)
-        y = np.argmax(proba, axis=1)
-        if self.label_encoder_:
-            return self.label_encoder_.inverse_transform(y)  # type: ignore
+        y_pred = np.argmax(proba, axis=1)
+        if hasattr(self, "label_encoder_") and self.label_encoder_ is not None:
+            return self.label_encoder_.inverse_transform(y_pred)
 
-        return y
+        return y_pred
 
     @config_context(transform_output="default")  # type: ignore
     def predict_proba(self, X: XType) -> np.ndarray:
@@ -835,7 +830,14 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
     def save_fit_state(self, path: Path | str) -> None:
         """Save the fitted model state to ``path``.
 
-        This is a thin wrapper around :func:`save_fitted_tabpfn_model`.
+        This method saves the complete state of the fitted estimator, including
+        all learned parameters and preprocessors, but excludes the large, static
+        foundation model weights for efficiency. The resulting file can be loaded
+        using :meth:`load_from_fit_state`.
+
+        Args:
+            path: The path to save the fitted model state file
+                (e.g., "my_model.tabpfn_fit").
         """
         save_fitted_tabpfn_model(self, path)
 
@@ -843,7 +845,19 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
     def load_from_fit_state(
         cls, path: Path | str, *, device: str | torch.device = "cpu"
     ) -> TabPFNClassifier:
-        """Restore a fitted model saved with :meth:`save_fit_state`."""
+        """Restore a fitted classifier saved with :meth:`save_fit_state`.
+
+        This method reconstructs the estimator from a saved state file,
+        re-initializing the foundation model and linking it with the saved
+        fitted state.
+
+        Args:
+            path: The path to the saved model state file.
+            device: The device to load the model onto (e.g., "cpu" or "cuda").
+
+        Returns:
+            The loaded, fitted TabPFNClassifier instance.
+        """
         est = load_fitted_tabpfn_model(path, device=device)
         if not isinstance(est, cls):
             raise TypeError(

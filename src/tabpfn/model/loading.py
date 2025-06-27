@@ -15,11 +15,10 @@ import warnings
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, cast, overload
+from typing import TYPE_CHECKING, Literal, cast, overload
 from urllib.error import URLError
 
 import joblib
-import numpy as np
 import torch
 from torch import nn
 
@@ -704,7 +703,6 @@ def get_n_out(
     )
 
 
-# NOTE: This function doesn't seem to be used anywhere.
 def save_tabpfn_model(model: nn.Module, save_path: Path | str) -> None:
     """Save the underlying TabPFN foundation model to ``save_path``.
 
@@ -745,12 +743,9 @@ def save_tabpfn_model(model: nn.Module, save_path: Path | str) -> None:
 def save_fitted_tabpfn_model(estimator: BaseEstimator, path: Path | str) -> None:
     """Persist a fitted TabPFN estimator to ``path``.
 
-    This stores the initialization parameters, fitted preprocessors and the
-    prepared :class:`InferenceEngine` so the model can be reloaded without
-    refitting. The heavy foundation weights are not included.
+    This stores the initialization parameters and the fitted state, but crucially
+    omits the large foundation model weights for efficiency.
     """
-    from pathlib import Path
-
     if not hasattr(estimator, "executor_"):
         raise RuntimeError("Estimator must be fitted before saving.")
 
@@ -758,9 +753,13 @@ def save_fitted_tabpfn_model(estimator: BaseEstimator, path: Path | str) -> None
     if path.suffix != ".tabpfn_fit":
         raise ValueError("Path must end with .tabpfn_fit")
 
+    # Attributes that are handled separately or should not be saved.
+    blacklist = {"model_", "executor_", "config_", "device_"}
+
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp = Path(tmpdir)
 
+        # 1. Save init parameters to JSON
         params = estimator.get_params(deep=False)
         params = {
             k: (str(v) if isinstance(v, torch.dtype) else v) for k, v in params.items()
@@ -769,109 +768,96 @@ def save_fitted_tabpfn_model(estimator: BaseEstimator, path: Path | str) -> None
         with (tmp / "init_params.json").open("w") as f:
             json.dump(params, f)
 
-        state: dict[str, Any] = {
-            "inferred_categorical_indices": estimator.inferred_categorical_indices_,
+        # 2. Automatically save all scikit-learn fitted attributes
+        fitted_attrs = {
+            key: value
+            for key, value in vars(estimator).items()
+            if key.endswith("_") and key not in blacklist
         }
-        if hasattr(estimator, "classes_"):
-            state["classes"] = estimator.classes_.tolist()
-            state["class_counts"] = estimator.class_counts_.tolist()
-        else:
-            state["y_train_mean"] = getattr(estimator, "y_train_mean_", 0.0)
-            state["y_train_std"] = getattr(estimator, "y_train_std_", 1.0)
+        joblib.dump(fitted_attrs, tmp / "fitted_attrs.joblib")
 
-        with (tmp / "preprocessor_state.json").open("w") as f:
-            json.dump(state, f)
+        # 3. Save the InferenceEngine state without the model weights
+        estimator.executor_.save_state(tmp / "executor_state.joblib")
 
-        joblib.dump(estimator.preprocessor_, tmp / "preprocessor.joblib")
-
-        if hasattr(estimator, "label_encoder_"):
-            joblib.dump(estimator.label_encoder_, tmp / "label_encoder.joblib")
-        if hasattr(estimator, "bardist_"):
-            joblib.dump(estimator.bardist_, tmp / "bardist.joblib")
-        if hasattr(estimator, "normalized_bardist_"):
-            joblib.dump(
-                estimator.normalized_bardist_, tmp / "normalized_bardist.joblib"
-            )
-
-        estimator.executor_.save_state(tmp / "executor.joblib")
-
+        # 4. Create the final zip archive
         shutil.make_archive(str(path).replace(".tabpfn_fit", ""), "zip", tmp)
         shutil.move(str(path).replace(".tabpfn_fit", "") + ".zip", path)
 
 
-def load_fitted_tabpfn_model(  # noqa: PLR0912,C901
+def _extract_archive(path: Path, tmp: Path) -> None:
+    import zipfile
+
+    with zipfile.ZipFile(path, "r") as archive:
+        for member in archive.namelist():
+            member_path = (tmp / member).resolve()
+            if not str(member_path).startswith(str(tmp.resolve())):
+                raise ValueError(f"Unsafe file path detected: {member}")
+            archive.extract(member, tmp)
+
+
+def load_fitted_tabpfn_model(
     path: Path | str, *, device: str | torch.device = "cpu"
 ) -> BaseEstimator:
     """Load a fitted TabPFN estimator saved with ``save_fitted_tabpfn_model``."""
+    from copy import deepcopy
     from importlib import import_module
-    from pathlib import Path
 
     path = Path(path)
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp = Path(tmpdir)
-        import zipfile
 
-        with zipfile.ZipFile(path, "r") as archive:
-            for member in archive.namelist():
-                member_path = (tmp / member).resolve()
-                if not str(member_path).startswith(str(tmp.resolve())):
-                    raise ValueError(f"Unsafe file path detected: {member}")
-                archive.extract(member, tmp)
+        # Extract the archive to a temporary directory
+        _extract_archive(path, tmp)
 
+        # 1. Load init params and create a fresh estimator instance
         with (tmp / "init_params.json").open() as f:
             params = json.load(f)
 
-        saved_cls = params.pop("__class_name__")
+        saved_cls_name = params.pop("__class_name__")
         if isinstance(params.get("inference_precision"), str) and params[
             "inference_precision"
         ].startswith("torch."):
             dtype_name = params["inference_precision"].split(".")[1]
             params["inference_precision"] = getattr(torch, dtype_name)
-
         params["device"] = device
 
-        if saved_cls == "TabPFNClassifier":
+        if saved_cls_name == "TabPFNClassifier":
             cls = import_module("tabpfn.classifier").TabPFNClassifier
-        elif saved_cls == "TabPFNRegressor":
+        elif saved_cls_name == "TabPFNRegressor":
             cls = import_module("tabpfn.regressor").TabPFNRegressor
         else:
-            raise TypeError(f"Unknown estimator class '{saved_cls}'")
+            raise TypeError(f"Unknown estimator class '{saved_cls_name}'")
 
         est = cls(**params)
+        # This is critical: it loads the base model weights into `est.model_`
         est._initialize_model_variables()
 
-        with (tmp / "preprocessor_state.json").open() as f:
-            state = json.load(f)
+        # 2. Restore all other fitted attributes
+        fitted_attrs = joblib.load(tmp / "fitted_attrs.joblib")
+        for key, value in fitted_attrs.items():
+            setattr(est, key, value)
 
-        est.inferred_categorical_indices_ = state["inferred_categorical_indices"]
-        if saved_cls == "TabPFNClassifier":
-            est.classes_ = np.array(state["classes"])
-            est.class_counts_ = np.array(state["class_counts"])
-            est.n_classes_ = len(est.classes_)
-        else:
-            est.y_train_mean_ = state["y_train_mean"]
-            est.y_train_std_ = state["y_train_std"]
+        # 3. Load the InferenceEngine state
+        est.executor_ = InferenceEngine.load_state(tmp / "executor_state.joblib")
 
-        est.preprocessor_ = joblib.load(tmp / "preprocessor.joblib")
-        if (tmp / "label_encoder.joblib").exists():
-            est.label_encoder_ = joblib.load(tmp / "label_encoder.joblib")
-        if (tmp / "bardist.joblib").exists():
-            est.bardist_ = joblib.load(tmp / "bardist.joblib")
-        if (tmp / "normalized_bardist.joblib").exists():
-            est.normalized_bardist_ = joblib.load(tmp / "normalized_bardist.joblib")
+        # 4. Re-link the foundation model with the loaded engine
+        if hasattr(est.executor_, "model") and est.executor_.model is None:
+            est.executor_.model = est.model_
+        if hasattr(est.executor_, "models") and est.executor_.models is None:
+            est.executor_.models = [
+                deepcopy(est.model_) for _ in range(len(est.executor_.configs))
+            ]
 
-        est.executor_ = InferenceEngine.load_state(tmp / "executor.joblib")
-        if hasattr(est.executor_, "model"):
-            est.model_ = est.executor_.model
-
+        # 5. Move all torch components to the target device
         est.device_ = torch.device(device)
-        if hasattr(est.executor_, "model"):
-            est.executor_.model = est.executor_.model.to(est.device_)
+        if hasattr(est.executor_, "model") and est.executor_.model is not None:
+            est.executor_.model.to(est.device_)
         if hasattr(est.executor_, "models"):
             est.executor_.models = [m.to(est.device_) for m in est.executor_.models]
-        if hasattr(est, "bardist_") and est.bardist_ is not None:
-            est.bardist_ = est.bardist_.to(est.device_)
-        if hasattr(est, "normalized_bardist_") and est.normalized_bardist_ is not None:
-            est.normalized_bardist_ = est.normalized_bardist_.to(est.device_)
+
+        # Restore other potential torch objects from fitted_attrs
+        for key, value in vars(est).items():
+            if key.endswith("_") and hasattr(value, "to"):
+                setattr(est, key, value.to(est.device_))
 
         return est
