@@ -250,7 +250,6 @@ def generate_index_permutations(
         subsample:
             Number of indices to subsample. If `int`, subsample that many
             indices. If float, subsample that fraction of indices.
-            random_state: Random number generator.
         random_state: Random number generator.
 
     Returns:
@@ -624,7 +623,7 @@ def fit_preprocessing_one(
 
 
 def transform_labels_one(config, y_train):
-    """Transform the labels for one ensembel config.
+    """Transform the labels for one ensemble config.
         for both regression or classification.
 
     Args:
