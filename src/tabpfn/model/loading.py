@@ -161,17 +161,15 @@ def _try_huggingface_downloads(
         # Move model file to desired location
         Path(local_path).rename(base_path)
 
-        # Download config.json
+        # Download config.json only to increment the download counter. We do not
+        # actually use this file so it is removed immediately after download.
         try:
-            config_path = base_path.parent / "config.json"
             config_local_path = hf_hub_download(
                 repo_id=source.repo_id,
                 filename="config.json",
                 local_dir=base_path.parent,
             )
-            if Path(config_local_path) != config_path:
-                Path(config_local_path).rename(config_path)
-            config_path.unlink()
+            Path(config_local_path).unlink(missing_ok=True)
         except Exception as e:  # noqa: BLE001
             logger.warning(f"Failed to download config.json: {e!s}")
             # Continue even if config.json download fails
