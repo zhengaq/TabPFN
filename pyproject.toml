@@ -217,7 +217,6 @@ exclude = [
 "__init__.py" = ["I002"]
 "examples/*" = ["INP001", "I002", "E741", "D101", "D103", "T20", "D415", "ERA001", "E402", "E501"]
 "docs/*" = ["INP001"]
-# TODO(eddiebergman):
 "src/tabpfn/model/*.py" = [
   # Documentation
   "D100",
@@ -241,6 +240,13 @@ exclude = [
 ]
 "src/tabpfn/*.py" = [
   "D107",
+]
+"examples/notebooks/TabPFN_Demo_Local.ipynb" = [
+    "F401",  # Unused import
+    "A004",  # Shadowing builtin
+    "PD901", # Generic variable name `df`
+    "NPY002",# Legacy np.random call
+    "ARG001",# Unused function argument
 ]
 
 
