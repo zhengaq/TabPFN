@@ -810,7 +810,6 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
         logits = logits.log()
         if logits.dtype == torch.float16:
             logits = logits.float()
-        logits = logits.cpu()
 
         # Determine and return intended output type
         logit_to_output = partial(

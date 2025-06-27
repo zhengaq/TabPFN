@@ -99,7 +99,9 @@ class ModelConfig:
 
         fields_in_config_not_in_cls = config_keys - cls_fields
 
-        if any(fields_in_config_not_in_cls):
+        if (
+            any(fields_in_config_not_in_cls) and False
+        ):  # disabled in public release for prints
             warnings.warn(
                 f"Fields in config not in Config class: {fields_in_config_not_in_cls}",
                 stacklevel=2,

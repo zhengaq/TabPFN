@@ -104,9 +104,6 @@ class AdaptiveQuantileTransformer(QuantileTransformer):
     def fit(
         self, X: np.ndarray, y: np.ndarray | None = None
     ) -> AdaptiveQuantileTransformer:
-        X = self._validate_data(
-            X, copy=self.copy, estimator=self, dtype=float, force_all_finite="allow-nan"
-        )
         n_samples = X.shape[0]
 
         # Adapt n_quantiles for this fit: min of user's preference and available samples
@@ -1267,7 +1264,13 @@ class EncodeCategoricalFeaturesStep(FeaturePreprocessingTransformerStep):
         if self.categorical_transformer_ is None:
             return X
 
-        transformed = self.categorical_transformer_.transform(X)
+        import warnings
+
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore", message=".*Found unknown categories in col.*"
+            )  # These warnings are expected when transforming test data
+            transformed = self.categorical_transformer_.transform(X)
         if self.categorical_transform_name.endswith("_shuffled"):
             for col, mapping in self.random_mappings_.items():
                 not_nan_mask = ~np.isnan(transformed[:, col])  # type: ignore
