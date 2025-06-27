@@ -61,6 +61,7 @@ class InferenceEngine(ABC):
 
     save_peak_mem: bool | Literal["auto"] | float | int
     dtype_byte_size: int
+    ensemble_configs: Sequence[EnsembleConfig]
 
     @abstractmethod
     def iter_outputs(
@@ -120,7 +121,7 @@ class InferenceEngine(ABC):
         joblib.dump(state_copy, path)
 
     @staticmethod
-    def load_state_expect_model_weights(path: str | Path) -> InferenceEngine:
+    def load_state(path: str | Path) -> InferenceEngine:
         """Load an executor saved with :meth:`save_state`."""
         return joblib.load(Path(path))
 

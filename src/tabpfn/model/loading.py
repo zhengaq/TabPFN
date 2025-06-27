@@ -840,16 +840,12 @@ def load_fitted_tabpfn_model(
             setattr(est, key, value)
 
         # 3. Load the InferenceEngine state
-        est.executor_ = InferenceEngine.load_state_expect_model_weights(
-            tmp / "executor_state.joblib"
-        )
+        est.executor_ = InferenceEngine.load_state(tmp / "executor_state.joblib")
 
         # 4. Re-link the foundation model with the loaded engine
-        if hasattr(est.executor_, "model") and est.executor_.model is None:
-            est.executor_.model = est.model_
         if hasattr(est.executor_, "models") and est.executor_.models is None:
             est.executor_.models = [
-                deepcopy(est.model_) for _ in range(len(est.executor_.configs))
+                deepcopy(est.model_) for _ in range(len(est.executor_.ensemble_configs))
             ]
 
         # 5. Move all torch components to the target device
