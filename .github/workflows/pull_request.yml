@@ -2,31 +2,31 @@ name: In pull request
 on:
   pull_request:
 
-###############################################################################
-# 1. Ruff lint + format
-###############################################################################
+#######################################################################
+#  Linting & formatting (unchanged)
+#######################################################################
 jobs:
-  lint:
-    name: Ruff Lint & Format
+  check_python_linting:
+    name: Ruff Linting & Formatting
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: astral-sh/ruff-action@eaf0ecdd668ceea36159ff9d91882c9795d89b49 # v3.4.0
+        with:
+          src: "./src ./tests"
+          version: 0.8.6
+      - uses: astral-sh/ruff-action@eaf0ecdd668ceea36159ff9d91882c9795d89b49 # v3.4.0
+        with:
+          src: "./src ./tests"
+          version: 0.8.6
+          args: "format --check"
 
-      # One install – two commands
-      - name: Install Ruff
-        run: pip install ruff==0.8.6
-
-      - name: Run Ruff
-        run: |
-          ruff check ./src ./tests
-          ruff format --check ./src ./tests
-
-###############################################################################
-# 2. CPU-only compatibility matrix
-###############################################################################
+#######################################################################
+#  CPU-only compatibility matrix
+#  (all OSes except the Linux+3.13 combo we gate the GPU test on)
+#######################################################################
   test_compatibility_cpu:
     name: Test Package Compatibility (CPU matrix)
-    needs: lint
     strategy:
       fail-fast: false
       matrix:
@@ -34,7 +34,7 @@ jobs:
           - os: ubuntu-latest
             python-version: "3.9"
             dependency-set: minimum
-          - os: macos-13        # macOS runner that still supports 3.9
+          - os: macos-13          # macos-latest fails with Py 3.10
             python-version: "3.9"
             dependency-set: minimum
           - os: windows-latest
@@ -49,16 +49,16 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: ${{ matrix.python-version }}
-          cache: pip            # wheel cache across jobs/runs
+          architecture: x64
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@445689ea25e0de0a23313031f5fe577c74ae45a1 # v6.3.0
         with:
           enable-cache: true
 
@@ -68,41 +68,38 @@ jobs:
       - name: Install dependencies
         shell: bash
         run: |
-          # CPU-only wheel – smaller & faster
-          uv pip install --system torch --index-url https://download.pytorch.org/whl/cpu
           uv pip install --system --no-deps .
           uv pip install --system -r requirements.txt
           uv pip install --system pytest psutil
-          # ONNX still missing for 3.13
+          # onnx not yet available for Python 3.13
           if [[ "${{ matrix.python-version }}" != "3.13" ]]; then
             uv pip install --system onnx
           fi
 
-      - name: Init submodules
+      - name: Initialize submodules
         run: git submodule update --init --recursive
 
-      - name: Run tests
+      - name: Run Tests
         run: pytest tests/
 
-###############################################################################
-# 3. Linux-latest (Py 3.13, CPU) – explicit gate for the GPU job
-###############################################################################
+#######################################################################
+#  Linux-latest (Py 3.13, CPU) – gate for the GPU job
+#######################################################################
   test_compatibility_linux_latest:
-    name: Test Package Compatibility (Linux Py 3.13  CPU)
-    needs: lint
+    name: Test Package Compatibility (Linux Py 3.13)
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Set up Python 3.13
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.13"
-          cache: pip
+          architecture: x64
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@445689ea25e0de0a23313031f5fe577c74ae45a1 # v6.3.0
         with:
           enable-cache: true
 
@@ -112,39 +109,36 @@ jobs:
       - name: Install dependencies
         shell: bash
         run: |
-          uv pip install --system torch --index-url https://download.pytorch.org/whl/cpu
           uv pip install --system --no-deps .
           uv pip install --system -r requirements.txt
           uv pip install --system pytest psutil
+          # onnx not yet available for Python 3.13
 
-      - name: Init submodules
+      - name: Initialize submodules
         run: git submodule update --init --recursive
 
-      - name: Run tests
+      - name: Run Tests
         run: pytest tests/
 
-###############################################################################
-# 4. Single GPU smoke-test (runs only after *all* CPU jobs + lint pass)
-###############################################################################
-
+#######################################################################
+#  GPU smoke-test – runs only after the Linux 3.13 CPU job succeeds
+#######################################################################
   test_gpu_cuda:
     name: GPU CUDA Tests (Linux Py 3.13)
-    needs:
-      - lint
-      - test_compatibility_linux_latest
+    needs: test_compatibility_linux_latest
+    # Use the label you gave your GitHub-hosted GPU runner
     runs-on: ubuntu-22.04-4core-gpu
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Set up Python 3.13
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.13"
-          cache: pip
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@445689ea25e0de0a23313031f5fe577c74ae45a1 # v6.3.0
         with:
           enable-cache: true
 
@@ -154,12 +148,16 @@ jobs:
       - name: Install project & CUDA deps
         shell: bash
         run: |
+          # CUDA 12.1 wheels match the GitHub GPU image
           uv pip install --system --no-deps .
           uv pip install --system -r requirements.txt
           uv pip install --system pytest psutil
+          # onnx not yet available for Python 3.13
 
-      - name: Init submodules
+      - name: Initialize submodules
         run: git submodule update --init --recursive
 
-      - name: Run GPU test suite
+      - name: Run GPU Test Suite
+        env:
+          CUDA_VISIBLE_DEVICES: 0
         run: pytest tests/ -v
