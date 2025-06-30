@@ -29,7 +29,6 @@ jobs:
     needs: lint
     strategy:
       fail-fast: false
-      max-parallel: 3          # limit concurrency to keep runners cheap
       matrix:
         include:
           - os: ubuntu-latest
@@ -132,7 +131,6 @@ jobs:
     name: GPU CUDA Tests (Linux Py 3.13)
     needs:
       - lint
-      - test_compatibility_linux_latest
     runs-on: ubuntu-22.04-4core-gpu
 
     steps:
@@ -155,9 +153,6 @@ jobs:
       - name: Install project & CUDA deps
         shell: bash
         run: |
-          # CUDA 12.1 wheels match GitHub’s GPU image
-          uv pip install --system torch torchvision torchaudio \
-               --index-url https://download.pytorch.org/whl/cu121
           uv pip install --system --no-deps .
           uv pip install --system -r requirements.txt
           uv pip install --system pytest psutil
