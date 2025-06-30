@@ -131,7 +131,6 @@ jobs:
     name: GPU CUDA Tests (Linux Py 3.13)
     needs:
       - lint
-      - test_compatibility_cpu
       - test_compatibility_linux_latest
     runs-on: ubuntu-22.04-4core-gpu   # ← change to your runner label
 
