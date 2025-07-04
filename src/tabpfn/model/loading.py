@@ -67,11 +67,11 @@ class ModelSource:
             "tabpfn-v2-classifier-od3j1g5m.ckpt",
             "tabpfn-v2-classifier-vutqq28w.ckpt",
             "tabpfn-v2-classifier-znskzxi4.ckpt",
-            "tabpfn-v2-classifier-finetuned-zk73skhh.cpkt",
+            "tabpfn-v2-classifier-finetuned-zk73skhh.ckpt",
         ]
         return cls(
             repo_id="Prior-Labs/TabPFN-v2-clf",
-            default_filename="tabpfn-v2-classifier.ckpt",
+            default_filename="tabpfn-v2-classifier-finetuned-zk73skhh.ckpt",
             filenames=filenames,
         )
 
