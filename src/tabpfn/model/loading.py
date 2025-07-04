@@ -67,6 +67,7 @@ class ModelSource:
             "tabpfn-v2-classifier-od3j1g5m.ckpt",
             "tabpfn-v2-classifier-vutqq28w.ckpt",
             "tabpfn-v2-classifier-znskzxi4.ckpt",
+            "tabpfn-v2-classifier-finetuned-zk73skhh.cpkt",
         ]
         return cls(
             repo_id="Prior-Labs/TabPFN-v2-clf",
