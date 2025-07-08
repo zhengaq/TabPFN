@@ -81,17 +81,31 @@ def main():
     # --- Master Configuration ---
     # This improved structure separates general settings from finetuning hyperparameters.
     config = {
+        # Sets the computation device ('cuda' for GPU if available, otherwise 'cpu').
         "device": "cuda" if torch.cuda.is_available() else "cpu",
+        # The total number of samples to draw from the full Covertype dataset. This is useful for
+        # managing memory and computation time, especially with large datasets.
         "num_samples_to_use": 100_000,
+        # A seed for random number generators to ensure that data shuffling, splitting,
+        # and model initializations are reproducible.
         "random_seed": 42,
+        # The proportion of the dataset to allocate to the test set for final evaluation.
         "test_set_ratio": 0.3,
-        "n_inference_context_samples": 10_000,
+        # During evaluation, this is the number of samples from the training set given to the
+        # model as context before it makes predictions on the test set.
+        "n_inference_context_samples": 10000,
     }
     config["finetuning"] = {
+        # The total number of passes through the entire fine-tuning dataset.
         "epochs": 10,
-        "learning_rate": 1e-6,
+        # The step size for the Adam optimizer. A small learning rate is crucial for fine-tuning,
+        # as it allows the model to gently adapt its pre-trained weights to the new data
+        # without catastrophic forgetting.
+        "learning_rate": 1.5e-6,
+        # In each training step, this is the number of "meta-datasets" (splits of the training data) to process.
         "meta_batch_size": 1,
-        # Link finetuning batch size to the model's context window for consistency
+        # The number of samples within each training data split. It's capped by
+        # n_inference_context_samples to align with the evaluation setup.
         "batch_size": int(
             min(config["n_inference_context_samples"], config["num_samples_to_use"] * (1 - config["test_set_ratio"])))
     }
