@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -110,16 +111,6 @@ def _get_model_source(version: ModelVersion, model_type: ModelType) -> ModelSour
     )
 
 
-def _suppress_hf_token_warning() -> None:
-    """Suppress warning about missing HuggingFace token."""
-    import warnings
-
-    # Filter warnings about HF_TOKEN
-    warnings.filterwarnings(
-        "ignore", message="The secret HF_TOKEN does not exist.*", category=UserWarning
-    )
-
-
 def _try_huggingface_downloads(
     base_path: Path,
     source: ModelSource,
@@ -135,8 +126,6 @@ def _try_huggingface_downloads(
         model_name: Optional specific model name to download.
         suppress_warnings: Whether to suppress HF token warnings.
     """
-    if suppress_warnings:
-        _suppress_hf_token_warning()
     """Try to download models and config using the HuggingFace Hub API."""
     try:
         from huggingface_hub import hf_hub_download
@@ -161,32 +150,40 @@ def _try_huggingface_downloads(
     # Create parent directory if it doesn't exist
     base_path.parent.mkdir(parents=True, exist_ok=True)
 
-    try:
-        # Download model checkpoint
-        local_path = hf_hub_download(
-            repo_id=source.repo_id,
-            filename=filename,
-            local_dir=base_path.parent,
-        )
-        # Move model file to desired location
-        Path(local_path).rename(base_path)
+    warning_context = (
+        warnings.catch_warnings() if suppress_warnings else contextlib.nullcontext()
+    )
 
-        # Download config.json only to increment the download counter. We do not
-        # actually use this file so it is removed immediately after download.
+    with warning_context:
+        if suppress_warnings:
+            warnings.filterwarnings("ignore")
+
         try:
-            config_local_path = hf_hub_download(
+            # Download model checkpoint
+            local_path = hf_hub_download(
                 repo_id=source.repo_id,
-                filename="config.json",
+                filename=filename,
                 local_dir=base_path.parent,
             )
-            Path(config_local_path).unlink(missing_ok=True)
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"Failed to download config.json: {e!s}")
-            # Continue even if config.json download fails
+            # Move model file to desired location
+            Path(local_path).rename(base_path)
 
-        logger.info(f"Successfully downloaded to {base_path}")
-    except Exception as e:
-        raise Exception("HuggingFace download failed!") from e
+            # Download config.json only to increment the download counter. We do not
+            # actually use this file so it is removed immediately after download.
+            try:
+                config_local_path = hf_hub_download(
+                    repo_id=source.repo_id,
+                    filename="config.json",
+                    local_dir=base_path.parent,
+                )
+                Path(config_local_path).unlink(missing_ok=True)
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"Failed to download config.json: {e!s}")
+                # Continue even if config.json download fails
+
+            logger.info(f"Successfully downloaded to {base_path}")
+        except Exception as e:
+            raise Exception("HuggingFace download failed!") from e
 
 
 def _try_direct_downloads(
