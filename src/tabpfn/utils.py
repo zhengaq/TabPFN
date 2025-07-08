@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import ctypes
 import typing
-import warnings
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -394,36 +393,19 @@ def validate_Xy_fit(
         assert len(X.shape) == 2
         estimator.n_features_in_ = X.shape[1]
 
-    if X.shape[1] > max_num_features:
-        if not ignore_pretraining_limits:
-            raise ValueError(
-                f"Number of features {X.shape[1]} in the input data is greater than "
-                f"the maximum number of features {max_num_features} officially "
-                "supported by the TabPFN model. Set `ignore_pretraining_limits=True` "
-                "to override this error!",
-            )
-
-        warnings.warn(
-            f"Number of features {X.shape[1]} is greater than the maximum "
-            f"Number of features {max_num_features} supported by the model."
-            " You may see degraded performance.",
-            UserWarning,
-            stacklevel=2,
+    if X.shape[1] > max_num_features and not ignore_pretraining_limits:
+        raise ValueError(
+            f"Number of features {X.shape[1]} in the input data is greater than "
+            f"the maximum number of features {max_num_features} officially "
+            "supported by the TabPFN model. Set `ignore_pretraining_limits=True` "
+            "to override this error!",
         )
-    if X.shape[0] > max_num_samples:
-        if not ignore_pretraining_limits:
-            raise ValueError(
-                f"Number of samples {X.shape[0]} in the input data is greater than "
-                f"the maximum number of samples {max_num_samples} officially supported"
-                f" by TabPFN. Set `ignore_pretraining_limits=True` to override this "
-                f"error!",
-            )
-        warnings.warn(
-            f"Number of samples {X.shape[0]} is greater than the maximum "
-            f"Number of samples {max_num_samples} supported by the model."
-            " You may see degraded performance.",
-            UserWarning,
-            stacklevel=2,
+    if X.shape[0] > max_num_samples and not ignore_pretraining_limits:
+        raise ValueError(
+            f"Number of samples {X.shape[0]} in the input data is greater than "
+            f"the maximum number of samples {max_num_samples} officially supported"
+            f" by TabPFN. Set `ignore_pretraining_limits=True` to override this "
+            f"error!",
         )
 
     if is_classifier(estimator) and not estimator.differentiable_input:

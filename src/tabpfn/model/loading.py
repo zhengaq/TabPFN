@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import dataclasses
 import json
 import logging
 import os
@@ -40,6 +39,8 @@ from tabpfn.model.transformer import PerFeatureTransformer
 if TYPE_CHECKING:
     from sklearn.base import BaseEstimator
 
+    from tabpfn import TabPFNClassifier, TabPFNRegressor
+
 logger = logging.getLogger(__name__)
 
 
@@ -67,10 +68,11 @@ class ModelSource:
             "tabpfn-v2-classifier-od3j1g5m.ckpt",
             "tabpfn-v2-classifier-vutqq28w.ckpt",
             "tabpfn-v2-classifier-znskzxi4.ckpt",
+            "tabpfn-v2-classifier-finetuned-zk73skhh.ckpt",
         ]
         return cls(
             repo_id="Prior-Labs/TabPFN-v2-clf",
-            default_filename="tabpfn-v2-classifier.ckpt",
+            default_filename="tabpfn-v2-classifier-finetuned-zk73skhh.ckpt",
             filenames=filenames,
         )
 
@@ -450,16 +452,35 @@ def resolve_model_path(
     which: Literal["regressor", "classifier"],
     version: Literal["v2"] = "v2",
 ) -> tuple[Path, Path, str, str]:
+    """Resolves the model path, using the official default model if no path is provided.
+
+    Args:
+        model_path: An optional path to a model file. If None, the default
+            model for the given `which` and `version` will be used, resolving
+            to the local cache directory.
+        which: The type of model ('regressor' or 'classifier').
+        version: The model version (currently only 'v2').
+
+    Returns:
+        A tuple containing the resolved model Path, the parent directory Path,
+        the model's filename, and the model type.
+    """
     if model_path is None:
+        # Get the source information to find the official default model filename.
+        model_source = _get_model_source(ModelVersion(version), ModelType(which))
+        model_name = model_source.default_filename
+
+        # Determine the cache directory for storing models.
         USER_TABPFN_CACHE_DIR_LOCATION = os.environ.get("TABPFN_MODEL_CACHE_DIR", "")
         if USER_TABPFN_CACHE_DIR_LOCATION.strip() != "":
             model_dir = Path(USER_TABPFN_CACHE_DIR_LOCATION)
         else:
             model_dir = _user_cache_dir(platform=sys.platform, appname="tabpfn")
 
-        model_name = f"tabpfn-{version}-{which}.ckpt"
+        # Construct the full path to the default model.
         model_path = model_dir / model_name
     else:
+        # If a path is provided, simply parse it.
         if not isinstance(model_path, (str, Path)):
             raise ValueError(f"Invalid model_path: {model_path}")
 
@@ -703,7 +724,9 @@ def get_n_out(
     )
 
 
-def save_tabpfn_model(model: nn.Module, save_path: Path | str) -> None:
+def save_tabpfn_model(
+    model: TabPFNRegressor | TabPFNClassifier, save_path: Path | str
+) -> None:
     """Save the underlying TabPFN foundation model to ``save_path``.
 
     This writes only the base pre-trained weights and configuration. It does
@@ -730,11 +753,8 @@ def save_tabpfn_model(model: nn.Module, save_path: Path | str) -> None:
     else:
         state_dict = model_state
 
-    # Convert Config object to dictionary and add necessary fields
-    config_dict = dataclasses.asdict(model.config_)
-
     # Create checkpoint with correct structure
-    checkpoint = {"state_dict": state_dict, "config": config_dict}
+    checkpoint = {"state_dict": state_dict, "config": model.config_}
 
     # Save the checkpoint
     torch.save(checkpoint, save_path)
