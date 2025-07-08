@@ -215,7 +215,7 @@ exclude = [
   "C901",  # Too complex
 ]
 "__init__.py" = ["I002"]
-"examples/*" = ["INP001", "I002", "E741", "D101", "D103", "T20", "D415", "ERA001", "E402", "E501"]
+"examples/*" = ["INP001", "I002", "E741", "D101", "D103", "T20", "D415", "ERA001", "E402", "E501", "BLE001"]
 "docs/*" = ["INP001"]
 "src/tabpfn/model/*.py" = [
   # Documentation
