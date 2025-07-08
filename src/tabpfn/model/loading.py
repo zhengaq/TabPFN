@@ -40,6 +40,8 @@ from tabpfn.model.transformer import PerFeatureTransformer
 if TYPE_CHECKING:
     from sklearn.base import BaseEstimator
 
+    from tabpfn import TabPFNClassifier, TabPFNRegressor
+
 logger = logging.getLogger(__name__)
 
 
@@ -723,7 +725,9 @@ def get_n_out(
     )
 
 
-def save_tabpfn_model(model: nn.Module, save_path: Path | str) -> None:
+def save_tabpfn_model(
+    model: TabPFNRegressor | TabPFNClassifier, save_path: Path | str
+) -> None:
     """Save the underlying TabPFN foundation model to ``save_path``.
 
     This writes only the base pre-trained weights and configuration. It does
