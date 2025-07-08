@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import dataclasses
 import json
 import logging
 import os
@@ -754,11 +753,8 @@ def save_tabpfn_model(
     else:
         state_dict = model_state
 
-    # Convert Config object to dictionary and add necessary fields
-    config_dict = dataclasses.asdict(model.config_)
-
     # Create checkpoint with correct structure
-    checkpoint = {"state_dict": state_dict, "config": config_dict}
+    checkpoint = {"state_dict": state_dict, "config": model.config_}
 
     # Save the checkpoint
     torch.save(checkpoint, save_path)
