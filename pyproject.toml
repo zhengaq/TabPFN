@@ -26,7 +26,14 @@ authors = [
   { name = "Frank Hutter" },
   # Huge thanks to code refactoring contributor Eddie
   { name = "Eddie Bergman" },
-  { name = "Leo Grinsztajn" }
+  # Prior Labs Contributors
+  { name = "Leo Grinsztajn" },
+  { name = "Felix Jabloski"},
+  { name = "Klemens Flöge"},
+  { name = "Oscar Key"},
+  { name = "Felix Birkel"},
+  { name = "Philipp Jund"},
+
 ]
 
 readme = "README.md"

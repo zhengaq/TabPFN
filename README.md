@@ -38,7 +38,7 @@ pip install "tabpfn @ git+https://github.com/PriorLabs/TabPFN.git"
 OR local development installation
 ```bash
 
-git clone https://github.com/PriorLabs/TabPFN.git
+git clone https://github.com/PriorLabs/TabPFN.git --depth 1
 pip install -e "TabPFN[dev]"
 ```
 
