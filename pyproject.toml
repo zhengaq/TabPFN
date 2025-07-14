@@ -5,15 +5,6 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "tabpfn"
 version = "2.1.0"
-dependencies = [
-  "torch>=2.1,<3",
-  "scikit-learn>=1.2.0,<1.7",
-  "typing_extensions>=4.4.0",
-  "scipy>=1.11.1,<2",
-  "pandas>=1.4.0,<3",
-  "einops>=0.2.0,<0.9",
-  "huggingface-hub>=0.0.1,<1"
-]
 requires-python = ">=3.9"
 authors = [
   { name = "Noah Hollmann" },
@@ -26,7 +17,14 @@ authors = [
   { name = "Frank Hutter" },
   # Huge thanks to code refactoring contributor Eddie
   { name = "Eddie Bergman" },
-  { name = "Leo Grinsztajn" }
+  # Prior Labs Contributors
+  { name = "Leo Grinsztajn" },
+  { name = "Felix Jabloski"},
+  { name = "Klemens Flöge"},
+  { name = "Oscar Key"},
+  { name = "Felix Birkel"},
+  { name = "Phil Jund"},
+
 ]
 
 readme = "README.md"
@@ -48,12 +46,26 @@ classifiers = [
   'Programming Language :: Python :: 3.13',
 ]
 license = { file = "LICENSE" }
-
-[project.urls]
-documentation = "https://priorlabs.ai/docs"
-source = "https://github.com/priorlabs/tabpfn"
+dependencies = [
+  "torch>=2.1,<3",
+  "scikit-learn>=1.2.0,<1.7",
+  "typing_extensions>=4.4.0",
+  "scipy>=1.11.1,<2",
+  "pandas>=1.4.0,<3",
+  "einops>=0.2.0,<0.9",
+  "huggingface-hub>=0.0.1,<1"
+]
 
 [project.optional-dependencies]
+no-torch = [
+  "scikit-learn>=1.2.0,<1.7",
+  "typing_extensions>=4.4.0",
+  "scipy>=1.11.1,<2",
+  "pandas>=1.4.0,<3",
+  "einops>=0.2.0,<0.9",
+  "huggingface-hub>=0.0.1,<1"
+]
+
 dev = [
   # Lint/format
   "pre-commit",
@@ -75,6 +87,10 @@ dev = [
   "mike",
   "black",  # This allows mkdocstrings to format signatures in the docs
 ]
+
+[project.urls]
+documentation = "https://priorlabs.ai/docs"
+source = "https://github.com/priorlabs/tabpfn"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]  # Where the tests are located
