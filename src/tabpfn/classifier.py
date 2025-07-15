@@ -653,7 +653,18 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
         """Internal method to run prediction.
 
         Handles input validation, preprocessing, and the forward pass.
-        Returns the raw torch.Tensor output (either logits or probabilities).
+        Returns the raw torch.Tensor output (either logits or probabilities)
+        before final detachment and conversion to NumPy.
+
+        Args:
+            X: The input data for prediction.
+            return_logits: If True, the raw logits are returned. Otherwise,
+                           probabilities are returned after softmax and other
+                           post-processing steps.
+
+        Returns:
+            The raw torch.Tensor output, either logits or probabilities,
+            depending on `return_logits`.
         """
         check_is_fitted(self)
 
@@ -668,10 +679,10 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
         """Predict the class labels for the provided input samples.
 
         Args:
-            X: The input samples.
+            X: The input data for prediction.
 
         Returns:
-            The predicted class labels.
+            The predicted class labels as a NumPy array.
         """
         proba = self.predict_proba(X)
         y_pred = np.argmax(proba, axis=1)
@@ -682,7 +693,17 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
 
     @config_context(transform_output="default")
     def predict_logits(self, X: XType) -> np.ndarray:
-        """Predict the raw logits for the provided input samples."""
+        """Predict the raw logits for the provided input samples.
+
+        Logits represent the unnormalized log-probabilities of the classes
+        before the softmax activation function is applied.
+
+        Args:
+            X: The input data for prediction.
+
+        Returns:
+            The predicted logits as a NumPy array. Shape (n_samples, n_classes).
+        """
         logits_tensor = self._raw_predict(X, return_logits=True)
         return logits_tensor.float().detach().cpu().numpy()
 
@@ -691,10 +712,11 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
         """Predict the probabilities of the classes for the provided input samples.
 
         Args:
-            X: The input data.
+            X: The input data for prediction.
 
         Returns:
-            The predicted probabilities of the classes.
+            The predicted probabilities of the classes as a NumPy array.
+            Shape (n_samples, n_classes).
         """
         proba_tensor = self._raw_predict(X, return_logits=False)
         output = proba_tensor.float().detach().cpu().numpy()
@@ -703,7 +725,7 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
             output = np.around(output, decimals=SKLEARN_16_DECIMAL_PRECISION)
             output = np.where(output < PROBABILITY_EPSILON_ROUND_ZERO, 0.0, output)
 
-        # Normalize to guarantee proba sum to 1, required due to precision issues and
+        # Ensure probabilities sum to 1 in case of minor floating point inaccuracies
         # going from torch to numpy
         return output / output.sum(axis=1, keepdims=True)  # type: ignore
 
@@ -751,7 +773,10 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
             return_logits: If True, returns raw logits. Otherwise, probabilities.
 
         Returns:
-            The predicted probabilities or logits of the classes.
+            The predicted probabilities or logits of the classes as a torch.Tensor.
+            - If `use_inference_mode` is True: Shape (N_samples, N_classes)
+            - If `use_inference_mode` is False (e.g., for training/fine-tuning):
+              Shape (Batch_size, N_classes, N_samples), suitable for NLLLoss.
         """
         # Scenario 1: Standard inference path
         is_standard_inference = use_inference_mode and not isinstance(
