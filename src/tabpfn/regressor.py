@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import copy
 import logging
 import typing
 from collections.abc import Callable, Sequence
@@ -126,6 +127,19 @@ RegressionResultType = Union[
 
 class TabPFNRegressor(RegressorMixin, BaseEstimator):
     """TabPFNRegressor class."""
+
+    # Default quantiles returned by the predict method
+    _DEFAULT_REGRESSION_QUANTILES: typing.ClassVar[list[float]] = [
+        0.1,
+        0.2,
+        0.3,
+        0.4,
+        0.5,
+        0.6,
+        0.7,
+        0.8,
+        0.9,
+    ]
 
     config_: ModelConfig
     """The configuration of the loaded model to be used for inference."""
@@ -773,11 +787,12 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
         check_is_fitted(self)
 
         if quantiles is None:
-            quantiles = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
-        else:
-            assert all(
-                (0 <= q <= 1) and (isinstance(q, float)) for q in quantiles
-            ), "All quantiles must be between 0 and 1 and floats."
+            quantiles = copy.deepcopy(self._DEFAULT_REGRESSION_QUANTILES)
+
+        assert all(
+            (0 <= q <= 1) and (isinstance(q, float)) for q in quantiles
+        ), "All quantiles must be between 0 and 1 and floats."
+
         if output_type not in _USABLE_OUTPUT_TYPES:
             raise ValueError(f"Invalid output type: {output_type}")
 
