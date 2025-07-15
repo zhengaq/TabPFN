@@ -692,6 +692,38 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
 
         return self
 
+    def _raw_predict(self, X: XType) -> torch.Tensor:
+        """Handles preprocessing and runs the full prediction pipeline.
+
+        This is the central internal prediction function, returning the final
+        processed logits ready for output conversion.
+        """
+        # 1. Preprocess the input data
+        X_processed = validate_X_predict(X, self)
+        X_processed = _fix_dtypes(
+            X_processed, cat_indices=self.inferred_categorical_indices_
+        )
+        X_processed = _process_text_na_dataframe(
+            X_processed, ord_encoder=self.preprocessor_
+        )
+
+        # 2. Get raw data from the model
+        _, raw_outputs, borders = self.forward(X_processed, use_inference_mode=True)
+
+        # 3. Assemble and execute the post-processing pipeline
+        pipeline = [
+            self._apply_temperature,
+            partial(self._translate_and_stack, borders=borders),
+            self._average_and_get_log_probas,
+            self._cast_logits_precision,
+        ]
+
+        logits = raw_outputs
+        for step_function in pipeline:
+            logits = step_function(logits)
+
+        return logits
+
     @overload
     def predict(
         self,
@@ -737,40 +769,7 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
         output_type: OutputType = "mean",
         quantiles: list[float] | None = None,
     ) -> RegressionResultType:
-        """Runs the forward() method and then transform the logits
-        from the binning space in order to predict target variable.
-
-        Args:
-            X: The input data.
-            output_type:
-                Determines the type of output to return.
-
-                - If `"mean"`, we return the mean over the predicted distribution.
-                - If `"median"`, we return the median over the predicted distribution.
-                - If `"mode"`, we return the mode over the predicted distribution.
-                - If `"quantiles"`, we return the quantiles of the predicted
-                    distribution. The parameter `quantiles` determines which
-                    quantiles are returned.
-                - If `"main"`, we return the all output types above in a dict.
-                - If `"full"`, we return the full output of the model, including the
-                  logits and the criterion, and all the output types from "main".
-
-            quantiles:
-                The quantiles to return if `output="quantiles"`.
-
-                By default, the `[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]`
-                quantiles are returned. The predictions per quantile match
-                the input order.
-
-        Returns:
-            The prediction, which can be a numpy array, a list of arrays (for
-            quantiles), or a dictionary with detailed outputs.
-        """
-        check_is_fitted(self)
-
-        # TODO: Move these at some point to InferenceEngine
-        X = validate_X_predict(X, self)
-
+        """Predicts target values by processing the model's final logits."""
         check_is_fitted(self)
 
         if quantiles is None:
@@ -783,39 +782,14 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
             raise ValueError(f"Invalid output type: {output_type}")
 
         if hasattr(self, "is_constant_target_") and self.is_constant_target_:
-            return self._handle_constant_target(X.shape[0], output_type, quantiles)
-
-        X = _fix_dtypes(X, cat_indices=self.inferred_categorical_indices_)
-        X = _process_text_na_dataframe(X, ord_encoder=self.preprocessor_)  # type: ignore
-
-        # Runs over iteration engine
-        (
-            _,
-            outputs,  # list of tensors [N_est, N_samples, N_borders] (after forward)
-            borders,  # list of numpy arrays containing borders for each estimator
-        ) = self.forward(X, use_inference_mode=True)
-
-        # --- Translate probs, average, get final logits ---
-        transformed_logits = [
-            translate_probs_across_borders(
-                logits,
-                frm=torch.as_tensor(borders_t, device=self.device_),
-                to=self.bardist_.borders.to(self.device_),
+            return self._handle_constant_target(
+                validate_X_predict(X, self).shape[0], output_type, quantiles
             )
-            for logits, borders_t in zip(outputs, borders)
-        ]
-        stacked_logits = torch.stack(transformed_logits, dim=0)
-        if self.average_before_softmax:
-            logits = stacked_logits.log().mean(dim=0).softmax(dim=-1)
-        else:
-            logits = stacked_logits.mean(dim=0)
 
-        # Post-process the logits
-        logits = logits.log()
-        if logits.dtype == torch.float16:
-            logits = logits.float()
+        # Get the final logits from our single, powerful helper method
+        logits = self._raw_predict(X)
 
-        # Determine and return intended output type
+        # Convert final logits to the requested output format
         logit_to_output = partial(
             _logits_to_output,
             logits=logits,
@@ -823,8 +797,6 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
             quantiles=quantiles,
         )
         if output_type in ["full", "main"]:
-            # Create a dictionary of outputs with proper typing via TypedDict
-            # Get individual outputs with proper typing
             mean_out = typing.cast("np.ndarray", logit_to_output(output_type="mean"))
             median_out = typing.cast(
                 "np.ndarray", logit_to_output(output_type="median")
@@ -834,26 +806,86 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
                 "list[np.ndarray]",
                 logit_to_output(output_type="quantiles"),
             )
-
-            # Create our typed dictionary
             main_outputs = MainOutputDict(
                 mean=mean_out,
                 median=median_out,
                 mode=mode_out,
                 quantiles=quantiles_out,
             )
-
             if output_type == "full":
-                # Return full output with criterion and logits
                 return FullOutputDict(
                     **main_outputs,
                     criterion=self.normalized_bardist_,
                     logits=logits,
                 )
-
             return main_outputs
 
         return logit_to_output(output_type=output_type)
+
+    @config_context(transform_output="default")
+    def predict_logits(self, X: XType) -> np.ndarray:
+        """Predict the final raw logits for the provided input samples.
+
+        These are the final log-probabilities over the binned output distribution
+        after all ensembling and post-processing has been applied.
+
+        Args:
+            X: The input data.
+
+        Returns:
+            The predicted logits. Shape (n_samples, n_bins).
+        """
+        check_is_fitted(self)
+
+        if hasattr(self, "is_constant_target_") and self.is_constant_target_:
+            raise NotImplementedError(
+                "Logit prediction not supported when the training target is constant."
+            )
+
+        logits_tensor = self._raw_predict(X)
+        return logits_tensor.detach().cpu().numpy()
+
+    def _apply_temperature(self, logits_list: list[torch.Tensor]) -> list[torch.Tensor]:
+        """Scales a list of logit tensors by the softmax temperature."""
+        if self.softmax_temperature != 1.0:
+            return [t.float() / self.softmax_temperature for t in logits_list]
+        return logits_list
+
+    def _translate_and_stack(
+        self,
+        logits_list: list[torch.Tensor],
+        borders: list[np.ndarray],
+    ) -> torch.Tensor:
+        """Translates probs across borders for each estimator and stacks them."""
+        # Note: the input here is technically probabilities, not logits
+        probas = [
+            translate_probs_across_borders(
+                logits,
+                frm=torch.as_tensor(borders_t, device=self.device_),
+                to=self.bardist_.borders.to(self.device_),
+            )
+            for logits, borders_t in zip(logits_list, borders)
+        ]
+        return torch.stack(probas, dim=0)
+
+    def _average_and_get_log_probas(self, stacked_probas: torch.Tensor) -> torch.Tensor:
+        """Averages probabilities and returns the result in log-space (as logits)."""
+        if self.average_before_softmax:
+            # Go to log-space, average the logits, then return final log-probabilities
+            # using the numerically stable log_softmax function.
+            log_probas = stacked_probas.log()
+            avg_log_probas = log_probas.mean(dim=0)
+            return torch.nn.functional.log_softmax(avg_log_probas, dim=-1)
+
+        # Average probabilities in probability space, then convert to log-space.
+        avg_probas = stacked_probas.mean(dim=0)
+        return avg_probas.log()
+
+    def _cast_logits_precision(self, logits: torch.Tensor) -> torch.Tensor:
+        """Ensures the final logits have the correct float precision."""
+        if logits.dtype == torch.float16:
+            return logits.float()
+        return logits
 
     def forward(
         self,
@@ -880,6 +912,8 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
                 - Raw outputs from each estimator in the ensemble.
                 - Borders used for each estimator.
         """
+        check_is_fitted(self)
+
         # Scenario 1: Standard inference path
         is_standard_inference = use_inference_mode and not isinstance(
             self.executor_, InferenceEngineBatchedNoPreprocessing
@@ -911,82 +945,68 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
 
         # Ensure torch.inference_mode is OFF to allow gradients
         if self.fit_mode in ["fit_preprocessors", "batched"]:
-            # only these two modes support this option
             self.executor_.use_torch_inference_mode(use_inference=use_inference_mode)
 
-        check_is_fitted(self)
-
         std_borders = self.bardist_.borders.cpu().numpy()
-        outputs: list[torch.Tensor] = []
+        raw_outputs: list[torch.Tensor] = []
         borders: list[np.ndarray] = []
 
-        # Iterate over estimators
         for output, config in self.executor_.iter_outputs(
-            X,
-            device=self.device_,
-            autocast=self.use_autocast_,
+            X, device=self.device_, autocast=self.use_autocast_
         ):
-            if self.softmax_temperature != 1:
-                output = output.float() / self.softmax_temperature  # noqa: PLW2901
-
-            # BSz.= 1 Scenario, the same as normal predict() function
-            # Handled by first if-statement
             config_for_ensemble = config
             if isinstance(config, list) and len(config) == 1:
-                single_config = config[0]
-                config_for_ensemble = single_config
+                config_for_ensemble = config[0]
 
-            if isinstance(config_for_ensemble, RegressorEnsembleConfig):
-                borders_t: np.ndarray
-                logit_cancel_mask: np.ndarray | None
-                descending_borders: bool
+            if not isinstance(config_for_ensemble, RegressorEnsembleConfig):
+                raise ValueError("Unexpected config format.")
 
-                # TODO(eddiebergman): Maybe this could be parallelized or done in fit
-                # but I somehow doubt it takes much time to be worth it.
-                # One reason to make it worth it is if you want fast predictions, i.e.
-                # don't re-do this each time.
-                # However it gets a bit more difficult as you need to line up the
-                # outputs from `iter_outputs` above (which may be in arbitrary order),
-                # along with the specific config the output belongs to. This is because
-                # the transformation done to the borders for a given output is dependant
-                # upon the target_transform of the config.
-                if config_for_ensemble.target_transform is None:
-                    borders_t = std_borders.copy()
-                    logit_cancel_mask = None
-                    descending_borders = False
-                else:
-                    logit_cancel_mask, descending_borders, borders_t = (
-                        _transform_borders_one(
-                            std_borders,
-                            target_transform=config_for_ensemble.target_transform,
-                            repair_nan_borders_after_transform=self.interface_config_.FIX_NAN_BORDERS_AFTER_TARGET_TRANSFORM,
-                        )
-                    )
-                    if descending_borders:
-                        borders_t = borders_t.flip(-1)  # type: ignore
-
-                borders.append(borders_t)
-
-                if logit_cancel_mask is not None:
-                    output = output.clone()  # noqa: PLW2901
-                    output[..., logit_cancel_mask] = float("-inf")
-
+            # TODO(eddiebergman): Maybe this could be parallelized or done in fit
+            # but I somehow doubt it takes much time to be worth it.
+            # One reason to make it worth it is if you want fast predictions, i.e.
+            # don't re-do this each time.
+            # However it gets a bit more difficult as you need to line up the
+            # outputs from `iter_outputs` above (which may be in arbitrary order),
+            # along with the specific config the output belongs to. This is because
+            # the transformation done to the borders for a given output is dependant
+            # upon the target_transform of the config.
+            if config_for_ensemble.target_transform is None:
+                borders_t = std_borders.copy()
+                logit_cancel_mask = None
+                descending_borders = False
             else:
-                raise ValueError(
-                    "Unexpected config format "
-                    "and Batch prediction is not supported yet!"
+                logit_cancel_mask, descending_borders, borders_t = (
+                    _transform_borders_one(
+                        std_borders,
+                        target_transform=config_for_ensemble.target_transform,
+                        repair_nan_borders_after_transform=self.interface_config_.FIX_NAN_BORDERS_AFTER_TARGET_TRANSFORM,
+                    )
                 )
 
-            outputs.append(output)  # type: ignore
+            # Some target transforms (e.g., a log transform on values between 0 and 1)
+            # can reverse the order of the output bins.
+            # If the borders are now descending, we flip them back to the required
+            # ascending order for all subsequent calculations.
+            if descending_borders:
+                borders_t = borders_t.flip(-1)  # type: ignore
+
+            borders.append(borders_t)
+
+            if logit_cancel_mask is not None:
+                # Set logits for invalid bins (e.g., from target transforms) to negative
+                # infinity, which gives them a probability of zero after softmax.
+                output = output.clone()  # noqa: PLW2901
+                output[..., logit_cancel_mask] = float("-inf")
+
+            raw_outputs.append(output)
 
         averaged_logits = None
-        all_logits = None
-        if outputs:
-            all_logits = torch.stack(outputs, dim=0)  # [N_est, N_sampls, N_bord]
+        if raw_outputs:
+            all_logits = torch.stack(raw_outputs, dim=0)  # [N_est, N_sampls, N_bord]
             averaged_logits_over_ensemble = torch.mean(all_logits, dim=0)
             averaged_logits = averaged_logits_over_ensemble.transpose(0, 1)
 
-        return averaged_logits, outputs, borders
+        return averaged_logits, raw_outputs, borders
 
     def _handle_constant_target(
         self, n_samples: int, output_type: OutputType, quantiles: list[float]
