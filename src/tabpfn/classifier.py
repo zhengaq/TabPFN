@@ -139,7 +139,7 @@ class TabPFNClassifier(ClassifierMixin, BaseEstimator):
     def __init__(  # noqa: PLR0913
         self,
         *,
-        n_estimators: int = 4,
+        n_estimators: int = 8,
         categorical_features_indices: Sequence[int] | None = None,
         softmax_temperature: float = 0.9,
         balance_probabilities: bool = False,
