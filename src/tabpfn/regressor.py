@@ -783,7 +783,32 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
         output_type: OutputType = "mean",
         quantiles: list[float] | None = None,
     ) -> RegressionResultType:
-        """Predicts target values by processing the model's final logits."""
+        """Runs the forward() method and then transform the logits
+        from the binning space in order to predict target variable.
+
+        Args:
+            X: The input data.
+            output_type:
+                Determines the type of output to return.
+                - If `"mean"`, we return the mean over the predicted distribution.
+                - If `"median"`, we return the median over the predicted distribution.
+                - If `"mode"`, we return the mode over the predicted distribution.
+                - If `"quantiles"`, we return the quantiles of the predicted
+                    distribution. The parameter `quantiles` determines which
+                    quantiles are returned.
+                - If `"main"`, we return the all output types above in a dict.
+                - If `"full"`, we return the full output of the model, including the
+                  logits and the criterion, and all the output types from "main".
+            quantiles:
+                The quantiles to return if `output="quantiles"`.
+                By default, the `[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]`
+                quantiles are returned. The predictions per quantile match
+                the input order.
+
+        Returns:
+            The prediction, which can be a numpy array, a list of arrays (for
+            quantiles), or a dictionary with detailed outputs.
+        """
         check_is_fitted(self)
 
         if quantiles is None:
