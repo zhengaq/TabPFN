@@ -678,7 +678,14 @@ def load_model(
     # `True`, dissallowing loading of arbitrary objects.
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=FutureWarning)
-        checkpoint = torch.load(path, map_location="cpu", weights_only=None)
+        # When ``weights_only`` is ``True`` (the default in PyTorch >=2.6)
+        # non-tensor objects such as our ``ModelConfig`` are discarded when
+        # loading the checkpoint. This results in ``checkpoint["config"]`` being
+        # ``None`` which later triggers a ``TypeError`` in
+        # :meth:`ModelConfig.upgrade_config`.  Explicitly setting
+        # ``weights_only=False`` ensures the full checkpoint, including the
+        # configuration dataclass, is loaded correctly across PyTorch versions.
+        checkpoint = torch.load(path, map_location="cpu", weights_only=False)
 
     assert "state_dict" in checkpoint
     assert "config" in checkpoint
