@@ -17,7 +17,6 @@
 
 from __future__ import annotations
 
-import copy
 import logging
 import typing
 from collections.abc import Callable, Generator, Sequence
@@ -799,7 +798,6 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
         check_is_fitted(self)
 
         if quantiles is None:
-        if quantiles is None:
             quantiles = self._DEFAULT_REGRESSION_QUANTILES.copy()
 
         assert all(
@@ -873,7 +871,8 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
             config_for_ensemble = config[0] if isinstance(config, list) else config
             if not isinstance(config_for_ensemble, RegressorEnsembleConfig):
                 raise TypeError(
-                    f"Expected RegressorEnsembleConfig, but got {type(config_for_ensemble).__name__}."
+                    f"Expected RegressorEnsembleConfig, "
+                    f"but got {type(config_for_ensemble).__name__}."
                 )
 
             yield output, config_for_ensemble
