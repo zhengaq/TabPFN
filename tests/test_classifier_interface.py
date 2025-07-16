@@ -300,7 +300,7 @@ def test_balance_probabilities_alters_proba_output(
     X_subset = X_full[: len(y_imbalanced)]
 
     # Shuffle both X and y together to maintain correspondence
-    rng = np.random.default_rng(42) # Initialize a new Generator with a seed
+    rng = np.random.default_rng(42)  # Initialize a new Generator with a seed
     p = rng.permutation(len(y_imbalanced))
     X_subset, y_imbalanced = X_subset[p], y_imbalanced[p]
 
