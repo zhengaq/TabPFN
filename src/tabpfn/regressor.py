@@ -799,7 +799,8 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
         check_is_fitted(self)
 
         if quantiles is None:
-            quantiles = copy.deepcopy(self._DEFAULT_REGRESSION_QUANTILES)
+        if quantiles is None:
+            quantiles = self._DEFAULT_REGRESSION_QUANTILES.copy()
 
         assert all(
             (0 <= q <= 1) and (isinstance(q, float)) for q in quantiles
