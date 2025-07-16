@@ -848,12 +848,6 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
 
         return logit_to_output(output_type=output_type)
 
-    def _cast_logits_precision(self, logits: torch.Tensor) -> torch.Tensor:
-        """Ensures the final logits have the correct float precision."""
-        if logits.dtype == torch.float16:
-            return logits.float()
-        return logits
-
     def _get_raw_output_generator(
         self, X: XType, *, use_inference_mode: bool
     ) -> Generator[tuple[torch.Tensor, RegressorEnsembleConfig], None, None]:
@@ -934,65 +928,111 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
         use_inference_mode: bool = False,
     ) -> torch.Tensor | None:
         """Performs a memory-efficient forward pass for fine-tuning or prediction.
-
-        The behavior of this function depends on the `use_inference_mode` flag:
-        - If `False` (for fine-tuning): Computes and returns the averaged raw
-          logits, preserving the computation graph for backpropagation.
-        - If `True` (for prediction): Computes and returns the final, processed
-          logits for making predictions.
+        Includes an optimized fast path for fine-tuning when no target transforms
+        are used.
         """
         check_is_fitted(self)
+
+        # --- Pre-flight Checks and Assertions ---
+        # This import is only needed for type checking
+        from tabpfn.inference import InferenceEngineBatchedNoPreprocessing
+
+        # Scenario 1: Standard inference path for predict()
+        is_standard_inference = use_inference_mode and not isinstance(
+            self.executor_, InferenceEngineBatchedNoPreprocessing
+        )
+        # Scenario 2: Batched path for fine-tuning with gradients
+        is_batched_for_grads = (
+            not use_inference_mode
+            and isinstance(self.executor_, InferenceEngineBatchedNoPreprocessing)
+            and isinstance(X, list)
+            and (not X or isinstance(X[0], torch.Tensor))
+        )
+        assert is_standard_inference or is_batched_for_grads, (
+            "Invalid forward pass: Bad combination of inference mode, input X, "
+            "or executor type. Ensure the call is from the standard predict() method "
+            "or a batched fine-tuning context."
+        )
+        # Specific check for float64 incompatibility with the fine-tuning workflow.
+        assert not (
+            isinstance(self.executor_, InferenceEngineBatchedNoPreprocessing)
+            and self.forced_inference_dtype_ == torch.float64
+        ), (
+            "Batched engine error: float64 precision is not supported for the "
+            "fine-tuning workflow, which requires float32 for backpropagation."
+        )
+
+        # Ensure torch.inference_mode is OFF to allow gradients
+        if self.fit_mode in ["fit_preprocessors", "batched"]:
+            # only these two modes support this option
+            self.executor_.use_torch_inference_mode(use_inference=use_inference_mode)
+
+        # --- Check for Fast Path Optimization ---
+        configs = self.executor_.ensemble_configs
+
+        # Create a single iterator that handles both flat and nested lists
+        # TODO: We can use the fast path as long as the target transforms are the same
+        #   to make it simpler we disable the fast path for now
+        #   We could even merge transformed logits but this would likely be numerically
+        #   unstable.
+        can_use_fast_path = len(configs) == 1
+
         output_generator = self._get_raw_output_generator(
             X, use_inference_mode=use_inference_mode
         )
 
-        # --- Fine-Tuning Path (requires gradients) ---
-        if not use_inference_mode:
+        final_logits: torch.Tensor | None
+
+        if can_use_fast_path and not use_inference_mode:
+            # --- Fast Path for Fine-Tuning - gradients are cleaner, no sotftmax ---
             sum_of_logits = None
             estimator_count = 0
-            for output, _ in output_generator:
+            for raw_output, _ in output_generator:
                 estimator_count += 1
                 sum_of_logits = (
-                    output if sum_of_logits is None else sum_of_logits + output
+                    raw_output if sum_of_logits is None else sum_of_logits + raw_output
+                )
+            final_logits = (
+                (sum_of_logits / estimator_count) if sum_of_logits is not None else None
+            )
+        elif not can_use_fast_path and not use_inference_mode:
+            raise NotImplementedError(
+                "The fast path for fine-tuning is only supported when using a single "
+                "ensemble config for now."
+            )
+        else:
+            # --- General Path (for Prediction OR if transforms used with finetune) ---
+            accumulator = None
+            estimator_count = 0
+            for raw_output, config in output_generator:
+                estimator_count += 1
+                translated_proba = self._process_one_output_for_prediction(
+                    raw_output, config
+                )
+                current_val = (
+                    translated_proba.log()
+                    if self.average_before_softmax
+                    else translated_proba
+                )
+                accumulator = (
+                    current_val if accumulator is None else accumulator + current_val
                 )
 
-            if sum_of_logits is None:
-                return None
-
-            averaged_logits = sum_of_logits / estimator_count
-            return averaged_logits.transpose(0, 1)
-
-        # --- Prediction Path (`use_inference_mode=True`) ---
-        accumulator = None
-        estimator_count = 0
-        for output, config in output_generator:
-            estimator_count += 1
-
-            # Use the new helper to get processed probabilities
-            translated_proba = self._process_one_output_for_prediction(output, config)
-
-            # Accumulate results
-            current_val = (
-                translated_proba.log()
+            avg_val = accumulator / estimator_count
+            final_logits = (
+                torch.nn.functional.log_softmax(avg_val, dim=-1)
                 if self.average_before_softmax
-                else translated_proba
-            )
-            accumulator = (
-                current_val if accumulator is None else accumulator + current_val
+                else avg_val.log()
             )
 
-        if accumulator is None:
-            return None
+        # --- Final Processing and Return ---
+        if final_logits.dtype == torch.float16:
+            return final_logits.float()
 
-        # Finalize prediction logits
-        avg_val = accumulator / estimator_count
-        logits = (
-            torch.nn.functional.log_softmax(avg_val, dim=-1)
-            if self.average_before_softmax
-            else avg_val.log()
-        )
+        if not use_inference_mode:
+            return final_logits.transpose(0, 1)
 
-        return self._cast_logits_precision(logits)
+        return final_logits
 
     def _handle_constant_target(
         self, n_samples: int, output_type: OutputType, quantiles: list[float]
