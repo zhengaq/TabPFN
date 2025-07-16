@@ -342,6 +342,7 @@ def test_finetuning_consistency_bar_distribution(
     """
     common_seed = 10
     test_set_size = 0.2
+    max_data_size = None
 
     reg_standard = std_regressor_instance
     reg_batched = ft_regressor_instance
@@ -364,7 +365,7 @@ def test_finetuning_consistency_bar_distribution(
     reg_standard.predict(X_test_raw, output_type="mean")
 
     datasets_list = reg_batched.get_preprocessed_datasets(
-        x_full_raw, y_full_raw, splitfn, max_data_size=10
+        x_full_raw, y_full_raw, splitfn, max_data_size=max_data_size
     )
 
     batch_size = 1
