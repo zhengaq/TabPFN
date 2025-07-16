@@ -299,8 +299,10 @@ def test_balance_probabilities_alters_proba_output(
     # Create a subset of X to match the length of y_imbalanced
     X_subset = X_full[: len(y_imbalanced)]
 
-    rng = np.random.default_rng(42)  # Initialize a new Generator with a seed
-    rng.shuffle(y_imbalanced)
+    # Shuffle both X and y together to maintain correspondence
+    rng = np.random.default_rng(42) # Initialize a new Generator with a seed
+    p = rng.permutation(len(y_imbalanced))
+    X_subset, y_imbalanced = X_subset[p], y_imbalanced[p]
 
     # Model without class balancing
     model_no_balance = TabPFNClassifier(
