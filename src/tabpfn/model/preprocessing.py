@@ -117,6 +117,18 @@ class AdaptiveQuantileTransformer(QuantileTransformer):
         # and self.n_quantiles will reflect the value used for the fit.
         self.n_quantiles = effective_n_quantiles
 
+        # Convert Generator to RandomState if needed for sklearn compatibility
+        if isinstance(self.random_state, np.random.Generator):
+            # Generate a random integer to use as seed for RandomState
+            seed = int(self.random_state.integers(0, 2**32))
+            self.random_state = np.random.RandomState(seed)
+        elif hasattr(self.random_state, "bit_generator"):
+            # Handle other Generator-like objects
+            raise ValueError(
+                f"Unsupported random state type: {type(self.random_state)}. "
+                "Please provide an integer seed or np.random.RandomState object."
+            )
+
         return super().fit(X, y)
 
 
@@ -174,9 +186,12 @@ class SafePowerTransformer(PowerTransformer):
         self,
         variance_threshold: float = 1e-3,
         large_value_threshold: float = 100,
-        **kwargs: Any,
+        method="yeo-johnson",
+        *,
+        standardize=True,
+        copy=True,
     ):
-        super().__init__(**kwargs)
+        super().__init__(method=method, standardize=standardize, copy=copy)
         self.variance_threshold = variance_threshold
         self.large_value_threshold = large_value_threshold
 
