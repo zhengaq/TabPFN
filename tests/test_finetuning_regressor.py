@@ -257,7 +257,7 @@ def test_tabpfn_regressor_finetuning_loop(
 
             reg.normalized_bardist_ = normalized_bardist_[0]
 
-            averaged_pred_logits, _, _ = reg.forward(X_tests_preprocessed)
+            averaged_pred_logits = reg.forward(X_tests_preprocessed)
 
             # --- Basic Shape Checks ---
             assert (

@@ -192,7 +192,7 @@ def main():
 
                 regressor.normalized_bardist_ = norm_bardist[0]
                 regressor.fit_from_preprocessed(X_trains_p, y_trains_p, cat_ixs, confs)
-                logits, _, _ = regressor.forward(X_tests_p)
+                logits = regressor.forward(X_tests_p)
 
                 # For regression, the loss function is part of the preprocessed data
                 loss_fn = norm_bardist[0]

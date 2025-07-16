@@ -195,19 +195,41 @@ class TestTabPFNClassifier:
             )
 
         # 2. Test consistency: softmax(logits) should match predict_proba
-        proba_from_logits = torch.nn.functional.softmax(
-            torch.from_numpy(logits), dim=-1
-        ).numpy()
         proba_from_predict_proba = classifier.predict_proba(X)
 
-        np.testing.assert_allclose(
-            proba_from_logits,
-            proba_from_predict_proba,
-            atol=1e-5,
-            rtol=1e-5,
-            err_msg="Probabilities derived from predict_logits do not match "
-            "predict_proba output when rounding is disabled.",
-        )
+        # The relationship between predict_logits and predict_proba depends on the
+        # averaging strategy.
+        if n_estimators == 1 or average_before_softmax:
+            # If there's only one estimator or we average before the softmax,
+            # then applying softmax to the (already averaged) logits should
+            # match the probabilities from predict_proba.
+            proba_from_logits = torch.nn.functional.softmax(
+                torch.from_numpy(logits), dim=-1
+            ).numpy()
+            np.testing.assert_allclose(
+                proba_from_logits,
+                proba_from_predict_proba,
+                atol=1e-5,
+                rtol=1e-5,
+                err_msg=(
+                    "Probabilities derived from predict_logits do not match "
+                    "predict_proba output when they should be consistent."
+                ),
+            )
+        else:
+            # If n_estimators > 1 AND we average *after* softmax, then applying
+            # softmax to the averaged logits will NOT match predict_proba.
+            # predict_proba averages the probabilities, not the logits.
+            # softmax(avg(logits)) != avg(softmax(logits))
+            proba_from_logits = torch.nn.functional.softmax(
+                torch.from_numpy(logits), dim=-1
+            ).numpy()
+            assert not np.allclose(
+                proba_from_logits, proba_from_predict_proba, atol=1e-5, rtol=1e-5
+            ), (
+                "Outputs unexpectedly matched when averaging after softmax, "
+                "indicating the logic path might be incorrect."
+            )
 
         # 3. Quick check of predict  for completeness, derived from predict_proba
         predicted_labels = classifier.predict(X)
@@ -269,13 +291,16 @@ class TestTabPFNClassifier:
         """Verifies that enabling `balance_probabilities` indeed changes the output
         probabilities (assuming non-uniform class counts).
         """
-        X, y = X_y  # Use X_y from fixture
+        X_full, y_full = X_y  # Use X_y from fixture
 
         # Introduce artificial imbalance to ensure balancing has an effect
-        # Iris dataset is fairly balanced. Let's make an imbalanced y.
         y_imbalanced = np.array(
             [0] * 30 + [1] * 5 + [2] * 5, dtype=np.int64
-        )  # Total 40 samples, matching X_y
+        )  # Total 40 samples
+
+        # Create a subset of X to match the length of y_imbalanced
+        X_subset = X_full[: len(y_imbalanced)]
+
         rng = np.random.default_rng(42)  # Initialize a new Generator with a seed
         rng.shuffle(y_imbalanced)
 
@@ -283,15 +308,15 @@ class TestTabPFNClassifier:
         model_no_balance = TabPFNClassifier(
             balance_probabilities=False, n_estimators=1, device="cpu", random_state=42
         )
-        model_no_balance.fit(X, y_imbalanced)  # Use X from X_y, and custom y_imbalanced
-        proba_no_balance = model_no_balance.predict_proba(X)
+        model_no_balance.fit(X_subset, y_imbalanced)
+        proba_no_balance = model_no_balance.predict_proba(X_subset)
 
         # Model with class balancing enabled
         model_balance = TabPFNClassifier(
             balance_probabilities=True, n_estimators=1, device="cpu", random_state=42
         )
-        model_balance.fit(X, y_imbalanced)  # Use X from X_y, and custom y_imbalanced
-        proba_balance = model_balance.predict_proba(X)
+        model_balance.fit(X_subset, y_imbalanced)
+        proba_balance = model_balance.predict_proba(X_subset)
 
         assert not np.allclose(
             proba_no_balance, proba_balance, atol=1e-5
