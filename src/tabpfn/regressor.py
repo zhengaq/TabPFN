@@ -871,7 +871,9 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
         ):
             config_for_ensemble = config[0] if isinstance(config, list) else config
             if not isinstance(config_for_ensemble, RegressorEnsembleConfig):
-                raise ValueError("Unexpected config format.")
+                raise TypeError(
+                    f"Expected RegressorEnsembleConfig, but got {type(config_for_ensemble).__name__}."
+                )
 
             yield output, config_for_ensemble
 
