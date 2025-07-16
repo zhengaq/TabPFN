@@ -862,29 +862,6 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
 
         return logit_to_output(output_type=output_type)
 
-    @config_context(transform_output="default")
-    def predict_logits(self, X: XType) -> np.ndarray:
-        """Predict the final raw logits for the provided input samples.
-
-        These are the final log-probabilities over the binned output distribution
-        after all ensembling and post-processing has been applied.
-
-        Args:
-            X: The input data.
-
-        Returns:
-            The predicted logits. Shape (n_samples, n_bins).
-        """
-        check_is_fitted(self)
-
-        if hasattr(self, "is_constant_target_") and self.is_constant_target_:
-            raise NotImplementedError(
-                "Logit prediction not supported when the training target is constant."
-            )
-
-        logits_tensor = self._raw_predict(X)
-        return logits_tensor.detach().cpu().numpy()
-
     def _apply_temperature(self, logits_list: list[torch.Tensor]) -> list[torch.Tensor]:
         """Scales a list of logit tensors by the softmax temperature."""
         if self.softmax_temperature != 1.0:
