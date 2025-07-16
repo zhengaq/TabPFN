@@ -782,17 +782,15 @@ def split_large_data(largeX: XType, largey: YType, max_data_size: int):
         raise ValueError("max_data_size must be positive")
     if tot_size == 0:
         return [], []
-    num_chunks = ((tot_size - 1) // max_data_size) + 1
-    basechunk_size = tot_size // num_chunks
-    remainder = tot_size % num_chunks
+    num_chunks = (tot_size - 1) // max_data_size
+    basechunk_size = min(tot_size // num_chunks, max_data_size)
 
     offset = 0
     xlst, ylst = [], []
-    for b in range(num_chunks):
-        chunk_sz = basechunk_size + (1 if b < remainder else 0)
-        xlst.append(largeX[offset : offset + chunk_sz])
-        ylst.append(largey[offset : offset + chunk_sz])
-        offset += chunk_sz
+    for _b in range(num_chunks):
+        xlst.append(largeX[offset : offset + basechunk_size])
+        ylst.append(largey[offset : offset + basechunk_size])
+        offset += basechunk_size
     return xlst, ylst
 
 
