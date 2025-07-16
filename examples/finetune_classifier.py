@@ -166,7 +166,7 @@ def main():
         batch_size=config["finetuning"]["meta_batch_size"],
         collate_fn=meta_dataset_collator,
     )
-    loss_function = torch.nn.NLLLoss()
+    loss_function = torch.nn.CrossEntropyLoss()
 
     eval_config = {
         **classifier_config,
