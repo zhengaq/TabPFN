@@ -164,7 +164,7 @@ def test_predict_logits_and_consistency(
     """
     X, y = X_y
 
-    # Ensure y is float64 for consistency with original dataset type after slicing
+    # Ensure y is int64 for consistency with classification tasks
     y = y.astype(np.int64)
 
     classifier = TabPFNClassifier(
@@ -299,8 +299,10 @@ def test_balance_probabilities_alters_proba_output(
     # Create a subset of X to match the length of y_imbalanced
     X_subset = X_full[: len(y_imbalanced)]
 
+    # Shuffle both X and y together to maintain correspondence
     rng = np.random.default_rng(42)  # Initialize a new Generator with a seed
-    rng.shuffle(y_imbalanced)
+    p = rng.permutation(len(y_imbalanced))
+    X_subset, y_imbalanced = X_subset[p], y_imbalanced[p]
 
     # Model without class balancing
     model_no_balance = TabPFNClassifier(
