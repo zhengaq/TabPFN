@@ -940,7 +940,9 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
           logits for making predictions.
         """
         check_is_fitted(self)
-        output_generator = self._get_raw_output_generator(X, use_inference_mode)
+        output_generator = self._get_raw_output_generator(
+            X, use_inference_mode=use_inference_mode
+        )
 
         # --- Fine-Tuning Path (requires gradients) ---
         if not use_inference_mode:
