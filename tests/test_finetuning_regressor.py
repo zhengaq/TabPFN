@@ -151,7 +151,7 @@ def test_regressor_dataset_and_collator_batches_type(
     """
     X, y = synthetic_regression_data
     dataset_collection = ft_regressor_instance.get_preprocessed_datasets(
-        X, y, train_test_split, 100
+        X, y, train_test_split, max_data_size=10
     )
     batch_size = 1
     dl = DataLoader(
@@ -214,7 +214,7 @@ def test_tabpfn_regressor_finetuning_loop(
     )
 
     datasets_list = reg.get_preprocessed_datasets(
-        X_train, y_train, train_test_split, 100
+        X_train, y_train, train_test_split, max_data_size=10
     )
 
     batch_size = 1
@@ -364,7 +364,7 @@ def test_finetuning_consistency_bar_distribution(
     reg_standard.predict(X_test_raw, output_type="mean")
 
     datasets_list = reg_batched.get_preprocessed_datasets(
-        x_full_raw, y_full_raw, splitfn, max_data_size=1000
+        x_full_raw, y_full_raw, splitfn, max_data_size=10
     )
 
     batch_size = 1
@@ -471,6 +471,7 @@ class TestTabPFNPreprocessingInspection(unittest.TestCase):
         n_total = 20
         n_features = 10
         n_estimators = 1
+        max_data_size = None
 
         X, y = sklearn.datasets.make_regression(
             n_samples=n_total, n_features=n_features, random_state=common_seed
@@ -520,7 +521,7 @@ class TestTabPFNPreprocessingInspection(unittest.TestCase):
         # (get_prep -> fit_prep -> forward -> Capture Tensor)
 
         datasets_list = reg_batched.get_preprocessed_datasets(
-            X, y, splitfn, max_data_size=1000
+            X, y, splitfn, max_data_size=max_data_size
         )
 
         # Fit FT regressor

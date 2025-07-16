@@ -768,29 +768,35 @@ def get_total_memory_windows() -> float:
 
 
 def split_large_data(largeX: XType, largey: YType, max_data_size: int):
-    """Split a large dataset into chunks along the first dimension.
+    """Split a large dataset into uneven chunks with a minimum chunk size.
+
+    Most chunks will be of size `max_data_size`. The final chunk contains
+    the remaining data but is dropped if its size is less than 2.
 
     Args:
         largeX: features
         largey: labels
-        max_data_size: int that indicates max size of a chunks.
-            We chose the minimum number of chunks that keeps each chunk under
-            max_data_size.
+        max_data_size: The size for each chunk. Must be at least 2.
     """
+    MIN_BATCH_SIZE = 2
+    if max_data_size < MIN_BATCH_SIZE:
+        raise ValueError(f"max_data_size must be at least {MIN_BATCH_SIZE}.")
+
     tot_size = len(largeX)
-    if max_data_size <= 0:
-        raise ValueError("max_data_size must be positive")
     if tot_size == 0:
         return [], []
-    num_chunks = (tot_size - 1) // max_data_size
-    basechunk_size = min(tot_size // num_chunks, max_data_size)
 
-    offset = 0
     xlst, ylst = [], []
-    for _b in range(num_chunks):
-        xlst.append(largeX[offset : offset + basechunk_size])
-        ylst.append(largey[offset : offset + basechunk_size])
-        offset += basechunk_size
+    for i in range(0, tot_size, max_data_size):
+        end = i + max_data_size
+        chunk_x = largeX[i:end]
+
+        # Only include the chunk if it meets the minimum size requirement.
+        if len(chunk_x) >= MIN_BATCH_SIZE:
+            chunk_y = largey[i:end]
+            xlst.append(chunk_x)
+            ylst.append(chunk_y)
+
     return xlst, ylst
 
 
