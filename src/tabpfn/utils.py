@@ -791,7 +791,7 @@ def split_large_data(largeX: XType, largey: YType, max_data_size: int):
         end = i + max_data_size
         chunk_x = largeX[i:end]
 
-        # Only include the chunk if it meets the minimum size requirement.
+        # Only include the chunk if it meets the minimum size requirement; smaller chunks are dropped.
         if len(chunk_x) >= MIN_BATCH_SIZE:
             chunk_y = largey[i:end]
             xlst.append(chunk_x)
